@@ -112,6 +112,87 @@ async function generateAndSave(item, settings, tab) {
   return { downloadId, savedAs: filename, target: 'download' };
 }
 
+// ── video (Veo): async submit -> poll -> background download ────────────────
+// The content script submits and reports status; the worker drives the poll
+// loop and downloads the finished mp4 itself (the media redirect is
+// cross-origin, so it must be fetched from the background with host
+// permissions, not from the page). The submitted mediaId is persisted the
+// instant we get it, so a worker restart RESUMES polling instead of
+// re-submitting — re-submitting would re-charge Veo credits.
+function abToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
+// Patch one queue item's fields and persist immediately.
+async function patchItem(id, patch) {
+  const q = await getQueue();
+  const it = q.find((i) => i.id === id);
+  if (it) Object.assign(it, patch);
+  await setQueue(q);
+  return it;
+}
+
+async function downloadVideoBytes(mediaId) {
+  const url =
+    `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect` +
+    `?name=${encodeURIComponent(mediaId)}&mediaUrlType=MEDIA_URL_TYPE_FULL_MEDIA`;
+  // credentials:'include' carries the labs.google session; the worker follows
+  // the 302 to flow-content.google (both in host_permissions) and reads the
+  // body — background fetches aren't CORS-bound for permitted hosts.
+  const r = await fetch(url, { credentials: 'include' });
+  if (!r.ok) throw new Error(`Video download failed (${r.status}).`);
+  const buf = await r.arrayBuffer();
+  if (!buf.byteLength) throw new Error('Downloaded video was empty.');
+  return { base64: abToBase64(buf), mime: 'video/mp4' };
+}
+
+async function generateVideoAndSave(item, settings, tab) {
+  const projectId = item.projectId || settings.flowProjectId;
+  if (!projectId) throw new Error('No Flow project set.');
+
+  // 1. submit — only if we haven't already (resume-safe; never re-charge).
+  if (!item.mediaId) {
+    const sub = await send(tab.id, {
+      type: 'flow:submitVideo',
+      params: {
+        projectId,
+        prompt: item.prompt,
+        model: item.model || settings.videoModel,
+        aspectRatio: item.aspectRatio || settings.aspectRatio,
+      },
+    });
+    item.mediaId = sub.mediaId;
+    await patchItem(item.id, { mediaId: sub.mediaId, workflowId: sub.workflowId, phase: 'polling' });
+  }
+
+  // 2. poll until the clip is ready (Veo ~60–180s; allow up to 8 min).
+  const deadline = Date.now() + 8 * 60000;
+  for (;;) {
+    const st = await send(tab.id, { type: 'flow:checkVideo', params: { mediaId: item.mediaId, projectId } });
+    if (st.done) break;
+    if (st.failed) throw new Error(`Flow video generation ${st.status}.`);
+    if (Date.now() > deadline) throw new Error(`Video timed out (last status ${st.status}).`);
+    await writeStatus(`${item.label}: ${String(st.status).replace('MEDIA_GENERATION_STATUS_', '').toLowerCase()}…`, 'running');
+    await sleep(10000);
+  }
+
+  // 3. download the mp4 (background) and save (Downloads for v1).
+  await patchItem(item.id, { phase: 'downloading' });
+  const { base64, mime } = await downloadVideoBytes(item.mediaId);
+  const filename = item.downloadPath.replace(/\.(mp4|webm)$/i, '') + '.mp4';
+  const downloadId = await chrome.downloads.download({
+    url: `data:${mime};base64,${base64}`,
+    filename,
+    saveAs: false,
+    conflictAction: 'uniquify',
+  });
+  return { downloadId, savedAs: filename, target: 'download' };
+}
+
 // ── status (persisted so the panel survives close/reopen) ───────────────────
 async function writeStatus(text, kind = 'info') {
   try {
@@ -184,34 +265,43 @@ async function removeFromQueue(id) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, target, projectId }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, target, projectId, assetType }) {
   const settings = await getSettings();
+  const isVideo = assetType === 'video';
+  // Video can't write back to the scene folder yet (no Story Studio video-ingest
+  // endpoint) — it always goes to Downloads in v1.
+  const effTarget = isVideo ? 'download' : target || settings.saveTarget;
   const items = (scenes || []).map((s) =>
     mkItem({
       kind: 'scene',
+      assetType: isVideo ? 'video' : 'image',
       slug,
       episodeCode,
       episodeTitle: episodeTitle || '',
       sceneId: s.id,
       sceneIndex: s.scene_index,
       prompt: s.visual_prompt,
-      target: target || settings.saveTarget,
+      target: effTarget,
       projectId: projectId || settings.flowProjectId,
-      model: settings.imageModel,
+      model: isVideo ? settings.videoModel : settings.imageModel,
       aspectRatio: settings.aspectRatio,
-      label: `${episodeCode} scene ${s.scene_index}`,
+      label: `${episodeCode} ${isVideo ? 'video' : 'scene'} ${s.scene_index}`,
       // tokens for Downloads naming:
       project: projectName || episodeTitle || slug,
       downloadPath:
-        (target || settings.saveTarget) === 'project'
+        effTarget === 'project'
           ? null
-          : buildDownloadPath(settings, {
-              project: projectName || episodeTitle || slug,
-              episodeCode,
-              episodeTitle: episodeTitle || '',
-              sceneId: s.id,
-              sceneIndex: String(s.scene_index),
-            }),
+          : buildDownloadPath(
+              settings,
+              {
+                project: projectName || episodeTitle || slug,
+                episodeCode,
+                episodeTitle: episodeTitle || '',
+                sceneId: s.id,
+                sceneIndex: String(s.scene_index),
+              },
+              isVideo ? 'mp4' : 'png'
+            ),
     })
   );
   return enqueue(items);
@@ -234,7 +324,10 @@ async function processQueue() {
       await writeStatus(`(${pos}/${q.length}) ${item.label}…`, 'running');
       try {
         if (!tab) tab = await ensureFlowTab();
-        const r = await generateAndSave(item, settings, tab);
+        const r =
+          item.assetType === 'video'
+            ? await generateVideoAndSave(item, settings, tab)
+            : await generateAndSave(item, settings, tab);
         q = await getQueue();
         const it = q.find((i) => i.id === item.id);
         if (it) {

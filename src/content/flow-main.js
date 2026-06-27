@@ -195,14 +195,102 @@
     };
   }
 
-  // ── video generation (Veo) — PHASE 2, async ───────────────────────────────
-  // Submit -> poll /v1/video:batchCheckAsyncVideoGenerationStatus until done ->
-  // resolve the result fifeUrl. Endpoint/body field names captured in recon
-  // (videoModelKey, durationSeconds, aspectRatio, seed, videoPrompt,
-  // imageInput/lastFrame, sceneId). Wired up but not yet verified end-to-end —
-  // do the first run with the network panel open to confirm exact paths.
-  async function generateVideo() {
-    throw new Error('Video generation is not enabled yet (phase 2).');
+  // ── video generation (Veo) — async ────────────────────────────────────────
+  // Two phases, orchestrated by the background worker so no single message is
+  // held open for minutes:
+  //   submitVideo() -> { mediaId, workflowId }   (returns immediately)
+  //   checkVideo()  -> { status, done, failed }   (polled by the worker)
+  // The worker then downloads the finished mp4 from the media redirect itself
+  // (cross-origin, so it must run in the background with host permissions).
+  //
+  // Contract captured live 2026-06-28. The reCAPTCHA action for video wasn't
+  // captured; 'VIDEO_GENERATION' is the assumption (verify on first run). The
+  // image-to-video variant (endpoint :batchAsyncGenerateVideoImage, imageInput)
+  // is inferred — text-to-video is the verified path.
+  const VIDEO_MODELS = {
+    'veo-3.1-fast': 'veo_3_1_t2v_fast',
+    'veo-3.1-lite': 'veo_3_1_t2v_lite',
+    'veo-3.1-quality': 'veo_3_1_t2v_quality',
+    veo_3_1_t2v_fast: 'veo_3_1_t2v_fast',
+  };
+  const VIDEO_ASPECT = {
+    '16:9': 'VIDEO_ASPECT_RATIO_LANDSCAPE',
+    '9:16': 'VIDEO_ASPECT_RATIO_PORTRAIT',
+  };
+
+  async function submitVideo(p) {
+    const projectId = p.projectId || currentProjectId();
+    if (!projectId) throw new Error('No Flow project selected.');
+    if (!p.prompt || !p.prompt.trim()) throw new Error('Empty video prompt.');
+    const model = VIDEO_MODELS[p.model] || 'veo_3_1_t2v_fast';
+    const aspect = VIDEO_ASPECT[p.aspectRatio] || 'VIDEO_ASPECT_RATIO_LANDSCAPE';
+    const seed = Number.isFinite(p.seed) ? p.seed : randomSeed();
+
+    const token = await mintToken('VIDEO_GENERATION');
+    const clientContext = {
+      projectId,
+      tool: 'PINHOLE',
+      sessionId: sessionId(),
+      recaptchaContext: recaptchaContext(token),
+    };
+    const body = {
+      mediaGenerationContext: { batchId: uuid(), audioFailurePreference: 'BLOCK_SILENCED_VIDEOS' },
+      clientContext,
+      requests: [
+        {
+          aspectRatio: aspect,
+          textInput: { structuredPrompt: { parts: [{ text: p.prompt }] } },
+          videoModelKey: model,
+          seed,
+          metadata: {},
+        },
+      ],
+      useV2ModelConfig: true,
+    };
+    const r = await fetch(`${API}/video:batchAsyncGenerateVideoText`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let detail = `${r.status}`;
+      try {
+        const j = await r.json();
+        if (j?.error?.message) detail = j.error.message;
+      } catch {
+        /* non-JSON */
+      }
+      throw new Error(`Flow video submit failed: ${detail}`);
+    }
+    const j = await r.json();
+    const media = j?.media?.[0];
+    const mediaId = media?.name;
+    if (!mediaId) throw new Error('Flow video submit returned no media id.');
+    return {
+      mediaId,
+      workflowId: j?.workflows?.[0]?.name || null,
+      remainingCredits: j?.remainingCredits,
+    };
+  }
+
+  async function checkVideo(p) {
+    const projectId = p.projectId || currentProjectId();
+    if (!p.mediaId) throw new Error('checkVideo needs a mediaId.');
+    const r = await fetch(`${API}/video:batchCheckAsyncVideoGenerationStatus`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media: [{ name: p.mediaId, projectId }] }),
+    });
+    if (!r.ok) throw new Error(`Flow video status check failed (${r.status}).`);
+    const j = await r.json();
+    const m = j?.media?.[0];
+    const status = m?.mediaMetadata?.mediaStatus?.mediaGenerationStatus || 'UNKNOWN';
+    return {
+      status,
+      done: status === 'MEDIA_GENERATION_STATUS_SUCCESSFUL',
+      failed: /FAILED|ERROR|CANCELL?ED/i.test(status),
+      remainingCredits: j?.remainingCredits,
+    };
   }
 
   // ── context probe (lets the panel capture/confirm the project id) ──────────
@@ -217,7 +305,7 @@
     return { projectId: currentProjectId(), signedIn, url: location.href };
   }
 
-  const handlers = { generateImage, generateVideo, getContext };
+  const handlers = { generateImage, submitVideo, checkVideo, getContext };
 
   window.addEventListener('message', async (ev) => {
     if (ev.source !== window) return;

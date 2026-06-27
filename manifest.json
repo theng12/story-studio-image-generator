@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Flow Scenes for Story Studio",
-  "version": "0.1.0",
-  "description": "Generate scene images (and video) on Google Flow from your Story Studio KH scene plan, using your Google AI subscription credits, and save each asset with the correct name.",
+  "version": "0.2.0",
+  "description": "Generate scene images and video on Google Flow from your Story Studio KH scene plan, using your Google AI subscription credits, and save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
     "http://localhost:8766/*",
@@ -10,7 +10,8 @@
     "http://localhost:8000/*",
     "http://127.0.0.1:8000/*",
     "https://labs.google/*",
-    "https://aisandbox-pa.googleapis.com/*"
+    "https://aisandbox-pa.googleapis.com/*",
+    "https://flow-content.google/*"
   ],
   "background": {
     "service_worker": "src/background.js",

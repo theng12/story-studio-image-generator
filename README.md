@@ -94,18 +94,33 @@ Recon against the logged-in studio settled the design. It's **fully API-driven**
   Response: `media[0].image.generatedImage.fifeUrl` — a Google FIFE CDN URL. We
   fetch it (bounded to `=s2048`) and base64 it for the save-back.
 
-- **Video (Veo) — phase 2, not yet enabled.** Async: submit → poll
-  `POST /v1/video:batchCheckAsyncVideoGenerationStatus` until done → result
-  `fifeUrl` (also reachable via the tRPC redirect
-  `/fx/api/trpc/media.getMediaUrlRedirect`). Request fields (from the bundle):
-  `videoModelKey` (Veo 3.1 Lite/Fast/Quality, or Omni Flash), `durationSeconds`
-  (4/6/8/10), `aspectRatio`, `seed`, `videoPrompt`, `imageInput`/`lastFrame`
-  (image-to-video), `sceneId`, plus the same self-minted `recaptchaContext`.
-  Veo costs credits (~20/clip for 3.1 Fast 4s); the queue's resumability is what
-  makes the slow async generations safe. The exact submit path
-  (`video:batchAsyncGenerateVideo`) is inferred from the poll endpoint and must
-  be confirmed on the first real run (it goes through a Web Worker, so watch the
-  network panel, not just page fetch).
+- **Video (Veo) — implemented, text-to-video, saves to Downloads.** Async, and
+  credit-costed (~20/clip for Veo 3.1 Fast), so it's gated behind a confirm
+  dialog and the queue is resumable (a submitted `mediaId` is persisted the
+  instant it's returned, so a worker restart resumes polling instead of
+  re-charging). Contract captured live:
+  - **Submit:** `POST /v1/video:batchAsyncGenerateVideoText` →
+    `{ remainingCredits, workflows:[{name}], media:[{name: mediaId}] }`. Body
+    mirrors the image one: `mediaGenerationContext.{batchId, audioFailurePreference}`,
+    `clientContext` (self-minted `recaptchaContext`), `requests:[{ aspectRatio,
+    textInput.structuredPrompt.parts, videoModelKey:"veo_3_1_t2v_fast", seed }]`,
+    `useV2ModelConfig:true`.
+  - **Poll:** `POST /v1/video:batchCheckAsyncVideoGenerationStatus`
+    `{ media:[{ name: mediaId, projectId }] }` until
+    `media[0].mediaMetadata.mediaStatus.mediaGenerationStatus ===
+    "MEDIA_GENERATION_STATUS_SUCCESSFUL"`.
+  - **Download:** the **background worker** fetches
+    `/fx/api/trpc/media.getMediaUrlRedirect?name=<mediaId>&mediaUrlType=MEDIA_URL_TYPE_FULL_MEDIA`
+    → 302 → signed `flow-content.google` mp4. (Must be the background, not the
+    page: the credentialed redirect's final hop is CORS-opaque to page fetch but
+    readable from a background fetch with host permissions.)
+  - **Unverified-on-first-run:** the reCAPTCHA action for video is assumed
+    `VIDEO_GENERATION`, and image-to-video (`:batchAsyncGenerateVideoImage` +
+    `imageInput`, `veo_3_1_i2v_*`) is inferred, not yet exercised. Text-to-video
+    is the captured/verified path.
+  - **Not yet:** saving video back into Story Studio's "10 Video Assembly Output"
+    needs a new video-ingest endpoint there (none exists) + a scene→clip-number
+    mapping — phase 2b.
 
 ## Install (unpacked)
 
@@ -119,9 +134,11 @@ Recon against the logged-in studio settled the design. It's **fully API-driven**
 
 ## Status
 
-- **v0.1 — images first** (free, synchronous). End-to-end: scene plan → Flow
-  image → Story Studio scene folder.
-- Video (Veo) is wired structurally but disabled pending an end-to-end test.
+- **v0.1 — images** (free, synchronous). Verified end-to-end live against a real
+  Story Studio scene: scene plan → Flow image → Story Studio scene folder.
+- **v0.2 — video** (Veo, text-to-video → Downloads). Built from the live-captured
+  submit/poll/download contract; the first real clip you run confirms the
+  assumed reCAPTCHA action. Saving video back into Story Studio is phase 2b.
 
 > ⚠️ Automating Flow may violate Google's ToS and risk account action. Use at
 > your own risk — the project owner has accepted this.

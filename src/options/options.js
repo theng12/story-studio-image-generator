@@ -6,6 +6,7 @@ const FIELDS = [
   'studioBaseUrl',
   'flowProjectId',
   'imageModel',
+  'videoModel',
   'aspectRatio',
   'saveTarget',
   'downloadSubdir',

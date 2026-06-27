@@ -44,7 +44,8 @@ function callMain(op, payload, timeoutMs = 180000) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const ops = {
     'flow:generateImage': () => callMain('generateImage', msg.params),
-    'flow:generateVideo': () => callMain('generateVideo', msg.params),
+    'flow:submitVideo': () => callMain('submitVideo', msg.params),
+    'flow:checkVideo': () => callMain('checkVideo', msg.params, 30000),
     'flow:getContext': () => callMain('getContext', {}),
   };
   const run = ops[msg?.type];
