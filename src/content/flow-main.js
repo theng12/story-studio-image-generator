@@ -28,10 +28,16 @@
   // reCAPTCHA Enterprise site key, read from Flow's own enterprise.js?render=...
   const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 
-  // Internal model enums (verified: Nano Banana 2 == "NARWHAL").
+  // Internal image-model enums (the `imageModelName` field).
+  //   Nano Banana 2   == "NARWHAL"   (verified live; free)
+  //   Nano Banana Pro == "GEM_PIX_2" (verified live; premium model)
+  // Other image codenames seen in the bundle (not exposed as separate picks):
+  //   GEM_PIX, GEM_PIX_2_UPSAMPLE_2K, GEM_PIX_2_UPSAMPLE_4K.
   const IMAGE_MODELS = {
     'nano-banana-2': 'NARWHAL',
+    'nano-banana-pro': 'GEM_PIX_2',
     NARWHAL: 'NARWHAL',
+    GEM_PIX_2: 'GEM_PIX_2',
   };
   const IMAGE_ASPECT = {
     '16:9': 'IMAGE_ASPECT_RATIO_LANDSCAPE',
@@ -207,9 +213,15 @@
   // captured; 'VIDEO_GENERATION' is the assumption (verify on first run). The
   // image-to-video variant (endpoint :batchAsyncGenerateVideoImage, imageInput)
   // is inferred — text-to-video is the verified path.
+  // Text-to-video model keys (the `videoModelKey` field). Verified live:
+  // veo_3_1_t2v_fast. The request key is base + mode infix (t2v / i2v); the
+  // bundle confirms the i2v counterparts (e.g. veo_3_1_i2v_fast) for the future
+  // image-to-video path. Omni Flash's base key is "abra" (from models/statuses);
+  // its exact request key is unverified.
   const VIDEO_MODELS = {
-    'veo-3.1-fast': 'veo_3_1_t2v_fast',
+    'omni-flash': 'abra',
     'veo-3.1-lite': 'veo_3_1_t2v_lite',
+    'veo-3.1-fast': 'veo_3_1_t2v_fast',
     'veo-3.1-quality': 'veo_3_1_t2v_quality',
     veo_3_1_t2v_fast: 'veo_3_1_t2v_fast',
   };
