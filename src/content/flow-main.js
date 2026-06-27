@@ -116,17 +116,11 @@
     return btoa(bin);
   }
 
-  // FIFE URLs serve a default (often small) size; request a larger render but
-  // keep the longest edge bounded (2048px) so the PNG stays comfortably under
-  // Story Studio's 10 MB upload body limit while still being crisp enough to
-  // drive video. "=s<N>" sets the longest edge.
-  const FIFE_SIZE = 2048;
-  function fullSizeUrl(fifeUrl) {
-    if (!fifeUrl) return fifeUrl;
-    if (/=[swhd-]/.test(fifeUrl)) return fifeUrl.replace(/=[^/?]+$/, `=s${FIFE_SIZE}`);
-    return fifeUrl + `=s${FIFE_SIZE}`;
-  }
-
+  // The generatedImage.fifeUrl points at flow-content.google and serves the
+  // native-resolution image. Verified live: a page-context fetch with
+  // credentials:'omit' returns the bytes (200); a credentialed fetch is
+  // CORS-blocked, and appending a FIFE "=s<N>" size suffix breaks these URLs —
+  // so fetch the raw URL as-is, no credentials, no size munging.
   async function downloadAsBase64(url) {
     const r = await fetch(url, { credentials: 'omit' });
     if (!r.ok) throw new Error(`Asset download failed (${r.status}).`);
@@ -190,7 +184,7 @@
     const gen = j?.media?.[0]?.image?.generatedImage;
     const fifeUrl = gen?.fifeUrl;
     if (!fifeUrl) throw new Error('Flow returned no image URL.');
-    const { base64, mime } = await downloadAsBase64(fullSizeUrl(fifeUrl));
+    const { base64, mime } = await downloadAsBase64(fifeUrl);
     return {
       base64,
       mime,
