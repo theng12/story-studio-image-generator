@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flow Scenes for Story Studio</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Flow Scenes</h1>
+      <button id="openOptions" class="link" title="Settings">⚙︎</button>
+    </header>
+
+    <section class="card" id="flowProjectCard">
+      <div class="row between">
+        <div>
+          <div class="label">Flow project</div>
+          <div id="flowProjectName" class="muted small">none selected</div>
+        </div>
+        <button id="useCurrentProject" class="btn small">Use current tab</button>
+      </div>
+      <div id="flowSignin" class="muted small hidden">Not signed in to Flow — open labs.google/fx and sign in.</div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <label class="grow">
+          <span class="label">Project</span>
+          <select id="project"></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">
+          <span class="label">Episode</span>
+          <select id="episode"></select>
+        </label>
+      </div>
+      <div class="row between">
+        <label class="checkbox">
+          <input type="checkbox" id="includeExisting" />
+          <span>Include scenes that already have an image</span>
+        </label>
+      </div>
+      <div class="row">
+        <button id="loadScenes" class="btn">Load scenes</button>
+      </div>
+    </section>
+
+    <section class="card" id="scenesCard">
+      <div class="row between">
+        <div class="label" id="scenesSummary">Scenes</div>
+        <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
+      </div>
+      <div id="scenes" class="scenes"></div>
+      <div class="row between">
+        <div class="muted small">
+          Save to:
+          <select id="saveTarget" class="inline">
+            <option value="project">Story Studio folder</option>
+            <option value="download">Downloads</option>
+          </select>
+        </div>
+        <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row between">
+        <div class="label">Queue</div>
+        <button id="clearQueue" class="link small">Clear pending</button>
+      </div>
+      <div id="status" class="status"></div>
+      <div id="queue" class="queue"></div>
+    </section>
+
+    <!-- Confirmation dialog (avoid wasting work/credits on an accidental batch) -->
+    <div id="confirm" class="overlay hidden">
+      <div class="dialog">
+        <div class="label" id="confirmTitle">Queue these scenes?</div>
+        <div id="confirmBody" class="muted small"></div>
+        <div class="row end">
+          <button id="confirmCancel" class="btn">Cancel</button>
+          <button id="confirmOk" class="btn primary">Queue</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
