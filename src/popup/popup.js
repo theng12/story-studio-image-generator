@@ -44,6 +44,7 @@ function wire() {
     pollQueue();
   };
   $('saveTarget').onchange = () => saveSettings({ saveTarget: $('saveTarget').value });
+  $('mediaType').onchange = onMediaTypeChange;
   $('includeExisting').onchange = () => saveSettings({ includeExisting: $('includeExisting').checked });
   $('useCurrentProject').onclick = useCurrentFlowProject;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
@@ -204,29 +205,47 @@ function updateQueueButton() {
   $('queueSelected').disabled = selectedScenes().length === 0;
 }
 
+// Video can't write back to the scene folder yet — force Downloads + warn.
+function onMediaTypeChange() {
+  const isVideo = $('mediaType').value === 'video';
+  const st = $('saveTarget');
+  if (isVideo) {
+    st.value = 'download';
+    st.disabled = true;
+  } else {
+    st.disabled = false;
+    st.value = settings.saveTarget;
+  }
+}
+
 // ── confirm + enqueue ───────────────────────────────────────────────────────
 function confirmQueue() {
   const scenes = selectedScenes();
   if (!scenes.length) return;
-  const target = $('saveTarget').value;
+  const isVideo = $('mediaType').value === 'video';
+  const target = isVideo ? 'download' : $('saveTarget').value;
   if (target === 'project' && !currentProject) return;
   if (!settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
   }
-  $('confirmBody').textContent =
-    `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → ` +
-    `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. ` +
-    `Images use Nano Banana 2 (free). One at a time.`;
+  $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : 'Queue these scenes?';
+  $('confirmBody').textContent = isVideo
+    ? `${scenes.length} Veo clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → Downloads. ` +
+      `Each clip costs Google AI credits (~20 for Veo 3.1 Fast). One at a time, ~1–3 min each. Continue?`
+    : `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → ` +
+      `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. ` +
+      `Images use Nano Banana 2 (free). One at a time.`;
+  $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
   const dlg = $('confirm');
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    await doEnqueue(scenes, target);
+    await doEnqueue(scenes, target, isVideo ? 'video' : 'image');
   };
 }
 
-async function doEnqueue(scenes, target) {
+async function doEnqueue(scenes, target, assetType) {
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
@@ -237,6 +256,7 @@ async function doEnqueue(scenes, target) {
         projectName: currentProject.name,
         scenes,
         target,
+        assetType,
       },
     });
     if (!res?.ok) throw new Error(res?.error || 'enqueue failed');
