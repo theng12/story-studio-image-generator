@@ -20,12 +20,28 @@ async function load() {
   $('studioUsername').value = creds.username || '';
 }
 
+let savedTimer = null;
+function showSaved(msg = '✓ Saved') {
+  const el = $('saved');
+  el.textContent = msg;
+  el.style.color = 'var(--ok)';
+  el.style.fontWeight = '600';
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => (el.textContent = ''), 2500);
+}
+
 async function save() {
   const patch = {};
-  for (const f of FIELDS) if ($(f)) patch[f] = $(f).value.trim();
+  for (const f of FIELDS) if ($(f)) patch[f] = typeof $(f).value === 'string' ? $(f).value.trim() : $(f).value;
   await saveSettings(patch);
-  $('saved').textContent = 'Saved.';
-  setTimeout(() => ($('saved').textContent = ''), 1500);
+  showSaved();
+}
+
+// Auto-save each field as you edit, so there's never a "did it save?" doubt.
+let autoTimer = null;
+function autoSave() {
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(save, 400);
 }
 
 async function login() {
@@ -45,4 +61,10 @@ async function login() {
 
 $('save').onclick = save;
 $('login').onclick = login;
+// Wire auto-save: text fields on input, selects on change.
+for (const f of FIELDS) {
+  const el = $(f);
+  if (!el) continue;
+  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', autoSave);
+}
 load();

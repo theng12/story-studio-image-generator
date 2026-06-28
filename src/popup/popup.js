@@ -22,6 +22,7 @@ async function init() {
   $('saveTarget').value = settings.saveTarget;
   $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
+  $('showDoneEpisodes').checked = !!settings.showDoneEpisodes;
   await refreshFlowProject();
   await loadProjects();
   wire();
@@ -45,10 +46,22 @@ function wire() {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
     pollQueue();
   };
-  $('saveTarget').onchange = () => saveSettings({ saveTarget: $('saveTarget').value });
+  $('saveTarget').onchange = () => {
+    saveSettings({ saveTarget: $('saveTarget').value });
+    flashSaved();
+  };
   $('mediaType').onchange = onMediaTypeChange;
   $('provider').onchange = onProviderChange;
-  $('includeExisting').onchange = () => saveSettings({ includeExisting: $('includeExisting').checked });
+  $('includeExisting').onchange = () => {
+    saveSettings({ includeExisting: $('includeExisting').checked });
+    if (currentScenes.length) renderScenes();
+    flashSaved();
+  };
+  $('showDoneEpisodes').onchange = async () => {
+    await saveSettings({ showDoneEpisodes: $('showDoneEpisodes').checked });
+    flashSaved();
+    if ($('project').value) await onProjectChange();
+  };
   $('useCurrentProject').onclick = useCurrentFlowProject;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
 }
@@ -114,9 +127,16 @@ async function onProjectChange() {
   await saveSettings({ lastProject: slug });
   try {
     const rows = await client.listEpisodes(slug);
-    const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => e.status?.scene_plan);
+    // Default: only episodes that still need images (scene plan present, images
+    // not all done). Toggle "Show episodes with all images" to include finished.
+    const showDone = $('showDoneEpisodes').checked;
+    const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter(
+      (e) => e.status?.scene_plan && (showDone || !e.status?.images)
+    );
     const esel = $('episode');
-    esel.innerHTML = eps.length ? '' : '<option value="">— no episodes with a scene plan —</option>';
+    esel.innerHTML = eps.length
+      ? ''
+      : `<option value="">— no episodes ${showDone ? 'with a scene plan' : 'needing images'} —</option>`;
     for (const e of eps) {
       const code = e.episode_code || e.code;
       const opt = document.createElement('option');
@@ -342,6 +362,12 @@ async function pollQueue() {
   }
   const s = st.lastStatus;
   if (s && Date.now() - s.ts < 600000) setStatus(s.text, s.kind);
+}
+
+// Brief confirmation when a panel setting changes (pollQueue restores the live
+// queue status on its next tick, ~1.5 s later).
+function flashSaved() {
+  setStatus('Saved ✓', 'done');
 }
 
 function setStatus(text, kind = 'info') {
