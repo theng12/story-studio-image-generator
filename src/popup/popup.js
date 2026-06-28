@@ -20,10 +20,12 @@ async function init() {
   settings = await getSettings();
   client = new StudioClient(settings.studioBaseUrl);
   $('saveTarget').value = settings.saveTarget;
+  $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
   await refreshFlowProject();
   await loadProjects();
   wire();
+  onProviderChange();
   pollQueue();
   setInterval(pollQueue, 1500);
 }
@@ -45,6 +47,7 @@ function wire() {
   };
   $('saveTarget').onchange = () => saveSettings({ saveTarget: $('saveTarget').value });
   $('mediaType').onchange = onMediaTypeChange;
+  $('provider').onchange = onProviderChange;
   $('includeExisting').onchange = () => saveSettings({ includeExisting: $('includeExisting').checked });
   $('useCurrentProject').onclick = useCurrentFlowProject;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
@@ -205,6 +208,32 @@ function updateQueueButton() {
   $('queueSelected').disabled = selectedScenes().length === 0;
 }
 
+// Provider switch: Grok is image-only and has a daily limit; reflect that.
+function onProviderChange() {
+  const grok = $('provider').value === 'grok';
+  saveSettings({ provider: $('provider').value });
+  const videoOpt = $('mediaType').querySelector('option[value="video"]');
+  if (videoOpt) videoOpt.disabled = grok;
+  if (grok && $('mediaType').value === 'video') $('mediaType').value = 'image';
+  onMediaTypeChange();
+  if (grok) checkGrok();
+  else setStatus('', 'info');
+}
+
+async function checkGrok() {
+  setStatus('Checking Grok…', 'running');
+  try {
+    const ctx = await chrome.runtime.sendMessage({ type: 'grokContext' });
+    if (!ctx?.ok) throw new Error(ctx?.error || 'no Grok tab');
+    if (!ctx.signedIn) setStatus('Grok: not signed in — open grok.com and sign in.', 'err');
+    else if (!ctx.hasTemplate)
+      setStatus('Grok: sign-in OK. Generate ONE image at grok.com/imagine (free daily quota) so the extension can learn the API, then batch here.', 'err');
+    else setStatus('Grok ready (template captured). Free tier has a daily limit — it pauses & resumes.', 'done');
+  } catch (e) {
+    setStatus(`Grok check failed: ${e.message}`, 'err');
+  }
+}
+
 // Video can't write back to the scene folder yet — force Downloads + warn.
 function onMediaTypeChange() {
   const isVideo = $('mediaType').value === 'video';
@@ -222,30 +251,41 @@ function onMediaTypeChange() {
 function confirmQueue() {
   const scenes = selectedScenes();
   if (!scenes.length) return;
-  const isVideo = $('mediaType').value === 'video';
+  const provider = $('provider').value;
+  const isGrok = provider === 'grok';
+  const isVideo = !isGrok && $('mediaType').value === 'video';
   const target = isVideo ? 'download' : $('saveTarget').value;
   if (target === 'project' && !currentProject) return;
-  if (!settings.flowProjectId) {
+  if (!isGrok && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
   }
-  $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : 'Queue these scenes?';
-  $('confirmBody').textContent = isVideo
-    ? `${scenes.length} Veo clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → Downloads. ` +
-      `Each clip costs Google AI credits (~20 for Veo 3.1 Fast). One at a time, ~1–3 min each. Continue?`
-    : `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → ` +
-      `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. ` +
-      `Images use Nano Banana 2 (free). One at a time.`;
-  $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+  if (isGrok) {
+    $('confirmTitle').textContent = 'Queue these scenes on Grok?';
+    $('confirmBody').textContent =
+      `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} via Grok Imagine → ` +
+      `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
+      `the queue pauses when it's hit and resumes later. 2–6 s between each. Continue?`;
+    $('confirmOk').textContent = 'Queue on Grok';
+  } else {
+    $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : 'Queue these scenes?';
+    $('confirmBody').textContent = isVideo
+      ? `${scenes.length} Veo clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → Downloads. ` +
+        `Each clip costs Google AI credits (~20 for Veo 3.1 Fast). One at a time, ~1–3 min each. Continue?`
+      : `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → ` +
+        `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. ` +
+        `Images use Nano Banana 2 (free). One at a time.`;
+    $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+  }
   const dlg = $('confirm');
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    await doEnqueue(scenes, target, isVideo ? 'video' : 'image');
+    await doEnqueue(scenes, target, isVideo ? 'video' : 'image', provider);
   };
 }
 
-async function doEnqueue(scenes, target, assetType) {
+async function doEnqueue(scenes, target, assetType, provider) {
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
@@ -257,6 +297,7 @@ async function doEnqueue(scenes, target, assetType) {
         scenes,
         target,
         assetType,
+        provider,
       },
     });
     if (!res?.ok) throw new Error(res?.error || 'enqueue failed');

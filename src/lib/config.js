@@ -18,6 +18,11 @@ export const DEFAULTS = {
   flowProjectId: '',
   flowProjectName: '',
 
+  // Generation provider: 'flow' (Google Flow) or 'grok' (xAI Grok Imagine).
+  // Both are driven from a logged-in web session; Flow's Nano Banana 2 is free
+  // and effectively unlimited, Grok's free Imagine has a daily limit.
+  provider: 'flow',
+
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
   aspectRatio: '16:9',

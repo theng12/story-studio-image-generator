@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator for Story Studio",
-  "version": "0.2.0",
-  "description": "Generate scene images and video on Google Flow from your Story Studio KH scene plan, using your Google AI subscription credits, and save each asset with the correct name.",
+  "version": "0.3.0",
+  "description": "Generate Story Studio KH scene images & video on Google Flow (and images on Grok Imagine) from your scene plan, using your web-subscription credits, and save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
     "http://localhost:8766/*",
@@ -11,7 +11,9 @@
     "http://127.0.0.1:8000/*",
     "https://labs.google/*",
     "https://aisandbox-pa.googleapis.com/*",
-    "https://flow-content.google/*"
+    "https://flow-content.google/*",
+    "https://grok.com/*",
+    "https://*.grok.com/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -34,6 +36,17 @@
     {
       "matches": ["https://labs.google/fx/*"],
       "js": ["src/content/flow.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://grok.com/*"],
+      "js": ["src/content/grok-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://grok.com/*"],
+      "js": ["src/content/grok.js"],
       "run_at": "document_idle"
     }
   ],
