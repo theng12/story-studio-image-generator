@@ -32,7 +32,9 @@ export const DEFAULTS = {
   //                scene_plan.json is updated. Companion mode only (needs the
   //                image-ingest endpoint in story-studio-kh).
   //   "download" — save into the browser Downloads folder (works always).
-  saveTarget: 'download',
+  // Default to the project folder: the free image flow (Nano Banana 2 ->
+  // upload-image) is verified end-to-end and is the point of the integration.
+  saveTarget: 'project',
 
   // Downloads layout (relative to the browser Downloads dir).
   // Tokens: {project} {episodeCode} {episodeTitle} {sceneId} {sceneIndex}
