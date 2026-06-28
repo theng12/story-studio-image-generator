@@ -207,7 +207,7 @@ async function loadScenes() {
     const have = video ? 'have clips' : 'have images';
     $('scenesSummary').textContent = `${noun} (${label}) — ${done}/${scenes.length} ${have}`;
     const emptyMsg = video
-      ? 'No scenes with both an image and a motion prompt. Generate images + motion prompts in Story Studio first.'
+      ? 'No animatable scenes. A scene must be approved, have an image, a motion prompt, and meet the minimum duration.'
       : `No ${noun.toLowerCase()} found for this episode.`;
     setStatus(scenes.length ? '' : emptyMsg, scenes.length ? 'info' : 'err');
   } catch (e) {
@@ -217,14 +217,24 @@ async function loadScenes() {
   }
 }
 
-// Scene video (image-to-video) — only scene_plan scenes that have BOTH an image
-// to animate and a motion prompt. "Done" = a fresh clip already exists; stale =
-// clip rendered from a now-changed motion prompt.
+// Scene video (image-to-video). The SPEND GATE (enforced here — Story Studio
+// can't block an external Veo spend after the fact): only show scenes that are
+//   approved === true, motion_prompt non-empty, image exists, and
+//   (end_sec − start_sec) >= animate_min_seconds.
+// Among those, "done" = a fresh clip already exists; stale = clip rendered from a
+// now-changed motion prompt (the soft gate — re-renderable via "include existing").
 async function loadSceneVideos(slug, ep) {
   const data = await client.sceneReview(slug, ep.code);
   const scenes = data?.scenes || [];
+  const minSec = Number(data?.animate_min_seconds) || 0;
   return scenes
-    .filter((s) => s.image_filename && (s.motion_prompt || '').trim())
+    .filter(
+      (s) =>
+        s.approved === true &&
+        (s.motion_prompt || '').trim() &&
+        s.image_filename != null &&
+        Number(s.end_sec) - Number(s.start_sec) >= minSec
+    )
     .map((s) => ({
       source: 'plan',
       kind: 'scene',
@@ -232,6 +242,7 @@ async function loadSceneVideos(slug, ep) {
       label: `Scene ${s.scene_index}`,
       prompt: s.motion_prompt || '', // motion prompt drives image-to-video
       imagePrompt: s.visual_prompt || '', // used only in "generate fresh image" mode
+      durationSec: Math.max(0, Number(s.end_sec) - Number(s.start_sec)), // request clip ≈ scene window
       hasImage: !!s.clip_exists && !s.clip_stale, // "done" = a fresh clip exists
       stale: !!s.clip_stale,
     }));
@@ -313,18 +324,22 @@ async function loadScenesFromEither(slug, ep) {
 
 function renderScenes() {
   const includeExisting = $('includeExisting').checked;
+  const video = loadedKind === 'video';
   const wrap = $('scenes');
   wrap.innerHTML = '';
   for (const s of currentScenes) {
-    const has = s.hasImage;
+    const has = s.hasImage; // image (image modes) or fresh clip (video)
     const div = document.createElement('div');
     div.className = 'scene';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.dataset.key = String(s.key);
-    // Pre-select scenes that need an image; existing ones only if opted in.
-    cb.checked = includeExisting || !has;
-    cb.disabled = has && !includeExisting;
+    // Pre-select scenes that still need the asset. For video, a fresh clip is
+    // HARD-skipped (re-render by editing the motion prompt → it becomes stale →
+    // eligible) — so "include existing" doesn't re-enable fresh clips, only the
+    // image modes honour it.
+    cb.checked = video ? !has : includeExisting || !has;
+    cb.disabled = video ? has : has && !includeExisting;
     cb.onchange = updateQueueButton;
     const meta = document.createElement('div');
     meta.className = 'meta';

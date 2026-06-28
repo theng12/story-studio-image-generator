@@ -223,6 +223,7 @@ async function generateVideoAndSave(item, settings, tab) {
         motionPrompt: item.prompt, // the scene's motion_prompt
         model: item.model || settings.videoModel,
         aspectRatio: item.aspectRatio || settings.aspectRatio,
+        durationSec: item.durationSec, // request clip ≈ scene window
       },
     });
     item.videoMediaId = sub.mediaId;
@@ -356,6 +357,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       prompt: s.prompt, // image: visual prompt; video: the scene's motion prompt
       imagePrompt: isVideo ? s.imagePrompt || '' : undefined, // video "generate" mode
       videoSource: isVideo ? settings.videoSource : undefined, // 'existing' | 'generate'
+      durationSec: isVideo ? s.durationSec : undefined, // request clip ≈ scene window
       target: effTarget,
       projectId: projectId || settings.flowProjectId,
       model: isVideo ? settings.videoModel : settings.imageModel,

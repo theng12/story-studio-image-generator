@@ -327,6 +327,19 @@
     'veo-3.1-quality': 'veo_3_1_i2v_quality',
     'omni-flash': 'abra_i2v_4s',
   };
+  // Pick the i2v model key, requesting a clip length ≈ the scene window. Omni
+  // Flash encodes duration in the key (abra_i2v_{4,6,8,10}) — round UP (the
+  // assembler trims longer clips but freeze-fills shorter ones). Veo i2v keys
+  // carry no duration (strict proto validation rejects unknown fields, so we
+  // don't append one) — clips come at the model default; the assembler fits them.
+  function i2vModelKey(modelId, durationSec) {
+    if (modelId === 'omni-flash') {
+      const allowed = [4, 6, 8, 10];
+      const d = Math.ceil(Number(durationSec) || 4);
+      return `abra_i2v_${allowed.find((a) => a >= d) || 10}`;
+    }
+    return I2V_MODELS[modelId] || 'veo_3_1_i2v_fast';
+  }
 
   // Upload an image to the Flow project; returns its media id (for startImage).
   // No reCAPTCHA needed for upload (verified). base64 = raw bytes, no data: prefix.
@@ -359,7 +372,7 @@
     const projectId = p.projectId || currentProjectId();
     if (!projectId) throw new Error('No Flow project selected.');
     if (!p.mediaId) throw new Error('submitVideoStartImage needs a startImage mediaId.');
-    const model = I2V_MODELS[p.model] || 'veo_3_1_i2v_fast';
+    const model = i2vModelKey(p.model, p.durationSec);
     const aspect = VIDEO_ASPECT[p.aspectRatio] || 'VIDEO_ASPECT_RATIO_LANDSCAPE';
     const seed = Number.isFinite(p.seed) ? p.seed : randomSeed();
     const token = await mintToken('VIDEO_GENERATION');
