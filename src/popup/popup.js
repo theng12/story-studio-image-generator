@@ -22,6 +22,8 @@ let currentProject = null; // { slug, name }
 // The "Make:" selector encodes both the asset kind and media type.
 const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
 const isVideoSel = () => $('mediaType').value === 'scene-video';
+// Combined selection identity: 'scene' | 'video' | 'thumbnail'.
+const selKind = () => (isVideoSel() ? 'video' : currentKind());
 
 async function init() {
   settings = await getSettings();
@@ -177,12 +179,17 @@ async function loadScenes() {
   currentEpisode = { code, title: esel.selectedOptions[0]?.dataset.title || '' };
   await saveSettings({ lastEpisode: code });
   const kind = currentKind();
+  const video = isVideoSel();
   $('loadScenes').disabled = true;
-  setStatus(`Loading ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
+  setStatus(`Loading ${video ? 'scene clips' : kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
   try {
     let scenes;
     let label;
-    if (kind === 'thumbnail') {
+    if (video) {
+      scenes = await loadSceneVideos(slug, currentEpisode);
+      currentSource = 'plan';
+      label = 'Scene Plan · motion';
+    } else if (kind === 'thumbnail') {
       scenes = await loadThumbnails(slug, currentEpisode);
       currentSource = 'prompts';
       label = 'Thumbnail Prompts';
@@ -193,17 +200,41 @@ async function loadScenes() {
       label = r.source === 'plan' ? 'Scene Plan' : 'Scene Prompts';
     }
     currentScenes = scenes;
-    loadedKind = kind;
+    loadedKind = selKind();
     renderScenes();
-    const withImg = scenes.filter((s) => s.hasImage).length;
-    const noun = kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
-    $('scenesSummary').textContent = `${noun} (${label}) — ${withImg}/${scenes.length} have images`;
-    setStatus(scenes.length ? '' : `No ${noun.toLowerCase()} found for this episode.`, scenes.length ? 'info' : 'err');
+    const done = scenes.filter((s) => s.hasImage).length;
+    const noun = video ? 'Clips' : kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
+    const have = video ? 'have clips' : 'have images';
+    $('scenesSummary').textContent = `${noun} (${label}) — ${done}/${scenes.length} ${have}`;
+    const emptyMsg = video
+      ? 'No scenes with both an image and a motion prompt. Generate images + motion prompts in Story Studio first.'
+      : `No ${noun.toLowerCase()} found for this episode.`;
+    setStatus(scenes.length ? '' : emptyMsg, scenes.length ? 'info' : 'err');
   } catch (e) {
     setStatus(`Couldn't load: ${e.message}`, 'err');
   } finally {
     $('loadScenes').disabled = false;
   }
+}
+
+// Scene video (image-to-video) — only scene_plan scenes that have BOTH an image
+// to animate and a motion prompt. "Done" = a fresh clip already exists; stale =
+// clip rendered from a now-changed motion prompt.
+async function loadSceneVideos(slug, ep) {
+  const data = await client.sceneReview(slug, ep.code);
+  const scenes = data?.scenes || [];
+  return scenes
+    .filter((s) => s.image_filename && (s.motion_prompt || '').trim())
+    .map((s) => ({
+      source: 'plan',
+      kind: 'scene',
+      key: s.id,
+      label: `Scene ${s.scene_index}`,
+      prompt: s.motion_prompt || '', // motion prompt drives image-to-video
+      imagePrompt: s.visual_prompt || '', // used only in "generate fresh image" mode
+      hasImage: !!s.clip_exists && !s.clip_stale, // "done" = a fresh clip exists
+      stale: !!s.clip_stale,
+    }));
 }
 
 // Thumbnails always come from the Image Prompts generator's `thumbnails` array
@@ -308,7 +339,7 @@ function renderScenes() {
     if (has) {
       const b = document.createElement('span');
       b.className = 'badge ' + (s.stale ? 'stale' : 'has');
-      b.textContent = s.stale ? 'stale' : 'has image';
+      b.textContent = s.stale ? 'stale' : loadedKind === 'video' ? 'has clip' : 'has image';
       div.appendChild(b);
     }
     wrap.appendChild(div);
@@ -355,19 +386,12 @@ async function checkGrok() {
   }
 }
 
-// Video can't write back to the scene folder yet — force Downloads. Also reload
-// the list when switching between scenes and thumbnails (different prompts).
+// Reload the list when the selection kind changes (scene image / scene video /
+// thumbnail all read different prompts). Save target stays user-controlled —
+// video now writes clips back via upload-clip too.
 async function onMediaTypeChange() {
-  const isVideo = isVideoSel();
-  const st = $('saveTarget');
-  if (isVideo) {
-    st.value = 'download';
-    st.disabled = true;
-  } else {
-    st.disabled = false;
-    st.value = settings.saveTarget;
-  }
-  if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
+  $('saveTarget').disabled = false;
+  if (currentEpisode && currentScenes.length && selKind() !== loadedKind) {
     await loadScenes();
   }
 }
@@ -382,7 +406,7 @@ function confirmQueue() {
   const isVideo = !isGrok && isVideoSel();
   const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
-  const target = isVideo ? 'download' : $('saveTarget').value;
+  const target = $('saveTarget').value;
   if (target === 'project' && !currentProject) return;
   if (!isGrok && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
@@ -399,8 +423,10 @@ function confirmQueue() {
   } else {
     $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : `Queue these ${noun}s?`;
     $('confirmBody').textContent = isVideo
-      ? `${scenes.length} Veo clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → Downloads. ` +
-        `Each clip costs Google AI credits (~20 for Veo 3.1 Fast). One at a time, ~1–3 min each. Continue?`
+      ? `${scenes.length} clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} — image-to-video ` +
+        `(${settings.videoSource === 'generate' ? 'fresh image' : 'existing image'} + motion prompt) → ` +
+        `${target === 'project' ? '“11 Video Assets”' : 'Downloads'}. Each clip costs credits ` +
+        `(Veo ~20, Omni Flash ~7). One at a time, ~1–3 min each. Continue?`
       : `${n} from ${currentEpisode.code} → ` +
         `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
         `Images use Nano Banana 2 (free). One at a time.`;

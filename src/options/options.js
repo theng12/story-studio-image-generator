@@ -7,6 +7,7 @@ const FIELDS = [
   'flowProjectId',
   'imageModel',
   'videoModel',
+  'videoSource',
   'aspectRatio',
   'saveTarget',
   'downloadSubdir',

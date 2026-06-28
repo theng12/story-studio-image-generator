@@ -317,7 +317,95 @@
     return { projectId: currentProjectId(), signedIn, url: location.href };
   }
 
-  const handlers = { generateImage, submitVideo, checkVideo, getContext };
+  // ── image-to-video (Veo start-image) — verified live 2026-06-28 ────────────
+  // Animate a still image with a motion prompt. Two ways to get the Flow media
+  // id the model animates: upload an existing image (uploadImage), or reuse the
+  // id returned when we generate one on Flow.
+  const I2V_MODELS = {
+    'veo-3.1-fast': 'veo_3_1_i2v_fast',
+    'veo-3.1-lite': 'veo_3_1_i2v_lite',
+    'veo-3.1-quality': 'veo_3_1_i2v_quality',
+    'omni-flash': 'abra_i2v_4s',
+  };
+
+  // Upload an image to the Flow project; returns its media id (for startImage).
+  // No reCAPTCHA needed for upload (verified). base64 = raw bytes, no data: prefix.
+  async function uploadImage(p) {
+    const projectId = p.projectId || currentProjectId();
+    if (!projectId) throw new Error('No Flow project selected.');
+    if (!p.base64) throw new Error('uploadImage needs base64 image bytes.');
+    const r = await fetch(`${API}/flow/uploadImage`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientContext: { projectId, tool: 'PINHOLE' },
+        imageBytes: p.base64,
+        isUserUploaded: true,
+        isHidden: false,
+        mimeType: p.mime || 'image/png',
+        fileName: p.fileName || 'scene.png',
+      }),
+    });
+    if (!r.ok) throw new Error(`Flow image upload failed (${r.status}).`);
+    const j = await r.json();
+    const mediaId = j?.media?.name;
+    if (!mediaId) throw new Error('Flow upload returned no media id.');
+    return { mediaId };
+  }
+
+  // Submit an image-to-video generation. params: { projectId, mediaId,
+  // motionPrompt, model, aspectRatio, seed }. Returns { mediaId, workflowId }.
+  async function submitVideoStartImage(p) {
+    const projectId = p.projectId || currentProjectId();
+    if (!projectId) throw new Error('No Flow project selected.');
+    if (!p.mediaId) throw new Error('submitVideoStartImage needs a startImage mediaId.');
+    const model = I2V_MODELS[p.model] || 'veo_3_1_i2v_fast';
+    const aspect = VIDEO_ASPECT[p.aspectRatio] || 'VIDEO_ASPECT_RATIO_LANDSCAPE';
+    const seed = Number.isFinite(p.seed) ? p.seed : randomSeed();
+    const token = await mintToken('VIDEO_GENERATION');
+    const clientContext = {
+      projectId,
+      tool: 'PINHOLE',
+      sessionId: sessionId(),
+      recaptchaContext: recaptchaContext(token),
+    };
+    const body = {
+      mediaGenerationContext: { batchId: uuid(), audioFailurePreference: 'BLOCK_SILENCED_VIDEOS' },
+      clientContext,
+      requests: [
+        {
+          aspectRatio: aspect,
+          textInput: { structuredPrompt: { parts: [{ text: p.motionPrompt || '' }] } },
+          videoModelKey: model,
+          seed,
+          metadata: {},
+          startImage: { mediaId: p.mediaId, cropCoordinates: { top: 0, left: 0, bottom: 1, right: 1 } },
+        },
+      ],
+      useV2ModelConfig: true,
+    };
+    const r = await fetch(`${API}/video:batchAsyncGenerateVideoStartImage`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let detail = `${r.status}`;
+      try {
+        const j = await r.json();
+        if (j?.error?.message) detail = j.error.message;
+      } catch {
+        /* non-JSON */
+      }
+      throw new Error(`Flow image-to-video submit failed: ${detail}`);
+    }
+    const j = await r.json();
+    const mediaId = j?.media?.[0]?.name;
+    if (!mediaId) throw new Error('Flow i2v submit returned no media id.');
+    return { mediaId, workflowId: j?.workflows?.[0]?.name || null, remainingCredits: j?.remainingCredits };
+  }
+
+  const handlers = { generateImage, submitVideo, checkVideo, uploadImage, submitVideoStartImage, getContext };
 
   window.addEventListener('message', async (ev) => {
     if (ev.source !== window) return;

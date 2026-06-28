@@ -162,9 +162,16 @@ tells you when the template is captured.
 
 - **v0.1 — images** (free, synchronous). Verified end-to-end live against a real
   Story Studio scene: scene plan → Flow image → Story Studio scene folder.
-- **v0.2 — video** (Veo, text-to-video → Downloads). Built from the live-captured
-  submit/poll/download contract; the first real clip you run confirms the
-  assumed reCAPTCHA action. Saving video back into Story Studio is phase 2b.
+- **v0.2–0.5 — video** (Veo, **image-to-video**). Each scene's image + its
+  `motion_prompt` (from the Scene Plan) → Veo start-image clip → saved as
+  `{scene_id}.mp4` in **"11 Video Assets"** via Story Studio's `upload-clip`
+  endpoint (raw mp4), or to Downloads. Two image sources (chosen in Settings):
+  *animate the existing `{scene_id}.png`* (uploaded to Flow via `flow/uploadImage`),
+  or *generate a fresh image on Flow first*. Submit = `video:batchAsyncGenerateVideoStartImage`
+  with `startImage.mediaId` + the motion prompt; poll → download. Credit-costed
+  (Veo ~20, Omni Flash ~7), so it's behind the confirm dialog and the queue
+  resumes safely. Also: scenes from both prompt sources + thumbnails (v0.3–0.4),
+  Grok Imagine as a second provider (v0.3).
 
 > ⚠️ Automating Flow may violate Google's ToS and risk account action. Use at
 > your own risk — the project owner has accepted this.

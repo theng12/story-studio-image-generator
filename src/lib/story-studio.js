@@ -16,6 +16,14 @@
 //          -> writes {sceneId}.png into the "05 Scene Images" folder and updates
 //             scene_plan.json (image_path, approved=false). THIS is the save-back.
 
+function abToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
 export class StudioClient {
   constructor(baseUrl) {
     this.base = (baseUrl || '').replace(/\/+$/, '');
@@ -125,5 +133,44 @@ export class StudioClient {
         body: JSON.stringify({ kind, number, data_base64: base64, title }),
       }
     );
+  }
+
+  // ── image-to-video (scene_plan source) ─────────────────────────────────────
+  // Read a scene's existing {scene_id}.png so it can be uploaded to Flow and
+  // animated. Returns { base64, mime }.
+  async sceneImageBase64(slug, code, sceneId) {
+    const res = await fetch(
+      `${this.base}/api/projects/${encodeURIComponent(slug)}/scene-review/${encodeURIComponent(
+        code
+      )}/image/${encodeURIComponent(sceneId)}`,
+      { credentials: 'include' }
+    );
+    if (!res.ok) throw new Error(`Scene image not found (${res.status}).`);
+    const buf = await res.arrayBuffer();
+    if (!buf.byteLength) throw new Error('Scene image is empty on disk.');
+    return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
+  }
+
+  // Save an animated clip for a scene. mp4 is raw bytes (ArrayBuffer/Uint8Array)
+  // POSTed as Content-Type video/mp4 — the upload-clip route takes raw binary
+  // (256 MB cap), NOT base64 JSON. Writes {scene_id}.mp4 to "11 Video Assets".
+  async uploadClip(slug, code, sceneId, mp4) {
+    const res = await fetch(
+      `${this.base}/api/projects/${encodeURIComponent(slug)}/scene-review/${encodeURIComponent(
+        code
+      )}/upload-clip/${encodeURIComponent(sceneId)}`,
+      { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'video/mp4' }, body: mp4 }
+    );
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.detail) detail = j.detail;
+      } catch {
+        /* non-JSON */
+      }
+      throw new Error(`Story Studio rejected the clip: ${detail}`);
+    }
+    return res.json();
   }
 }
