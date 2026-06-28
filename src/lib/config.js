@@ -27,9 +27,13 @@ export const DEFAULTS = {
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
   aspectRatio: '16:9',
 
-  // Video model (Veo). Costs credits (~20/clip for Fast). Used when the panel's
-  // media type is "Video". Always saved to Downloads in v1.
-  videoModel: 'veo-3.1-fast', // -> internal "veo_3_1_t2v_fast"
+  // Video model (Veo). Costs credits. Used when the panel makes "Scene video".
+  videoModel: 'veo-3.1-fast', // -> internal "veo_3_1_i2v_fast"
+
+  // How scene video gets its still image to animate:
+  //   "existing" — upload the scene's already-generated {scene_id}.png to Flow.
+  //   "generate" — generate a fresh image on Flow first, then animate it.
+  videoSource: 'existing',
 
   // Where generated scene images go:
   //   "project"  — POST back to Story Studio so the file lands in the episode's

@@ -64,7 +64,15 @@
           <option value="veo-3.1-fast">Veo 3.1 Fast (~20 credits/clip)</option>
           <option value="veo-3.1-quality">Veo 3.1 Quality (~100 credits/clip)</option>
         </select>
-        <div class="hint">All video models cost credits. Video always saves to Downloads in this version (text-to-video from the scene prompt). Omni Flash's exact model key is unverified — confirm on first run.</div>
+        <div class="hint">All video models cost credits. Image-to-video: animates the scene's image with its motion prompt. Saves the clip to “11 Video Assets” or Downloads.</div>
+      </div>
+      <div class="field">
+        <span class="label">Scene video — image source</span>
+        <select id="videoSource">
+          <option value="existing">Animate the existing scene image</option>
+          <option value="generate">Generate a fresh image on Flow first</option>
+        </select>
+        <div class="hint">“Existing” uploads {scene_id}.png from Story Studio. “Generate” makes a new image (from the visual prompt) then animates it.</div>
       </div>
     </section>
 

@@ -163,7 +163,7 @@ async function patchItem(id, patch) {
   return it;
 }
 
-async function downloadVideoBytes(mediaId) {
+async function downloadVideoArrayBuffer(mediaId) {
   const url =
     `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect` +
     `?name=${encodeURIComponent(mediaId)}&mediaUrlType=MEDIA_URL_TYPE_FULL_MEDIA`;
@@ -174,32 +174,65 @@ async function downloadVideoBytes(mediaId) {
   if (!r.ok) throw new Error(`Video download failed (${r.status}).`);
   const buf = await r.arrayBuffer();
   if (!buf.byteLength) throw new Error('Downloaded video was empty.');
-  return { base64: abToBase64(buf), mime: 'video/mp4' };
+  return buf;
 }
 
+// Image-to-video: take the scene's image (uploaded existing, or freshly
+// generated on Flow) + its motion prompt → Veo start-image clip → save it as
+// {scene_id}.mp4 (project) or to Downloads. Every async id is persisted the
+// instant we get it, so a worker restart RESUMES rather than re-charging.
 async function generateVideoAndSave(item, settings, tab) {
   const projectId = item.projectId || settings.flowProjectId;
   if (!projectId) throw new Error('No Flow project set.');
+  const client = new StudioClient(settings.studioBaseUrl);
 
-  // 1. submit — only if we haven't already (resume-safe; never re-charge).
-  if (!item.mediaId) {
+  // 1. ensure we have the Flow start-image media id.
+  if (!item.startMediaId) {
+    if (item.videoSource === 'generate') {
+      await writeStatus(`${item.label}: generating image…`, 'running');
+      const g = await send(tab.id, {
+        type: 'flow:generateImage',
+        params: {
+          projectId,
+          prompt: item.imagePrompt || item.prompt,
+          model: settings.imageModel,
+          aspectRatio: item.aspectRatio || settings.aspectRatio,
+        },
+      });
+      item.startMediaId = g.mediaId;
+    } else {
+      // animate existing on-disk image
+      await writeStatus(`${item.label}: uploading image…`, 'running');
+      const img = await client.sceneImageBase64(item.slug, item.episodeCode, item.sceneKey);
+      const up = await send(tab.id, {
+        type: 'flow:uploadImage',
+        params: { projectId, base64: img.base64, mime: img.mime, fileName: `${item.sceneKey}.png` },
+      });
+      item.startMediaId = up.mediaId;
+    }
+    await patchItem(item.id, { startMediaId: item.startMediaId, phase: 'submitting' });
+  }
+
+  // 2. submit the image-to-video (resume-safe; never re-charge).
+  if (!item.videoMediaId) {
     const sub = await send(tab.id, {
-      type: 'flow:submitVideo',
+      type: 'flow:submitVideoStartImage',
       params: {
         projectId,
-        prompt: item.prompt,
+        mediaId: item.startMediaId,
+        motionPrompt: item.prompt, // the scene's motion_prompt
         model: item.model || settings.videoModel,
         aspectRatio: item.aspectRatio || settings.aspectRatio,
       },
     });
-    item.mediaId = sub.mediaId;
-    await patchItem(item.id, { mediaId: sub.mediaId, workflowId: sub.workflowId, phase: 'polling' });
+    item.videoMediaId = sub.mediaId;
+    await patchItem(item.id, { videoMediaId: sub.mediaId, workflowId: sub.workflowId, phase: 'polling' });
   }
 
-  // 2. poll until the clip is ready (Veo ~60–180s; allow up to 8 min).
+  // 3. poll until the clip is ready (Veo ~60–180s; allow up to 8 min).
   const deadline = Date.now() + 8 * 60000;
   for (;;) {
-    const st = await send(tab.id, { type: 'flow:checkVideo', params: { mediaId: item.mediaId, projectId } });
+    const st = await send(tab.id, { type: 'flow:checkVideo', params: { mediaId: item.videoMediaId, projectId } });
     if (st.done) break;
     if (st.failed) throw new Error(`Flow video generation ${st.status}.`);
     if (Date.now() > deadline) throw new Error(`Video timed out (last status ${st.status}).`);
@@ -207,12 +240,16 @@ async function generateVideoAndSave(item, settings, tab) {
     await sleep(10000);
   }
 
-  // 3. download the mp4 (background) and save (Downloads for v1).
+  // 4. download the mp4 (raw) and save.
   await patchItem(item.id, { phase: 'downloading' });
-  const { base64, mime } = await downloadVideoBytes(item.mediaId);
+  const mp4 = await downloadVideoArrayBuffer(item.videoMediaId);
+  if (item.target === 'project' && item.sceneKey) {
+    await client.uploadClip(item.slug, item.episodeCode, item.sceneKey, mp4);
+    return { savedAs: `${item.sceneKey}.mp4`, target: 'project' };
+  }
   const filename = item.downloadPath.replace(/\.(mp4|webm)$/i, '') + '.mp4';
   const downloadId = await chrome.downloads.download({
-    url: `data:${mime};base64,${base64}`,
+    url: `data:video/mp4;base64,${abToBase64(mp4)}`,
     filename,
     saveAs: false,
     conflictAction: 'uniquify',
@@ -254,7 +291,7 @@ let processing = false;
 // an episode — can't add the same scene twice and waste work/credits).
 function itemKey(it) {
   return it.episodeCode && it.sceneKey != null
-    ? `${it.episodeCode}::${it.kind}::${it.source}::${it.sceneKey}`
+    ? `${it.episodeCode}::${it.assetType}::${it.kind}::${it.source}::${it.sceneKey}`
     : null;
 }
 
@@ -304,9 +341,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   const stem = akind === 'thumbnail' ? 'Thumb' : 'Scene';
   // Grok is image-only in this build (no Grok video path yet). Thumbnails too.
   const isVideo = assetType === 'video' && prov !== 'grok' && akind === 'scene';
-  // Video can't write back to the scene folder yet (no Story Studio video-ingest
-  // endpoint) — it always goes to Downloads in v1.
-  const effTarget = isVideo ? 'download' : target || settings.saveTarget;
+  const effTarget = target || settings.saveTarget;
   // scenes are normalized: { source, key, label, prompt, hasImage }
   const items = (scenes || []).map((s) =>
     mkItem({
@@ -318,7 +353,9 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       episodeCode,
       episodeTitle: episodeTitle || '',
       sceneKey: s.key, // scene_plan id (string) OR scene/thumb prompts number
-      prompt: s.prompt,
+      prompt: s.prompt, // image: visual prompt; video: the scene's motion prompt
+      imagePrompt: isVideo ? s.imagePrompt || '' : undefined, // video "generate" mode
+      videoSource: isVideo ? settings.videoSource : undefined, // 'existing' | 'generate'
       target: effTarget,
       projectId: projectId || settings.flowProjectId,
       model: isVideo ? settings.videoModel : settings.imageModel,

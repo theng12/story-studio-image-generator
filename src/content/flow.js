@@ -45,6 +45,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const ops = {
     'flow:generateImage': () => callMain('generateImage', msg.params),
     'flow:submitVideo': () => callMain('submitVideo', msg.params),
+    'flow:submitVideoStartImage': () => callMain('submitVideoStartImage', msg.params),
+    'flow:uploadImage': () => callMain('uploadImage', msg.params, 60000),
     'flow:checkVideo': () => callMain('checkVideo', msg.params, 30000),
     'flow:getContext': () => callMain('getContext', {}),
   };
