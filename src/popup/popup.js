@@ -12,7 +12,9 @@ import { StudioClient } from '../lib/story-studio.js';
 const $ = (id) => document.getElementById(id);
 let settings = null;
 let client = null;
-let currentScenes = []; // [{ id, scene_index, visual_prompt, image_filename, stale }]
+// Normalized scenes (from either source): { source, key, label, prompt, hasImage, stale }
+let currentScenes = [];
+let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03 Scene Prompts)
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
 
@@ -130,8 +132,9 @@ async function onProjectChange() {
     // Default: only episodes that still need images (scene plan present, images
     // not all done). Toggle "Show episodes with all images" to include finished.
     const showDone = $('showDoneEpisodes').checked;
+    // An episode qualifies if it has EITHER a scene plan or scene prompts.
     const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter(
-      (e) => e.status?.scene_plan && (showDone || !e.status?.images)
+      (e) => (e.status?.scene_plan || e.status?.scene_prompts) && (showDone || !e.status?.images)
     );
     const esel = $('episode');
     esel.innerHTML = eps.length
@@ -166,12 +169,14 @@ async function loadScenes() {
   $('loadScenes').disabled = true;
   setStatus('Loading scenes…', 'running');
   try {
-    const data = await client.sceneReview(slug, code);
-    currentScenes = data.scenes || [];
+    const { scenes, source } = await loadScenesFromEither(slug, currentEpisode);
+    currentScenes = scenes;
+    currentSource = source;
     renderScenes();
-    const s = data.stats || {};
-    $('scenesSummary').textContent = `Scenes — ${s.with_image || 0}/${s.total_scenes || currentScenes.length} have images`;
-    setStatus('', 'info');
+    const withImg = scenes.filter((s) => s.hasImage).length;
+    $('scenesSummary').textContent =
+      `Scenes (${source === 'plan' ? 'Scene Plan' : 'Scene Prompts'}) — ${withImg}/${scenes.length} have images`;
+    setStatus(scenes.length ? '' : 'No scene prompts found for this episode.', scenes.length ? 'info' : 'err');
   } catch (e) {
     setStatus(`Couldn't load scenes: ${e.message}`, 'err');
   } finally {
@@ -179,17 +184,64 @@ async function loadScenes() {
   }
 }
 
+// An episode has EITHER a scene plan OR scene prompts (mutually exclusive).
+// Try scene_plan first; fall back to the Scene Prompts generator. Normalize both.
+async function loadScenesFromEither(slug, ep) {
+  // 1) Scene Plan
+  try {
+    const data = await client.sceneReview(slug, ep.code);
+    if (data?.scenes?.length) {
+      return {
+        source: 'plan',
+        scenes: data.scenes.map((s) => ({
+          source: 'plan',
+          key: s.id,
+          label: `Scene ${s.scene_index}`,
+          prompt: s.visual_prompt || '',
+          hasImage: !!s.image_filename,
+          stale: !!s.stale,
+        })),
+      };
+    }
+  } catch (e) {
+    if (e.status && e.status !== 404) throw e;
+  }
+  // 2) Scene Prompts ("03 Scene Prompts")
+  const data = await client.imagePrompts(slug, ep.code, ep.title);
+  const promptScenes = data?.scenes || [];
+  let present = new Set();
+  try {
+    const st = await client.imageStatus(slug, ep.code);
+    const missing = new Set((st?.scenes?.missing || st?.missing || []).map(Number));
+    const total = st?.scenes?.total || promptScenes.length;
+    for (let n = 1; n <= total; n++) if (!missing.has(n)) present.add(n);
+  } catch {
+    /* status optional */
+  }
+  return {
+    source: 'prompts',
+    scenes: promptScenes.map((s) => ({
+      source: 'prompts',
+      key: s.number,
+      label: `Scene ${s.number}${s.title ? ` — ${s.title}` : ''}`,
+      prompt: s.prompt || '',
+      hasImage: present.has(Number(s.number)),
+      stale: false,
+    })),
+  };
+}
+
 function renderScenes() {
   const includeExisting = $('includeExisting').checked;
   const wrap = $('scenes');
   wrap.innerHTML = '';
   for (const s of currentScenes) {
-    const has = !!s.image_filename;
+    const has = s.hasImage;
     const div = document.createElement('div');
     div.className = 'scene';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.dataset.sceneId = s.id;
+    cb.dataset.key = String(s.key);
     // Pre-select scenes that need an image; existing ones only if opted in.
     cb.checked = includeExisting || !has;
     cb.disabled = has && !includeExisting;
@@ -198,10 +250,10 @@ function renderScenes() {
     meta.className = 'meta';
     const idx = document.createElement('div');
     idx.className = 'idx';
-    idx.textContent = `Scene ${s.scene_index}`;
+    idx.textContent = s.label;
     const prm = document.createElement('div');
     prm.className = 'prompt';
-    prm.textContent = s.visual_prompt || '(no prompt)';
+    prm.textContent = s.prompt || '(no prompt)';
     meta.append(idx, prm);
     div.append(cb, meta);
     if (has) {
@@ -216,12 +268,12 @@ function renderScenes() {
 }
 
 function selectedScenes() {
-  const ids = new Set(
+  const keys = new Set(
     [...document.querySelectorAll('.scene input[type=checkbox]')]
       .filter((c) => c.checked && !c.disabled)
-      .map((c) => c.dataset.sceneId)
+      .map((c) => c.dataset.key)
   );
-  return currentScenes.filter((s) => ids.has(s.id) && (s.visual_prompt || '').trim());
+  return currentScenes.filter((s) => keys.has(String(s.key)) && (s.prompt || '').trim());
 }
 
 function updateQueueButton() {
@@ -315,6 +367,7 @@ async function doEnqueue(scenes, target, assetType, provider) {
         episodeTitle: currentEpisode.title,
         projectName: currentProject.name,
         scenes,
+        source: currentSource,
         target,
         assetType,
         provider,

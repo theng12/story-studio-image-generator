@@ -114,10 +114,14 @@ async function generateAndSave(item, settings, tab) {
   }
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
 
-  if (item.target === 'project' && item.slug && item.episodeCode && item.sceneId) {
+  if (item.target === 'project' && item.slug && item.episodeCode && item.sceneKey != null) {
     const client = new StudioClient(settings.studioBaseUrl);
-    const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneId, base64);
-    return { savedAs: `${item.sceneId}.png`, target: 'project', sceneId: out.scene_id };
+    if (item.source === 'prompts') {
+      const out = await client.uploadScenePromptImage(item.slug, item.episodeCode, item.sceneKey, base64, item.episodeTitle);
+      return { savedAs: out.saved_as || `${item.episodeCode}_Scene${String(item.sceneKey).padStart(2, '0')}_v1.png`, target: 'project' };
+    }
+    const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
+    return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
   }
 
   const filename = item.downloadPath.replace(/\.(png|jpg|jpeg)$/i, '') + `.${ext}`;
@@ -244,7 +248,7 @@ let processing = false;
 // Identity of a scene item, used to dedupe (so a double-click — or re-queuing
 // an episode — can't add the same scene twice and waste work/credits).
 function itemKey(it) {
-  return it.episodeCode && it.sceneId ? `${it.episodeCode}::${it.sceneId}` : null;
+  return it.episodeCode && it.sceneKey != null ? `${it.episodeCode}::${it.source}::${it.sceneKey}` : null;
 }
 
 async function enqueue(items) {
@@ -285,30 +289,32 @@ async function removeFromQueue(id) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, target, projectId, assetType, provider }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, target, projectId, assetType, provider }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || 'flow';
+  const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03 Scene Prompts)
   // Grok is image-only in this build (no Grok video path yet).
   const isVideo = assetType === 'video' && prov !== 'grok';
   // Video can't write back to the scene folder yet (no Story Studio video-ingest
   // endpoint) — it always goes to Downloads in v1.
   const effTarget = isVideo ? 'download' : target || settings.saveTarget;
+  // scenes are normalized: { source, key, label, prompt, hasImage }
   const items = (scenes || []).map((s) =>
     mkItem({
       kind: 'scene',
       provider: prov,
+      source: src,
       assetType: isVideo ? 'video' : 'image',
       slug,
       episodeCode,
       episodeTitle: episodeTitle || '',
-      sceneId: s.id,
-      sceneIndex: s.scene_index,
-      prompt: s.visual_prompt,
+      sceneKey: s.key, // scene_plan id (string) OR scene-prompts number
+      prompt: s.prompt,
       target: effTarget,
       projectId: projectId || settings.flowProjectId,
       model: isVideo ? settings.videoModel : settings.imageModel,
       aspectRatio: settings.aspectRatio,
-      label: `${episodeCode} ${isVideo ? 'video' : 'scene'} ${s.scene_index}`,
+      label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || 'scene ' + s.key}`,
       // tokens for Downloads naming:
       project: projectName || episodeTitle || slug,
       downloadPath:
@@ -320,8 +326,8 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
                 project: projectName || episodeTitle || slug,
                 episodeCode,
                 episodeTitle: episodeTitle || '',
-                sceneId: s.id,
-                sceneIndex: String(s.scene_index),
+                sceneId: src === 'plan' ? s.key : `Scene${String(s.key).padStart(2, '0')}`,
+                sceneIndex: String(s.key),
               },
               isVideo ? 'mp4' : 'png'
             ),
