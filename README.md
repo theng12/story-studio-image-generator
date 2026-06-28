@@ -1,4 +1,4 @@
-# Story Studio Image Generator for Story Studio
+# Story Studio Bulk Asset
 
 A Chrome (Manifest V3) extension that generates **scene images** (and, later,
 scene video) on **Google Flow** from your **Story Studio KH** scene plan — using
