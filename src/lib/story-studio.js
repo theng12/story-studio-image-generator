@@ -79,7 +79,7 @@ export class StudioClient {
 
   // Save a generated image back into the episode's real "05 Scene Images"
   // folder as {sceneId}.png and update scene_plan.json. base64 is the raw image
-  // bytes (no data: prefix).
+  // bytes (no data: prefix). SCENE PLAN source.
   uploadSceneImage(slug, code, sceneId, base64) {
     return this._json(
       `/projects/${encodeURIComponent(slug)}/scene-review/${encodeURIComponent(
@@ -89,6 +89,39 @@ export class StudioClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data_base64: base64 }),
+      }
+    );
+  }
+
+  // ── SCENE PROMPTS source ("03 Scene Prompts" / {CODE}_Scene_Prompts.md) ─────
+  // Per-scene image prompts from the Image Prompts Generator. NOTE: needs the
+  // episode title to resolve the on-disk folder (like the script endpoints).
+  // Returns { scenes: [{ number, title, prompt }], thumbnails: [...] }.
+  imagePrompts(slug, code, title = '') {
+    const q = title ? `?title=${encodeURIComponent(title)}` : '';
+    return this._json(
+      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/image-prompts${q}`
+    );
+  }
+
+  // Which numbered scene images already exist on disk for a scene-prompts
+  // episode → { scenes: { total, present, missing: [n...] }, dir: {...} }.
+  imageStatus(slug, code) {
+    return this._json(
+      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/image-status`
+    );
+  }
+
+  // Save a generated image for the SCENE PROMPTS source as
+  // {CODE}_Scene{NN}_v1.png in "05 Scene Images". Mirrors upload-image but keyed
+  // by scene number. (Endpoint added to story-studio-kh — needs an app rebuild.)
+  uploadScenePromptImage(slug, code, sceneNumber, base64, title = '') {
+    return this._json(
+      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/scene-image-ingest`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scene_number: sceneNumber, data_base64: base64, title }),
       }
     );
   }
