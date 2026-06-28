@@ -112,16 +112,17 @@ export class StudioClient {
     );
   }
 
-  // Save a generated image for the SCENE PROMPTS source as
-  // {CODE}_Scene{NN}_v1.png in "05 Scene Images". Mirrors upload-image but keyed
-  // by scene number. (Endpoint added to story-studio-kh — needs an app rebuild.)
-  uploadScenePromptImage(slug, code, sceneNumber, base64, title = '') {
+  // Save a generated image for the PROMPTS source as the native generator's
+  // name/dir:  kind 'scene' → {CODE}_Scene{NN}_v1.png in "05 Scene Images";
+  // kind 'thumbnail' → {CODE}_Thumb{NN}_v1.png in "06 Thumbnail Images".
+  // (Endpoint added to story-studio-kh — needs an app rebuild.)
+  ingestImage(slug, code, kind, number, base64, title = '') {
     return this._json(
-      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/scene-image-ingest`,
+      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/image-ingest`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene_number: sceneNumber, data_base64: base64, title }),
+        body: JSON.stringify({ kind, number, data_base64: base64, title }),
       }
     );
   }

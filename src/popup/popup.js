@@ -12,11 +12,16 @@ import { StudioClient } from '../lib/story-studio.js';
 const $ = (id) => document.getElementById(id);
 let settings = null;
 let client = null;
-// Normalized scenes (from either source): { source, key, label, prompt, hasImage, stale }
+// Normalized items: { source, kind, key, label, prompt, hasImage, stale }
 let currentScenes = [];
-let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03 Scene Prompts)
+let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03/04 prompts)
+let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
+
+// The "Make:" selector encodes both the asset kind and media type.
+const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
+const isVideoSel = () => $('mediaType').value === 'scene-video';
 
 async function init() {
   settings = await getSettings();
@@ -132,10 +137,15 @@ async function onProjectChange() {
     // Default: only episodes that still need images (scene plan present, images
     // not all done). Toggle "Show episodes with all images" to include finished.
     const showDone = $('showDoneEpisodes').checked;
-    // An episode qualifies if it has EITHER a scene plan or scene prompts.
-    const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter(
-      (e) => (e.status?.scene_plan || e.status?.scene_prompts) && (showDone || !e.status?.images)
-    );
+    // Qualifies if it has any prompt source (scene plan, scene prompts, or
+    // thumbnail prompts). Default hides episodes whose scene images AND
+    // thumbnails are both done; the toggle shows everything.
+    const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => {
+      const st = e.status || {};
+      const hasSource = st.scene_plan || st.scene_prompts || st.thumb_prompts;
+      const needsWork = !st.images || !st.thumbnails;
+      return hasSource && (showDone || needsWork);
+    });
     const esel = $('episode');
     esel.innerHTML = eps.length
       ? ''
@@ -166,22 +176,59 @@ async function loadScenes() {
   }
   currentEpisode = { code, title: esel.selectedOptions[0]?.dataset.title || '' };
   await saveSettings({ lastEpisode: code });
+  const kind = currentKind();
   $('loadScenes').disabled = true;
-  setStatus('Loading scenes…', 'running');
+  setStatus(`Loading ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
   try {
-    const { scenes, source } = await loadScenesFromEither(slug, currentEpisode);
+    let scenes;
+    let label;
+    if (kind === 'thumbnail') {
+      scenes = await loadThumbnails(slug, currentEpisode);
+      currentSource = 'prompts';
+      label = 'Thumbnail Prompts';
+    } else {
+      const r = await loadScenesFromEither(slug, currentEpisode);
+      scenes = r.scenes;
+      currentSource = r.source;
+      label = r.source === 'plan' ? 'Scene Plan' : 'Scene Prompts';
+    }
     currentScenes = scenes;
-    currentSource = source;
+    loadedKind = kind;
     renderScenes();
     const withImg = scenes.filter((s) => s.hasImage).length;
-    $('scenesSummary').textContent =
-      `Scenes (${source === 'plan' ? 'Scene Plan' : 'Scene Prompts'}) — ${withImg}/${scenes.length} have images`;
-    setStatus(scenes.length ? '' : 'No scene prompts found for this episode.', scenes.length ? 'info' : 'err');
+    const noun = kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
+    $('scenesSummary').textContent = `${noun} (${label}) — ${withImg}/${scenes.length} have images`;
+    setStatus(scenes.length ? '' : `No ${noun.toLowerCase()} found for this episode.`, scenes.length ? 'info' : 'err');
   } catch (e) {
-    setStatus(`Couldn't load scenes: ${e.message}`, 'err');
+    setStatus(`Couldn't load: ${e.message}`, 'err');
   } finally {
     $('loadScenes').disabled = false;
   }
+}
+
+// Thumbnails always come from the Image Prompts generator's `thumbnails` array
+// (04 Thumbnail Prompts) and save to 06 Thumbnail Images as {CODE}_Thumb{NN}_v1.png.
+async function loadThumbnails(slug, ep) {
+  const data = await client.imagePrompts(slug, ep.code, ep.title);
+  const thumbs = data?.thumbnails || [];
+  const present = new Set();
+  try {
+    const st = await client.imageStatus(slug, ep.code);
+    const missing = new Set((st?.thumbnails?.missing || []).map(Number));
+    const total = st?.thumbnails?.total || thumbs.length;
+    for (let n = 1; n <= total; n++) if (!missing.has(n)) present.add(n);
+  } catch {
+    /* status optional */
+  }
+  return thumbs.map((t) => ({
+    source: 'prompts',
+    kind: 'thumbnail',
+    key: t.number,
+    label: `Thumb ${t.number}${t.title ? ` — ${t.title}` : ''}`,
+    prompt: t.prompt || '',
+    hasImage: present.has(Number(t.number)),
+    stale: false,
+  }));
 }
 
 // An episode has EITHER a scene plan OR scene prompts (mutually exclusive).
@@ -195,6 +242,7 @@ async function loadScenesFromEither(slug, ep) {
         source: 'plan',
         scenes: data.scenes.map((s) => ({
           source: 'plan',
+          kind: 'scene',
           key: s.id,
           label: `Scene ${s.scene_index}`,
           prompt: s.visual_prompt || '',
@@ -222,6 +270,7 @@ async function loadScenesFromEither(slug, ep) {
     source: 'prompts',
     scenes: promptScenes.map((s) => ({
       source: 'prompts',
+      kind: 'scene',
       key: s.number,
       label: `Scene ${s.number}${s.title ? ` — ${s.title}` : ''}`,
       prompt: s.prompt || '',
@@ -284,9 +333,9 @@ function updateQueueButton() {
 function onProviderChange() {
   const grok = $('provider').value === 'grok';
   saveSettings({ provider: $('provider').value });
-  const videoOpt = $('mediaType').querySelector('option[value="video"]');
-  if (videoOpt) videoOpt.disabled = grok;
-  if (grok && $('mediaType').value === 'video') $('mediaType').value = 'image';
+  const videoOpt = $('mediaType').querySelector('option[value="scene-video"]');
+  if (videoOpt) videoOpt.disabled = grok; // Grok is image-only
+  if (grok && isVideoSel()) $('mediaType').value = 'scene-image';
   onMediaTypeChange();
   if (grok) checkGrok();
   else setStatus('', 'info');
@@ -306,9 +355,10 @@ async function checkGrok() {
   }
 }
 
-// Video can't write back to the scene folder yet — force Downloads + warn.
-function onMediaTypeChange() {
-  const isVideo = $('mediaType').value === 'video';
+// Video can't write back to the scene folder yet — force Downloads. Also reload
+// the list when switching between scenes and thumbnails (different prompts).
+async function onMediaTypeChange() {
+  const isVideo = isVideoSel();
   const st = $('saveTarget');
   if (isVideo) {
     st.value = 'download';
@@ -316,6 +366,9 @@ function onMediaTypeChange() {
   } else {
     st.disabled = false;
     st.value = settings.saveTarget;
+  }
+  if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
+    await loadScenes();
   }
 }
 
@@ -325,27 +378,31 @@ function confirmQueue() {
   if (!scenes.length) return;
   const provider = $('provider').value;
   const isGrok = provider === 'grok';
-  const isVideo = !isGrok && $('mediaType').value === 'video';
+  const kind = currentKind();
+  const isVideo = !isGrok && isVideoSel();
+  const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
+  const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
   const target = isVideo ? 'download' : $('saveTarget').value;
   if (target === 'project' && !currentProject) return;
   if (!isGrok && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
   }
+  const n = `${scenes.length} ${noun}${scenes.length > 1 ? 's' : ''}`;
   if (isGrok) {
-    $('confirmTitle').textContent = 'Queue these scenes on Grok?';
+    $('confirmTitle').textContent = `Queue these ${noun}s on Grok?`;
     $('confirmBody').textContent =
-      `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} via Grok Imagine → ` +
-      `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
+      `${n} from ${currentEpisode.code} via Grok Imagine → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
       `the queue pauses when it's hit and resumes later. 2–6 s between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Grok';
   } else {
-    $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : 'Queue these scenes?';
+    $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : `Queue these ${noun}s?`;
     $('confirmBody').textContent = isVideo
       ? `${scenes.length} Veo clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → Downloads. ` +
         `Each clip costs Google AI credits (~20 for Veo 3.1 Fast). One at a time, ~1–3 min each. Continue?`
-      : `${scenes.length} scene${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} → ` +
-        `${target === 'project' ? 'Story Studio scene folder' : 'Downloads'}. ` +
+      : `${n} from ${currentEpisode.code} → ` +
+        `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
         `Images use Nano Banana 2 (free). One at a time.`;
     $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
   }
@@ -353,11 +410,11 @@ function confirmQueue() {
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    await doEnqueue(scenes, target, isVideo ? 'video' : 'image', provider);
+    await doEnqueue(scenes, target, isVideo ? 'video' : 'image', provider, kind);
   };
 }
 
-async function doEnqueue(scenes, target, assetType, provider) {
+async function doEnqueue(scenes, target, assetType, provider, kind) {
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
@@ -368,6 +425,7 @@ async function doEnqueue(scenes, target, assetType, provider) {
         projectName: currentProject.name,
         scenes,
         source: currentSource,
+        kind,
         target,
         assetType,
         provider,
