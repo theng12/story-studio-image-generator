@@ -122,6 +122,32 @@ Recon against the logged-in studio settled the design. It's **fully API-driven**
     needs a new video-ingest endpoint there (none exists) + a scene→clip-number
     mapping — phase 2b.
 
+## Grok Imagine — second provider (free image generation)
+
+The panel has a **Provider** switch: **Google Flow** or **Grok Imagine** (xAI).
+Grok's free Imagine tier generates images with a **daily limit**; the queue is
+built around that — a 2–6 s human-like gap between every generation (both
+providers), and when Grok's daily limit is hit the run **pauses and resumes**
+later instead of failing the batch.
+
+**How it's driven — capture-and-replay.** Grok signs its API calls
+(`x-statsig-id`, and for anon users an `x-signature` derived from a localStorage
+key) behind Cloudflare, and its JS bundle is fetch-protected, so it can't be
+reverse-engineered the way Flow could. Instead the content script **captures the
+page's own Imagine generate request once** (endpoint + headers + body) as a
+template, persists it, and **replays it for each scene prompt** — swapping only
+the prompt text, so Grok's own auth/signing rides along. That means a one-time
+setup: **generate a single image at grok.com/imagine** (with the extension
+loaded) so the template is learned; after that, batch from the panel. The panel
+tells you when the template is captured.
+
+> Status: the capture harness, replay, daily-limit pause, and multi-provider
+> queue are implemented. The exact result-media shape and limit signal are
+> finalised from the first captured generation — during development the account's
+> free daily quota was exhausted, so the template is captured on the next
+> successful Imagine generation. Flow remains the unlimited/free batch workhorse
+> (Nano Banana 2); Grok is best for a few hero scenes given its daily cap.
+
 ## Install (unpacked)
 
 1. `chrome://extensions` → enable Developer mode → **Load unpacked** → pick this

@@ -16,6 +16,10 @@ import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
+const PROVIDER = {
+  flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
+  grok: { url: 'https://grok.com/imagine', match: 'https://grok.com/*' },
+};
 const QUEUE_KEY = 'queue';
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
@@ -54,46 +58,60 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// ── Flow tab plumbing ────────────────────────────────────────────────────────
-async function ensureFlowTab() {
-  const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+// ── provider tab plumbing ────────────────────────────────────────────────────
+async function ensureProviderTab(provider = 'flow') {
+  const cfg = PROVIDER[provider] || PROVIDER.flow;
+  const tabs = await chrome.tabs.query({ url: cfg.match });
   const ready = tabs.find((t) => t.status === 'complete');
   if (ready) return ready;
-  const tab = tabs[0] || (await chrome.tabs.create({ url: FLOW_URL, active: false }));
+  const tab = tabs[0] || (await chrome.tabs.create({ url: cfg.url, active: false }));
   await new Promise((resolve) => {
     const listener = (tabId, info) => {
       if (tabId === tab.id && info.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(resolve, 1200); // let content scripts + grecaptcha initialise
+        setTimeout(resolve, 1200); // let content scripts + grecaptcha/signing init
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
   return tab;
 }
+const ensureFlowTab = () => ensureProviderTab('flow');
 
 async function send(tabId, message) {
   const res = await chrome.tabs.sendMessage(tabId, message);
-  if (!res || !res.ok) throw new Error(res?.error || 'No response from the Flow tab.');
+  if (!res || !res.ok) throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), { limit: !!res?.limit });
   return res;
 }
 
-// Generate one scene's image on Flow and save it (project or Downloads).
+// Generate one scene's image (Flow or Grok) and save it (project or Downloads).
 async function generateAndSave(item, settings, tab) {
-  const projectId = item.projectId || settings.flowProjectId;
-  if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
+  const provider = item.provider || 'flow';
 
-  const r = await send(tab.id, {
-    type: 'flow:generateImage',
-    params: {
-      projectId,
-      prompt: item.prompt,
-      model: item.model || settings.imageModel,
-      aspectRatio: item.aspectRatio || settings.aspectRatio,
-    },
-  });
-  const { base64, mime } = r;
+  let base64, mime;
+  if (provider === 'grok') {
+    const r = await send(tab.id, {
+      type: 'grok:generateImage',
+      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio },
+    });
+    base64 = r.base64;
+    mime = r.mime;
+  } else {
+    const projectId = item.projectId || settings.flowProjectId;
+    if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
+    const r = await send(tab.id, {
+      type: 'flow:generateImage',
+      params: {
+        projectId,
+        prompt: item.prompt,
+        model: item.model || settings.imageModel,
+        aspectRatio: item.aspectRatio || settings.aspectRatio,
+      },
+    });
+    base64 = r.base64;
+    mime = r.mime;
+  }
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
 
   if (item.target === 'project' && item.slug && item.episodeCode && item.sceneId) {
@@ -203,7 +221,9 @@ async function writeStatus(text, kind = 'info') {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const politeGap = () => 2500 + Math.floor(Math.random() * 3500); // 2.5–6s
+// Human-like, randomized 2–6 s gap between generations so a bulk run never
+// hammers the provider (Flow or Grok) at machine speed.
+const politeGap = () => 2000 + Math.floor(Math.random() * 4000); // 2–6 s
 
 // ── the queue ───────────────────────────────────────────────────────────────
 async function getQueue() {
@@ -265,15 +285,18 @@ async function removeFromQueue(id) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, target, projectId, assetType }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, target, projectId, assetType, provider }) {
   const settings = await getSettings();
-  const isVideo = assetType === 'video';
+  const prov = provider || settings.provider || 'flow';
+  // Grok is image-only in this build (no Grok video path yet).
+  const isVideo = assetType === 'video' && prov !== 'grok';
   // Video can't write back to the scene folder yet (no Story Studio video-ingest
   // endpoint) — it always goes to Downloads in v1.
   const effTarget = isVideo ? 'download' : target || settings.saveTarget;
   const items = (scenes || []).map((s) =>
     mkItem({
       kind: 'scene',
+      provider: prov,
       assetType: isVideo ? 'video' : 'image',
       slug,
       episodeCode,
@@ -312,7 +335,7 @@ async function processQueue() {
   processing = true;
   try {
     const settings = await getSettings();
-    let tab = null;
+    const tabs = {}; // per-provider tab cache
     for (;;) {
       let q = await getQueue();
       const idx = q.findIndex((i) => i.status === 'pending');
@@ -320,14 +343,15 @@ async function processQueue() {
       q[idx].status = 'running';
       await setQueue(q);
       const item = q[idx];
+      const provider = item.provider || 'flow';
       const pos = q.filter((i) => i.status === 'done' || i.status === 'failed').length + 1;
       await writeStatus(`(${pos}/${q.length}) ${item.label}…`, 'running');
       try {
-        if (!tab) tab = await ensureFlowTab();
+        if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         const r =
           item.assetType === 'video'
-            ? await generateVideoAndSave(item, settings, tab)
-            : await generateAndSave(item, settings, tab);
+            ? await generateVideoAndSave(item, settings, tabs[provider])
+            : await generateAndSave(item, settings, tabs[provider]);
         q = await getQueue();
         const it = q.find((i) => i.id === item.id);
         if (it) {
@@ -336,6 +360,18 @@ async function processQueue() {
         }
         await setQueue(q);
       } catch (e) {
+        // Grok daily free limit: pause the run instead of failing the whole
+        // batch. Re-pend this item, stop the loop, and don't auto-hammer — it
+        // resumes when the panel/worker next kicks the queue (e.g. tomorrow).
+        if (e && e.limit) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) it.status = 'pending';
+          await setQueue(q);
+          await writeStatus('⏸ Grok daily free limit reached — paused. Resumes when you reopen the panel or click Resume.', 'info');
+          alarmClear();
+          return;
+        }
         q = await getQueue();
         const it = q.find((i) => i.id === item.id);
         if (it) {
@@ -395,6 +431,20 @@ async function flowContext() {
   return { ok: true, ...r.result };
 }
 
+// Probe Grok: signed in? has a captured request template (needed to generate)?
+async function grokContext() {
+  const tab = await ensureProviderTab('grok');
+  const r = await send(tab.id, { type: 'grok:getContext' });
+  return { ok: true, ...r.result };
+}
+
+// Resume a paused/pending queue (e.g. after a Grok daily-limit pause).
+async function resumeQueue() {
+  alarmCreate();
+  processQueue();
+  return { ok: true };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const reply = (p) =>
     p.then((r) => sendResponse(r)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
@@ -413,10 +463,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       reply(clearQueue());
       return true;
     case 'getQueue':
-      reply(getQueue().then((queue) => ({ ok: true, queue })));
+      // Reopening the panel resumes a paused queue.
+      reply(
+        getQueue().then((queue) => {
+          if (queue.some((i) => i.status === 'pending') && !processing) {
+            alarmCreate();
+            processQueue();
+          }
+          return { ok: true, queue };
+        })
+      );
       return true;
     case 'flowContext':
       reply(flowContext());
+      return true;
+    case 'grokContext':
+      reply(grokContext());
+      return true;
+    case 'resumeQueue':
+      reply(resumeQueue());
       return true;
     default:
       return false;
