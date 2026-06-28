@@ -48,8 +48,13 @@ export const DEFAULTS = {
   filenameTemplate: '{episodeCode}_{sceneId}',
 
   // Re-generate scenes that already have an image? Off by default (saves work
-  // and, for video, credits).
+  // and, for video, credits). Scene-level (within a loaded episode).
   includeExisting: false,
+
+  // Episode-list filter: by default hide episodes whose scene images are all
+  // done, so the dropdown only shows episodes that still need work. Toggle on
+  // to show completed episodes too.
+  showDoneEpisodes: false,
 
   // Last-used selections, restored when the panel reopens.
   lastProject: '',
