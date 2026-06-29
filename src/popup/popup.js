@@ -72,6 +72,7 @@ function wire() {
     if ($('project').value) await onProjectChange();
   };
   $('useCurrentProject').onclick = useCurrentFlowProject;
+  $('testConn').onclick = testConnection;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
 }
 
@@ -102,6 +103,49 @@ async function useCurrentFlowProject() {
     setStatus(String(e.message || e), 'err');
   } finally {
     $('useCurrentProject').disabled = false;
+  }
+}
+
+// ── Story Studio connection test ────────────────────────────────────────────
+// Verifies the whole chain from where you actually work: for a remote/Tailscale
+// URL it first checks host access was granted (Settings), then reaches the API.
+async function testConnection() {
+  const out = $('connStatus');
+  const setConn = (t, color) => {
+    out.textContent = t;
+    out.style.color = color;
+  };
+  $('testConn').disabled = true;
+  setConn('Testing…', 'var(--muted)');
+  try {
+    const url = settings.studioBaseUrl || '';
+    const local = /localhost|127\.0\.0\.1/.test(url);
+    if (!local) {
+      let pat = null;
+      try {
+        const u = new URL(url);
+        pat = `${u.protocol}//${u.hostname}/*`;
+      } catch {
+        /* invalid url */
+      }
+      const granted = pat ? await chrome.permissions.contains({ origins: [pat] }).catch(() => false) : false;
+      if (!granted) {
+        setConn('✗ No host access — open Settings → Grant access to this server.', 'var(--err)');
+        return;
+      }
+    }
+    const projects = await client.listProjects();
+    const n = Array.isArray(projects) ? projects.length : (projects.projects || []).length;
+    setConn(`✓ Connected — ${n} project${n !== 1 ? 's' : ''}.`, 'var(--ok)');
+    await loadProjects(); // refresh the dropdown now that we're reachable
+  } catch (e) {
+    const local = /localhost|127\.0\.0\.1/.test(settings.studioBaseUrl || '');
+    setConn(
+      `✗ ${e.message}. ${local ? 'Is Story Studio running?' : "Check it's running, access granted, and you're logged in."}`,
+      'var(--err)'
+    );
+  } finally {
+    $('testConn').disabled = false;
   }
 }
 
