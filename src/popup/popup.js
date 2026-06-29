@@ -123,7 +123,9 @@ async function loadProjects() {
       if (sel.value) await onProjectChange();
     }
   } catch (e) {
-    setStatus(`Can't reach Story Studio at ${settings.studioBaseUrl} — is it running? (${e.message})`, 'err');
+    const local = /localhost|127\.0\.0\.1/.test(settings.studioBaseUrl || '');
+    const hint = local ? 'is it running?' : 'is it running, did you Grant access + log in (Settings)?';
+    setStatus(`Can't reach Story Studio at ${settings.studioBaseUrl} — ${hint} (${e.message})`, 'err');
   }
 }
 
