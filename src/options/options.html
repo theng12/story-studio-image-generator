@@ -18,7 +18,11 @@
       <div class="field">
         <span class="label">Server URL</span>
         <input type="text" id="studioBaseUrl" placeholder="http://localhost:8766" />
-        <div class="hint">Local studio (8766/8000) needs no login. Only a remote/tailnet server does.</div>
+        <div class="hint">Local studio (localhost) needs no login or access grant. A remote/Tailscale server (e.g. http://mac-mini.tailXXXX.ts.net:8677) needs both.</div>
+        <div class="row" style="margin-top:6px">
+          <button id="grantAccess" class="btn small">Grant access to this server</button>
+          <span id="grantStatus" class="muted small"></span>
+        </div>
       </div>
       <div class="field" id="loginFields">
         <div class="row">

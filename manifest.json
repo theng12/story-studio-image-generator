@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Generate Story Studio KH scene images & video on Google Flow (and images on Grok Imagine) from your scene plan, using your web-subscription credits, and save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
@@ -15,6 +15,7 @@
     "https://grok.com/*",
     "https://*.grok.com/*"
   ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
