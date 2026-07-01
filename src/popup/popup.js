@@ -533,6 +533,46 @@ async function doEnqueue(scenes, target, assetType, provider, kind) {
 }
 
 // ── queue view ──────────────────────────────────────────────────────────────
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+function itemQueuedAt(item) {
+  if (Number.isFinite(item.queuedAt)) return item.queuedAt;
+  const legacy = Number(String(item.id || '').split('_')[0]);
+  return Number.isFinite(legacy) ? legacy : null;
+}
+
+function renderQueueTiming(queue) {
+  const el = $('queueTiming');
+  if (!queue.length) {
+    el.textContent = '';
+    return;
+  }
+  const starts = queue.map(itemQueuedAt).filter(Number.isFinite);
+  const sessionStart = starts.length ? Math.min(...starts) : Date.now();
+  const active = queue.some((i) => i.status === 'pending' || i.status === 'running');
+  const finishes = queue.map((i) => i.finishedAt).filter(Number.isFinite);
+  const sessionEnd = active ? Date.now() : finishes.length ? Math.max(...finishes) : Date.now();
+  const done = queue.filter((i) => i.status === 'done');
+  const measured = done.map((i) => i.durationMs).filter((n) => Number.isFinite(n) && n >= 0);
+  const avg = measured.length ? measured.reduce((sum, n) => sum + n, 0) / measured.length : null;
+  const remaining = queue.filter((i) => i.status === 'pending' || i.status === 'running').length;
+  const episodes = [...new Set(queue.map((i) => i.episodeCode).filter(Boolean))];
+  const scope = episodes.length === 1 ? episodes[0] : `${episodes.length} episodes`;
+  const parts = [scope, `${done.length}/${queue.length} done`, `${active ? 'elapsed' : 'total'} ${formatDuration(sessionEnd - sessionStart)}`];
+  if (avg != null) parts.push(`avg ${formatDuration(avg)}/asset`);
+  if (active && avg != null && remaining) parts.push(`ETA ~${formatDuration(avg * remaining)}`);
+  el.textContent = parts.join(' · ');
+}
+
 async function pollQueue() {
   const [{ queue = [] } = {}, st] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'getQueue' }).then((r) => r || {}),
@@ -540,12 +580,14 @@ async function pollQueue() {
   ]);
   const wrap = $('queue');
   wrap.innerHTML = '';
+  renderQueueTiming(queue);
   for (const it of queue) {
     const row = document.createElement('div');
     row.className = 'qitem';
     const label = document.createElement('div');
     label.className = 'qlabel';
-    label.textContent = it.label + (it.savedAs ? ` → ${it.savedAs}` : '') + (it.error ? ` — ${it.error}` : '');
+    const timing = Number.isFinite(it.durationMs) ? ` · ${formatDuration(it.durationMs)}` : '';
+    label.textContent = it.label + (it.savedAs ? ` → ${it.savedAs}` : '') + timing + (it.error ? ` — ${it.error}` : '');
     label.title = label.textContent;
     const stat = document.createElement('span');
     stat.className = 'qstatus ' + it.status;

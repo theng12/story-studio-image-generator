@@ -334,7 +334,7 @@ async function setQueue(q) {
 
 let _seq = 0;
 function mkItem(o) {
-  return { id: `${Date.now()}_${_seq++}`, status: 'pending', ...o };
+  return { id: `${Date.now()}_${_seq++}`, status: 'pending', queuedAt: Date.now(), ...o };
 }
 
 let processing = false;
@@ -364,7 +364,7 @@ async function enqueue(items) {
       skipped++;
       continue;
     }
-    q.push({ ...it, id: it.id || `${Date.now()}_${_seq++}`, status: 'pending' });
+    q.push({ ...it, id: it.id || `${Date.now()}_${_seq++}`, status: 'pending', queuedAt: it.queuedAt || Date.now() });
     if (key) active.add(key);
     added++;
   }
@@ -398,6 +398,9 @@ async function retryFailed(id = null) {
     }
     item.status = 'pending';
     delete item.error;
+    delete item.startedAt;
+    delete item.finishedAt;
+    delete item.durationMs;
     retried++;
   }
   await setQueue(q);
@@ -472,6 +475,9 @@ async function processQueue() {
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
       q[idx].status = 'running';
+      q[idx].startedAt = q[idx].startedAt || Date.now();
+      delete q[idx].finishedAt;
+      delete q[idx].durationMs;
       await setQueue(q);
       const item = q[idx];
       const provider = item.provider || 'flow';
@@ -488,6 +494,8 @@ async function processQueue() {
         if (it) {
           it.status = 'done';
           it.savedAs = r.savedAs;
+          it.finishedAt = Date.now();
+          it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
         await setQueue(q);
       } catch (e) {
@@ -497,7 +505,10 @@ async function processQueue() {
         if (e && e.limit) {
           q = await getQueue();
           const it = q.find((i) => i.id === item.id);
-          if (it) it.status = 'pending';
+          if (it) {
+            it.status = 'pending';
+            delete it.startedAt;
+          }
           await setQueue(q);
           await writeStatus('⏸ Grok daily free limit reached — paused. Resumes when you reopen the panel or click Resume.', 'info');
           alarmClear();
@@ -524,6 +535,8 @@ async function processQueue() {
         if (it) {
           it.status = 'failed';
           it.error = String(e.message || e);
+          it.finishedAt = Date.now();
+          it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
         await setQueue(q);
       }
@@ -558,6 +571,7 @@ async function clearQueue() {
   for (const i of q)
     if (i.status === 'running') {
       i.status = 'pending';
+      delete i.startedAt;
       changed = true;
     }
   if (changed) await setQueue(q);
