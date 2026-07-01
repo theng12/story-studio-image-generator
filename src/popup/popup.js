@@ -55,6 +55,12 @@ function wire() {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
     pollQueue();
   };
+  $('retryFailed').onclick = async () => {
+    const res = await chrome.runtime.sendMessage({ type: 'retryFailed' });
+    if (res?.skippedPaid) setStatus(`Retrying ${res.retried}; ${res.skippedPaid} paid video needs its row Retry button.`, 'info');
+    else if (!res?.retried) setStatus('No failed jobs to retry.', 'info');
+    pollQueue();
+  };
   $('saveTarget').onchange = () => {
     saveSettings({ saveTarget: $('saveTarget').value });
     flashSaved();
@@ -555,6 +561,31 @@ async function pollQueue() {
         pollQueue();
       };
       row.appendChild(x);
+    } else if (it.status === 'failed') {
+      const retry = document.createElement('button');
+      retry.className = 'retry';
+      retry.textContent = '↻';
+      retry.title = 'Retry this failed job';
+      retry.onclick = async () => {
+        const ambiguousPaid = it.assetType === 'video' && it.phase === 'submitting' && !it.videoMediaId;
+        if (ambiguousPaid) {
+          const dlg = $('confirm');
+          $('confirmTitle').textContent = 'Retry paid video submission?';
+          $('confirmBody').textContent =
+            'Flow may have accepted the previous request before the page refreshed. Retrying could spend credits twice.';
+          $('confirmOk').textContent = 'Retry and accept risk';
+          dlg.classList.remove('hidden');
+          $('confirmOk').onclick = async () => {
+            dlg.classList.add('hidden');
+            await chrome.runtime.sendMessage({ type: 'retryFailed', id: it.id });
+            pollQueue();
+          };
+          return;
+        }
+        await chrome.runtime.sendMessage({ type: 'retryFailed', id: it.id });
+        pollQueue();
+      };
+      row.appendChild(retry);
     }
     wrap.appendChild(row);
   }
