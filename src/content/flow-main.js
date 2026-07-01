@@ -112,6 +112,12 @@
     return m ? m[1] : '';
   }
 
+  function normalizeProjectId(value) {
+    const raw = String(value || '').trim();
+    const m = raw.match(/(?:\/project\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i);
+    return m ? m[1].toLowerCase() : raw;
+  }
+
   function bufToBase64(buf) {
     const bytes = new Uint8Array(buf);
     let bin = '';
@@ -138,7 +144,7 @@
 
   // ── image generation (verified live) ──────────────────────────────────────
   async function generateImage(p) {
-    const projectId = p.projectId || currentProjectId();
+    const projectId = normalizeProjectId(p.projectId || currentProjectId());
     if (!projectId)
       throw new Error('No Flow project selected. Open a Flow project (or set one in the panel) first.');
     if (!p.prompt || !p.prompt.trim()) throw new Error('Empty image prompt.');
@@ -231,7 +237,7 @@
   };
 
   async function submitVideo(p) {
-    const projectId = p.projectId || currentProjectId();
+    const projectId = normalizeProjectId(p.projectId || currentProjectId());
     if (!projectId) throw new Error('No Flow project selected.');
     if (!p.prompt || !p.prompt.trim()) throw new Error('Empty video prompt.');
     const model = VIDEO_MODELS[p.model] || 'veo_3_1_t2v_fast';
@@ -286,7 +292,7 @@
   }
 
   async function checkVideo(p) {
-    const projectId = p.projectId || currentProjectId();
+    const projectId = normalizeProjectId(p.projectId || currentProjectId());
     if (!p.mediaId) throw new Error('checkVideo needs a mediaId.');
     const r = await fetch(`${API}/video:batchCheckAsyncVideoGenerationStatus`, {
       method: 'POST',
@@ -344,7 +350,7 @@
   // Upload an image to the Flow project; returns its media id (for startImage).
   // No reCAPTCHA needed for upload (verified). base64 = raw bytes, no data: prefix.
   async function uploadImage(p) {
-    const projectId = p.projectId || currentProjectId();
+    const projectId = normalizeProjectId(p.projectId || currentProjectId());
     if (!projectId) throw new Error('No Flow project selected.');
     if (!p.base64) throw new Error('uploadImage needs base64 image bytes.');
     const r = await fetch(`${API}/flow/uploadImage`, {
@@ -369,7 +375,7 @@
   // Submit an image-to-video generation. params: { projectId, mediaId,
   // motionPrompt, model, aspectRatio, seed }. Returns { mediaId, workflowId }.
   async function submitVideoStartImage(p) {
-    const projectId = p.projectId || currentProjectId();
+    const projectId = normalizeProjectId(p.projectId || currentProjectId());
     if (!projectId) throw new Error('No Flow project selected.');
     if (!p.mediaId) throw new Error('submitVideoStartImage needs a startImage mediaId.');
     const model = i2vModelKey(p.model, p.durationSec);

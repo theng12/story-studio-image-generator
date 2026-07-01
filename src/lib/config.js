@@ -67,14 +67,30 @@ export const DEFAULTS = {
 
 const STORAGE_KEY = 'settings';
 
+// Accept either the bare UUID or a copied Flow project URL. Keeping this at
+// the settings boundary prevents a URL from becoming part of the API path.
+export function normalizeFlowProjectId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/(?:\/project\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i);
+  return match ? match[1].toLowerCase() : raw;
+}
+
 export async function getSettings() {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  return { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
+  const next = { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
+  const normalized = normalizeFlowProjectId(next.flowProjectId);
+  if (normalized !== next.flowProjectId) {
+    next.flowProjectId = normalized;
+    await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  }
+  return next;
 }
 
 export async function saveSettings(patch) {
   const current = await getSettings();
   const next = { ...current, ...patch };
+  next.flowProjectId = normalizeFlowProjectId(next.flowProjectId);
   await chrome.storage.sync.set({ [STORAGE_KEY]: next });
   return next;
 }
