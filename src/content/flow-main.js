@@ -190,7 +190,7 @@
       } catch {
         /* non-JSON */
       }
-      throw new Error(`Flow image generation failed: ${detail}`);
+      throw new Error(`Flow image generation failed (${r.status}): ${detail}`);
     }
     const j = await r.json();
     const gen = j?.media?.[0]?.image?.generatedImage;
@@ -278,7 +278,7 @@
       } catch {
         /* non-JSON */
       }
-      throw new Error(`Flow video submit failed: ${detail}`);
+      throw new Error(`Flow video submit failed (${r.status}): ${detail}`);
     }
     const j = await r.json();
     const media = j?.media?.[0];
@@ -416,7 +416,7 @@
       } catch {
         /* non-JSON */
       }
-      throw new Error(`Flow image-to-video submit failed: ${detail}`);
+      throw new Error(`Flow image-to-video submit failed (${r.status}): ${detail}`);
     }
     const j = await r.json();
     const mediaId = j?.media?.[0]?.name;

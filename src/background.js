@@ -166,18 +166,22 @@ async function generateAndSave(item, settings, tab) {
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
 
   if (item.target === 'project' && item.slug && item.episodeCode && item.sceneKey != null) {
-    const client = new StudioClient(settings.studioBaseUrl);
-    const pad = String(item.sceneKey).padStart(2, '0');
-    if (item.kind === 'thumbnail') {
-      const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
-      return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
+    try {
+      const client = new StudioClient(settings.studioBaseUrl);
+      const pad = String(item.sceneKey).padStart(2, '0');
+      if (item.kind === 'thumbnail') {
+        const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
+        return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
+      }
+      if (item.source === 'prompts') {
+        const out = await client.ingestImage(item.slug, item.episodeCode, 'scene', item.sceneKey, base64, item.episodeTitle);
+        return { savedAs: out.saved_as || `${item.episodeCode}_Scene${pad}_v1.png`, target: 'project' };
+      }
+      const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
+      return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
+    } catch (error) {
+      throw new Error(`Story Studio save failed: ${String(error?.message || error)}`);
     }
-    if (item.source === 'prompts') {
-      const out = await client.ingestImage(item.slug, item.episodeCode, 'scene', item.sceneKey, base64, item.episodeTitle);
-      return { savedAs: out.saved_as || `${item.episodeCode}_Scene${pad}_v1.png`, target: 'project' };
-    }
-    const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
-    return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
   }
 
   const filename = item.downloadPath.replace(/\.(png|jpg|jpeg)$/i, '') + `.${ext}`;
@@ -324,8 +328,107 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const politeGap = () => 2000 + Math.floor(Math.random() * 4000); // 2–6 s
 
 // ── the queue ───────────────────────────────────────────────────────────────
+function diagnoseFailure(error, item = {}) {
+  const raw = String(error?.message || error || 'Unknown error');
+  const text = raw.toLowerCase();
+  const provider = item.provider === 'grok' ? 'Grok' : 'Flow';
+  const match = (pattern) => pattern.test(text);
+
+  if (match(/story studio save failed|story studio rejected|scene image not found|scene image is empty/))
+    return {
+      code: 'save',
+      title: 'Story Studio save failed',
+      hint: 'Test the Studio connection and access settings, then retry.',
+      raw,
+    };
+  if (match(/resource has been exhausted|quota|rate.?limit|too many requests|\b429\b|daily free limit/))
+    return {
+      code: 'quota',
+      title: `${provider} quota reached`,
+      hint: 'Wait for the limit to reset or switch to another signed-in account, then retry.',
+      raw,
+    };
+  if (match(/not signed in|sign in again|no access_token|unauthori[sz]ed|\b401\b|authentication/))
+    return {
+      code: 'auth',
+      title: `${provider} sign-in expired`,
+      hint: `Sign in again in the ${provider} tab, reload it, then retry.`,
+      raw,
+    };
+  if (match(/recaptcha|captcha evaluation|grecaptcha/))
+    return {
+      code: 'recaptcha',
+      title: 'Flow verification failed',
+      hint: 'Reload the Flow tab, wait for it to finish loading, then retry.',
+      raw,
+    };
+  if (match(/safety|responsible ai|policy|blocked prompt|prohibited|moderation/))
+    return {
+      code: 'safety',
+      title: 'Prompt rejected by safety filters',
+      hint: 'Revise the prompt to remove sensitive or restricted wording, then retry.',
+      raw,
+    };
+  if (match(/invalid argument|no flow project|project.*(?:not found|invalid)|\b400\b|\b404\b/))
+    return {
+      code: 'request',
+      title: 'Invalid project or generation request',
+      hint: 'Open the intended Flow project, select it again in the panel, and verify the model and prompt.',
+      raw,
+    };
+  if (match(/provider tab|message port|receiving end|could not establish connection|frame .*removed|context invalidated/))
+    return {
+      code: 'tab',
+      title: `${provider} tab disconnected`,
+      hint: `Keep the ${provider} tab open, reload it, then retry.`,
+      raw,
+    };
+  if (match(/network|failed to fetch|load failed|offline|connection|\b5\d\d\b|service unavailable/))
+    return {
+      code: 'network',
+      title: `${provider} service or network error`,
+      hint: 'Check the connection and provider page, wait briefly, then retry.',
+      raw,
+    };
+  if (match(/timed? out|timeout|deadline/))
+    return {
+      code: 'timeout',
+      title: 'Generation timed out',
+      hint: 'Check the provider tab for a completed asset before retrying, especially for paid video.',
+      raw,
+    };
+  if (match(/asset download|video download|downloaded asset was empty|returned no image url/))
+    return {
+      code: 'download',
+      title: 'Generated asset could not be downloaded',
+      hint: 'Check whether the asset exists in Flow, then retry the save or generation.',
+      raw,
+    };
+  if (match(/permission denied|forbidden|\b403\b/))
+    return {
+      code: 'access',
+      title: `${provider} access denied`,
+      hint: `Check that the signed-in ${provider} account can access the selected project, then retry.`,
+      raw,
+    };
+  return {
+    code: 'unknown',
+    title: 'Unclassified generation failure',
+    hint: 'Open the details below and use the raw message to investigate before retrying.',
+    raw,
+  };
+}
+
 async function getQueue() {
   const { queue = [] } = await chrome.storage.local.get(QUEUE_KEY);
+  let changed = false;
+  for (const item of queue) {
+    if (item.status === 'failed' && item.error && !item.failure) {
+      item.failure = diagnoseFailure(item.error, item);
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ [QUEUE_KEY]: queue });
   return queue;
 }
 async function setQueue(q) {
@@ -398,6 +501,7 @@ async function retryFailed(id = null) {
     }
     item.status = 'pending';
     delete item.error;
+    delete item.failure;
     delete item.startedAt;
     delete item.finishedAt;
     delete item.durationMs;
@@ -493,6 +597,8 @@ async function processQueue() {
         const it = q.find((i) => i.id === item.id);
         if (it) {
           it.status = 'done';
+          delete it.error;
+          delete it.failure;
           it.savedAs = r.savedAs;
           it.finishedAt = Date.now();
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
@@ -535,6 +641,7 @@ async function processQueue() {
         if (it) {
           it.status = 'failed';
           it.error = String(e.message || e);
+          it.failure = diagnoseFailure(e, it);
           it.finishedAt = Date.now();
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }

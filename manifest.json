@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Generate Story Studio KH scene images & video on Google Flow (and images on Grok Imagine) from your scene plan, using your web-subscription credits, and save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
