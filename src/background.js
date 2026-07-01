@@ -11,7 +11,7 @@
 // never flooded no matter how much you queue. Veo video (phase 2) is async and
 // slow; the queue's resumability is what makes that safe.
 
-import { getSettings } from './lib/config.js';
+import { getSettings, normalizeFlowProjectId } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
@@ -78,10 +78,61 @@ async function ensureProviderTab(provider = 'flow') {
 }
 const ensureFlowTab = () => ensureProviderTab('flow');
 
+function isTabReloadError(error) {
+  return /message port closed|receiving end does not exist|could not establish connection|frame (?:was )?removed|tab (?:was )?closed|context invalidated|no tab with id/i.test(
+    String(error?.message || error || '')
+  );
+}
+
+async function waitForTabReady(tabId, timeoutMs = 60000) {
+  const current = await chrome.tabs.get(tabId).catch(() => null);
+  if (!current) throw new Error('The provider tab was closed. Reopen it to resume the queue.');
+  if (current.status !== 'complete') {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('Provider tab reload timed out.'));
+      }, timeoutMs);
+      const listener = (updatedId, info) => {
+        if (updatedId === tabId && info.status === 'complete') {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+  }
+  // document_idle scripts and Flow's grecaptcha initialize just after complete.
+  await sleep(1500);
+}
+
 async function send(tabId, message) {
-  const res = await chrome.tabs.sendMessage(tabId, message);
-  if (!res || !res.ok) throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), { limit: !!res?.limit });
-  return res;
+  // Retrying generation is safe for free Flow images. Read-only checks and
+  // uploads are safe too. Never retry a paid video submit after losing its
+  // response: it may have reached Flow and could charge twice.
+  const reloadSafe = new Set([
+    'flow:generateImage',
+    'flow:uploadImage',
+    'flow:checkVideo',
+    'flow:getContext',
+  ]).has(message?.type);
+  const attempts = reloadSafe ? 4 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, message);
+      if (!res || !res.ok)
+        throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), {
+          limit: !!res?.limit,
+        });
+      return res;
+    } catch (error) {
+      if (!reloadSafe || !isTabReloadError(error) || attempt === attempts) throw error;
+      await writeStatus('Provider tab refreshed — waiting to resume the current job…', 'running');
+      await waitForTabReady(tabId);
+    }
+  }
+  throw new Error('Provider tab did not become ready.');
 }
 
 // Generate one scene's image (Flow or Grok) and save it (project or Downloads).
@@ -98,7 +149,7 @@ async function generateAndSave(item, settings, tab) {
     base64 = r.base64;
     mime = r.mime;
   } else {
-    const projectId = item.projectId || settings.flowProjectId;
+    const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
     const r = await send(tab.id, {
       type: 'flow:generateImage',
@@ -182,7 +233,7 @@ async function downloadVideoArrayBuffer(mediaId) {
 // {scene_id}.mp4 (project) or to Downloads. Every async id is persisted the
 // instant we get it, so a worker restart RESUMES rather than re-charging.
 async function generateVideoAndSave(item, settings, tab) {
-  const projectId = item.projectId || settings.flowProjectId;
+  const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
   if (!projectId) throw new Error('No Flow project set.');
   const client = new StudioClient(settings.studioBaseUrl);
 
@@ -359,7 +410,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       videoSource: isVideo ? settings.videoSource : undefined, // 'existing' | 'generate'
       durationSec: isVideo ? s.durationSec : undefined, // request clip ≈ scene window
       target: effTarget,
-      projectId: projectId || settings.flowProjectId,
+      projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
       model: isVideo ? settings.videoModel : settings.imageModel,
       aspectRatio: settings.aspectRatio,
       label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || akind + ' ' + s.key}`,
