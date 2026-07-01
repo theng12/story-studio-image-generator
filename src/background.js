@@ -79,7 +79,7 @@ async function ensureProviderTab(provider = 'flow') {
 const ensureFlowTab = () => ensureProviderTab('flow');
 
 function isTabReloadError(error) {
-  return /message port closed|receiving end does not exist|could not establish connection|frame (?:was )?removed|tab (?:was )?closed|context invalidated|no tab with id/i.test(
+  return /message port closed|receiving end does not exist|could not establish connection|frame (?:was )?removed|tab (?:was )?closed|context invalidated|no tab with id|asynchronous response|provider tab (?:was closed|reload timed out)/i.test(
     String(error?.message || error || '')
   );
 }
@@ -383,6 +383,32 @@ async function removeFromQueue(id) {
   return { ok: true };
 }
 
+async function retryFailed(id = null) {
+  const q = await getQueue();
+  let retried = 0;
+  let skippedPaid = 0;
+  for (const item of q) {
+    if (item.status !== 'failed' || (id && item.id !== id)) continue;
+    // A paid submit with no returned media id is ambiguous: Flow may have
+    // accepted it before the tab reloaded. Only a deliberate single-item retry
+    // may resubmit it; bulk retry skips it to avoid surprise double charges.
+    if (!id && item.assetType === 'video' && item.phase === 'submitting' && !item.videoMediaId) {
+      skippedPaid++;
+      continue;
+    }
+    item.status = 'pending';
+    delete item.error;
+    retried++;
+  }
+  await setQueue(q);
+  if (retried) {
+    await writeStatus(`Retrying ${retried} failed job${retried === 1 ? '' : 's'}…`, 'running');
+    alarmCreate();
+    processQueue();
+  }
+  return { ok: true, retried, skippedPaid };
+}
+
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
 async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, assetType, provider }) {
@@ -477,6 +503,22 @@ async function processQueue() {
           alarmClear();
           return;
         }
+        // A page reload is a transport interruption, not a generation result.
+        // Put safe/resumable work back at the front and let the alarm wake it
+        // after the provider tab settles instead of permanently skipping it.
+        const resumableVideo = item.assetType === 'video' && (item.videoMediaId || item.phase !== 'submitting');
+        if (isTabReloadError(e) && (item.assetType !== 'video' || resumableVideo)) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) {
+            it.status = 'pending';
+            delete it.error;
+          }
+          await setQueue(q);
+          await writeStatus('Provider tab interrupted — current job will retry automatically…', 'running');
+          alarmCreate();
+          return;
+        }
         q = await getQueue();
         const it = q.find((i) => i.id === item.id);
         if (it) {
@@ -563,6 +605,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'removeItem':
       reply(removeFromQueue(msg.id));
+      return true;
+    case 'retryFailed':
+      reply(retryFailed(msg.id || null));
       return true;
     case 'clearQueue':
       reply(clearQueue());

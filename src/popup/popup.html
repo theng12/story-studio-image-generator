@@ -89,7 +89,10 @@
     <section class="card">
       <div class="row between">
         <div class="label">Queue</div>
-        <button id="clearQueue" class="link small">Clear pending</button>
+        <div class="row">
+          <button id="retryFailed" class="link small">Retry failed</button>
+          <button id="clearQueue" class="link small">Clear pending</button>
+        </div>
       </div>
       <div id="status" class="status"></div>
       <div id="queue" class="queue"></div>

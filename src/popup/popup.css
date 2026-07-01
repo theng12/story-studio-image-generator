@@ -111,6 +111,8 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .qstatus.failed { color: var(--err); }
 .qitem .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
 .qitem .x:hover { color: var(--err); }
+.qitem .retry { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
+.qitem .retry:hover { color: var(--ok); }
 
 .overlay {
   position: fixed; inset: 0;
