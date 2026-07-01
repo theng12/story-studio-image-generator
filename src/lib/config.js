@@ -6,10 +6,10 @@
 // chrome.storage.sync and are edited on the Options page / side panel.
 
 export const DEFAULTS = {
-  // Story Studio server. Default port 8677, but fully editable — set this to a
+  // Story Studio server. Default port 8766, but fully editable — set this to a
   // localhost URL (any port; loopback bypasses auth) or a remote/Tailscale URL
-  // like http://mac-mini.tailXXXX.ts.net:8677 (needs Grant access + login).
-  studioBaseUrl: 'http://localhost:8677',
+  // like http://mac-mini.tailXXXX.ts.net:8766 (needs Grant access + login).
+  studioBaseUrl: 'http://localhost:8766',
 
   // The Google Flow project that generations are filed into. Flow's generate
   // endpoint is /v1/projects/{projectId}/... — every image needs a project.
