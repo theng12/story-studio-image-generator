@@ -103,13 +103,20 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .queue { max-height: 180px; overflow-y: auto; }
 .queue-timing { margin: 2px 0 6px; line-height: 1.35; }
 .qitem { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.qitem.has-failure { align-items: flex-start; padding: 7px 0; }
 .qitem:last-child { border-bottom: none; }
-.qitem .qlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qitem .qinfo { flex: 1; min-width: 0; }
+.qitem .qlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.failure-diagnosis { color: var(--err); line-height: 1.35; margin-top: 2px; }
+.failure-diagnosis span { color: var(--muted); }
+.failure-details { color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+.failure-details summary { color: var(--accent); cursor: pointer; }
+.failure-details div { padding-top: 3px; }
 .qitem .qstatus { font-size: 11px; padding: 1px 6px; border-radius: 999px; }
 .qstatus.pending { color: var(--muted); }
 .qstatus.running { color: var(--accent); }
 .qstatus.done { color: var(--ok); }
-.qstatus.failed { color: var(--err); }
+.qstatus.failed { color: var(--err); border: 1px solid color-mix(in srgb, var(--err) 35%, transparent); }
 .qitem .x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
 .qitem .x:hover { color: var(--err); }
 .qitem .retry { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }

@@ -583,16 +583,41 @@ async function pollQueue() {
   renderQueueTiming(queue);
   for (const it of queue) {
     const row = document.createElement('div');
-    row.className = 'qitem';
+    row.className = 'qitem' + (it.status === 'failed' ? ' has-failure' : '');
+    const info = document.createElement('div');
+    info.className = 'qinfo';
     const label = document.createElement('div');
     label.className = 'qlabel';
     const timing = Number.isFinite(it.durationMs) ? ` · ${formatDuration(it.durationMs)}` : '';
-    label.textContent = it.label + (it.savedAs ? ` → ${it.savedAs}` : '') + timing + (it.error ? ` — ${it.error}` : '');
+    label.textContent = it.label + (it.savedAs ? ` → ${it.savedAs}` : '') + timing;
     label.title = label.textContent;
+    info.appendChild(label);
+    if (it.status === 'failed' && it.failure) {
+      const diagnosis = document.createElement('div');
+      diagnosis.className = 'failure-diagnosis';
+      const title = document.createElement('strong');
+      title.textContent = it.failure.title;
+      const hint = document.createElement('span');
+      hint.textContent = ` — ${it.failure.hint}`;
+      diagnosis.append(title, hint);
+      const details = document.createElement('details');
+      details.className = 'failure-details';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Technical details';
+      const raw = document.createElement('div');
+      raw.textContent = it.failure.raw || it.error || 'No raw error was provided.';
+      details.append(summary, raw);
+      info.append(diagnosis, details);
+    } else if (it.error) {
+      const raw = document.createElement('div');
+      raw.className = 'failure-diagnosis';
+      raw.textContent = it.error;
+      info.appendChild(raw);
+    }
     const stat = document.createElement('span');
     stat.className = 'qstatus ' + it.status;
-    stat.textContent = it.status;
-    row.append(label, stat);
+    stat.textContent = it.status === 'failed' && it.failure ? it.failure.code : it.status;
+    row.append(info, stat);
     if (it.status === 'pending') {
       const x = document.createElement('button');
       x.className = 'x';
