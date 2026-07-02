@@ -179,12 +179,32 @@
     return [...document.querySelectorAll(RESULT_LINK_SELECTOR)].map((link) => link.getAttribute('href')).filter(Boolean);
   }
 
+  function imageSource(image) {
+    if (!image) return '';
+    const direct = [image.currentSrc, image.getAttribute('src'), image.src].filter(Boolean);
+    const responsive = (image.getAttribute('srcset') || '')
+      .split(',')
+      .map((entry) => entry.trim().split(/\s+/)[0])
+      .filter(Boolean);
+    const candidates = [...direct, ...responsive];
+    return (
+      candidates.find((source) => /^(?:https?:)?\/\/cdn\.leonardo\.ai\//i.test(source)) ||
+      candidates.find((source) => !source.startsWith('data:image/gif')) ||
+      ''
+    );
+  }
+
   function imageForLink(link) {
     let parent = link;
     for (let level = 0; parent && level < 5; level++, parent = parent.parentElement) {
       const images = [...parent.querySelectorAll('img')]
-        .filter((image) => image.naturalWidth >= 256 && image.naturalHeight >= 256)
-        .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight);
+        // Hidden tabs may not decode lazy images, leaving naturalWidth at zero.
+        // Leonardo still assigns the CDN URL, which is all the worker needs.
+        .filter((image) => /^(?:https?:)?\/\/cdn\.leonardo\.ai\//i.test(imageSource(image)))
+        .sort((a, b) => {
+          const pixels = (image) => image.naturalWidth * image.naturalHeight;
+          return pixels(b) - pixels(a) || imageSource(b).length - imageSource(a).length;
+        });
       if (images.length) return images[0];
     }
     return null;
@@ -199,26 +219,48 @@
   }
 
   async function waitForResult(before, timeoutMs = 240000) {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      const message = pageError();
-      if (/not enough (?:token|credit)|insufficient (?:token|credit)|upgrade to continue|limit reached|too many requests/i.test(message)) {
-        const error = new Error(message || 'Leonardo AI generation limit reached.');
-        error.limit = true;
-        throw error;
-      }
-      const freshLink = [...document.querySelectorAll(RESULT_LINK_SELECTOR)].find(
-        (link) => !before.has(link.getAttribute('href'))
+    // MutationObserver is not subject to Chrome's background-tab timer budget.
+    // Polling with setTimeout made Leonardo appear to require the active tab,
+    // especially once its gallery also deferred thumbnail decoding.
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let observer;
+      let watchdog;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        observer?.disconnect();
+        clearTimeout(watchdog);
+        callback(value);
+      };
+      const inspect = () => {
+        if (settled) return;
+        const message = pageError();
+        if (/not enough (?:token|credit)|insufficient (?:token|credit)|upgrade to continue|limit reached|too many requests/i.test(message)) {
+          const error = new Error(message || 'Leonardo AI generation limit reached.');
+          error.limit = true;
+          finish(reject, error);
+          return;
+        }
+        const freshLink = [...document.querySelectorAll(RESULT_LINK_SELECTOR)].find(
+          (link) => !before.has(link.getAttribute('href'))
+        );
+        const image = freshLink && imageForLink(freshLink);
+        if (image) finish(resolve, image);
+      };
+      observer = new MutationObserver(inspect);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['href', 'src', 'srcset'],
+      });
+      watchdog = setTimeout(
+        () => finish(reject, new Error('Leonardo AI did not render a new image. Check the tab for a verification, token, or moderation message.')),
+        timeoutMs
       );
-      const image = freshLink && imageForLink(freshLink);
-      if (image) return image;
-      await sleep(1000);
-    }
-    throw new Error('Leonardo AI did not render a new image. Check the tab for a verification, token, or moderation message.');
-  }
-
-  function imageSource(image) {
-    return image.currentSrc || image.src || image.getAttribute('src') || '';
+      inspect();
+    });
   }
 
   async function imagePayload(image) {

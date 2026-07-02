@@ -21,6 +21,9 @@ Leonardo has separate model, visual-style, generation-mode, and image-size
 settings. Its adapter selects those controls for every request. Settings shows
 Leonardo's “Unlimited” catalog badge, but the site's displayed generation cost
 remains authoritative for the signed-in plan.
+Leonardo can remain an inactive tab: it is marked non-discardable while queued,
+and new results are detected from DOM mutations/CDN URLs without waiting for a
+hidden gallery thumbnail to paint.
 
 Sibling to `fish-tts-extension`; same proven architecture (side panel, persistent
 resumable queue, MAIN-world content script, Story Studio companion client).
