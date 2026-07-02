@@ -60,7 +60,20 @@
     <section class="card" id="scenesCard">
       <div class="row between">
         <div class="label" id="scenesSummary">Scenes</div>
-        <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
+        <div class="hgroup">
+          <button id="refreshScenes" class="btn small" title="Re-pull scenes from Story Studio — picks up whatever already saved, keeps you on this episode" disabled>⟳ Refresh</button>
+          <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
+        </div>
+      </div>
+      <div class="row batch" id="batchControls">
+        <span class="muted small">Select next:</span>
+        <button class="btn small batch-n" data-n="10">10</button>
+        <button class="btn small batch-n" data-n="20">20</button>
+        <button class="btn small batch-n" data-n="30">30</button>
+        <button class="btn small batch-n" data-n="50">50</button>
+        <button class="btn small batch-n" data-n="80">80</button>
+        <button class="btn small batch-n" data-n="100">100</button>
+        <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
       </div>
       <div id="scenes" class="scenes"></div>
       <div class="row between">
