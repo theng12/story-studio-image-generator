@@ -28,15 +28,19 @@
   // reCAPTCHA Enterprise site key, read from Flow's own enterprise.js?render=...
   const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 
-  // Internal image-model enums (the `imageModelName` field).
-  //   Nano Banana 2   == "NARWHAL"   (verified live; free)
-  //   Nano Banana Pro == "GEM_PIX_2" (verified live; premium model)
+  // Internal image-model enums (the `imageModelName` field). Read live from
+  // Flow's own model catalog (`usages[].key` in the picker's state), 2026-07-02:
+  //   Nano Banana 2      == "NARWHAL"     (free)
+  //   Nano Banana 2 Lite == "HARBOR_SEAL" (free; lighter/faster than NARWHAL)
+  //   Nano Banana Pro    == "GEM_PIX_2"   (premium)
   // Other image codenames seen in the bundle (not exposed as separate picks):
   //   GEM_PIX, GEM_PIX_2_UPSAMPLE_2K, GEM_PIX_2_UPSAMPLE_4K.
   const IMAGE_MODELS = {
     'nano-banana-2': 'NARWHAL',
+    'nano-banana-2-lite': 'HARBOR_SEAL',
     'nano-banana-pro': 'GEM_PIX_2',
     NARWHAL: 'NARWHAL',
+    HARBOR_SEAL: 'HARBOR_SEAL',
     GEM_PIX_2: 'GEM_PIX_2',
   };
   const IMAGE_ASPECT = {
