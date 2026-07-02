@@ -11,7 +11,7 @@
 // never flooded no matter how much you queue. Veo video (phase 2) is async and
 // slow; the queue's resumability is what makes that safe.
 
-import { getSettings, getLeonardoReference, normalizeFlowProjectId } from './lib/config.js';
+import { getSettings, normalizeFlowProjectId } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
@@ -214,7 +214,6 @@ async function generateAndSave(item, settings, tab) {
         mode: provider === 'leonardo' ? settings.leonardoMode : undefined,
         size: provider === 'leonardo' ? settings.leonardoSize : undefined,
         count: provider === 'leonardo' ? settings.leonardoCount : undefined,
-        reference: provider === 'leonardo' ? await getLeonardoReference() : undefined,
       },
     });
     const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);

@@ -130,11 +130,11 @@
           </label>
         </div>
         <div class="row" id="leoRefRow">
-          <span class="mini">Reference image</span>
-          <button id="leoRefPick" class="btn small">Choose…</button>
-          <span id="leoRefName" class="muted small grow"></span>
-          <button id="leoRefClear" class="link small hidden" title="Stop attaching a reference">✕ clear</button>
-          <input type="file" id="leoRefFile" accept="image/png,image/jpeg,image/webp" class="hidden" />
+          <span class="mini">Reference</span>
+          <span id="leoRefState" class="muted small grow">—</span>
+        </div>
+        <div class="hint" id="leoRefHint">
+          Attach a reference in your Leonardo tab (under the prompt → “Add reference to generation”). It applies to every scene until you remove it. Models without reference support ignore it.
         </div>
         <div id="leoStatus" class="muted small"></div>
       </div>
