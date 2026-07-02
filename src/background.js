@@ -726,7 +726,8 @@ async function processQueue() {
           }
           await setQueue(q);
           const name = PROVIDER_NAME[provider] || provider;
-          await writeStatus(`${name} free limit reached — paused. Resume after the quota resets or switch providers.`, 'info');
+          const detail = e.message ? ` ${e.message}` : '';
+          await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
           alarmClear();
           return;
         }
