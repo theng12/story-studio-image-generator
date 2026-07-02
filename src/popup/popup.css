@@ -41,6 +41,12 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .row.between { justify-content: space-between; }
 .row.end { justify-content: flex-end; }
 .hgroup { display: flex; align-items: center; gap: 8px; }
+.leo { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.leo .mini { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.leo-grid { align-items: flex-end; }
+.leo-grid .grow { flex: 1; min-width: 0; }
+.leo select { width: 100%; }
+.leo select:disabled { opacity: 0.45; }
 .row.batch { flex-wrap: wrap; gap: 6px; }
 .row.batch .btn.small { min-width: 34px; }
 .row.batch #selectRemaining { margin-left: auto; }

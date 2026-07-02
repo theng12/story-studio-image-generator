@@ -6,7 +6,7 @@
 // persistent queue. A confirmation step guards every batch so an accidental
 // click can't burn work/credits.
 
-import { getSettings, saveSettings } from '../lib/config.js';
+import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -77,6 +77,15 @@ function wire() {
   };
   $('mediaType').onchange = onMediaTypeChange;
   $('provider').onchange = onProviderChange;
+  $('leoSync').onclick = leoSyncAll;
+  $('leoModel').onchange = async () => {
+    settings = await saveSettings({ leonardoModel: $('leoModel').value });
+    leoCheckModel();
+  };
+  $('leoStyle').onchange = async () => (settings = await saveSettings({ leonardoStyle: $('leoStyle').value }));
+  $('leoMode').onchange = async () => (settings = await saveSettings({ leonardoMode: $('leoMode').value }));
+  $('leoSize').onchange = async () => (settings = await saveSettings({ leonardoSize: $('leoSize').value }));
+  $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -476,6 +485,101 @@ function updateQueueButton() {
   btn.textContent = n ? `Queue selected (${n})` : 'Queue selected';
 }
 
+// ── Leonardo in-panel controls ──────────────────────────────────────────────
+// Model + per-model options live in the panel so tuning doesn't need Options
+// round-trips. "Sync" reads the real catalogue and the selected model's actual
+// control set from the logged-in Leonardo tab; controls a model doesn't offer
+// are disabled here and skipped by the generator (adaptive on both ends).
+
+const LEO_MODES = [
+  ['FAST', 'Fast'],
+  ['QUALITY', 'Quality'],
+  ['ULTRA', 'Ultra'],
+];
+const LEO_SIZES = [
+  ['SMALL', 'Small'],
+  ['MEDIUM', 'Medium'],
+  ['LARGE', 'Large'],
+];
+
+function leoFill(sel, entries, value) {
+  sel.innerHTML = '';
+  for (const [v, t] of entries) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = t;
+    sel.appendChild(opt);
+  }
+  const has = entries.some(([v]) => v === value);
+  if (!has && value) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  }
+  sel.value = value || entries[0]?.[0] || '';
+  sel.disabled = entries.length === 0;
+  sel.title = entries.length === 0 ? 'Not offered by this model' : '';
+}
+
+// Baseline fill from settings + cached model list (no Leonardo tab needed).
+async function leoPopulate() {
+  const models = await getLeonardoModels();
+  const entries = models.map((m) => [m.id, m.badge === 'Unlimited' ? `${m.label} — Unlimited` : m.label]);
+  leoFill($('leoModel'), entries, settings.leonardoModel);
+  leoFill($('leoStyle'), [settings.leonardoStyle || 'Dynamic', 'None'].filter((v, i, a) => a.indexOf(v) === i).map((v) => [v, v]), settings.leonardoStyle);
+  leoFill($('leoMode'), LEO_MODES, settings.leonardoMode);
+  leoFill($('leoSize'), LEO_SIZES, settings.leonardoSize);
+  leoFill($('leoCount'), Array.from({ length: 8 }, (_, i) => [String(i + 1), String(i + 1)]), String(settings.leonardoCount || 1));
+  $('leoStatus').textContent = models.length ? '' : 'Hit “Sync from Leonardo” (with a logged-in leonardo.ai tab) to load models + options.';
+}
+
+// Narrow every dependent select to what the selected model really offers.
+// If the saved value is no longer offered, move to the first real choice and
+// save it — the panel must show what the generator will actually do.
+async function leoApplyControls(c) {
+  const patch = {};
+  leoFill($('leoMode'), LEO_MODES.filter(([v]) => c.modes.includes(v)), settings.leonardoMode);
+  leoFill($('leoSize'), LEO_SIZES.filter(([v]) => c.sizes.includes(v)), settings.leonardoSize);
+  leoFill($('leoCount'), Array.from({ length: c.maxCount || 1 }, (_, i) => [String(i + 1), String(i + 1)]), String(settings.leonardoCount || 1));
+  leoFill($('leoStyle'), (c.styles || []).map((s) => [s, s]), settings.leonardoStyle);
+  if (!$('leoMode').disabled && $('leoMode').value !== settings.leonardoMode) patch.leonardoMode = $('leoMode').value;
+  if (!$('leoSize').disabled && $('leoSize').value !== settings.leonardoSize) patch.leonardoSize = $('leoSize').value;
+  if (!$('leoStyle').disabled && $('leoStyle').value !== settings.leonardoStyle) patch.leonardoStyle = $('leoStyle').value;
+  if (Number($('leoCount').value) !== Number(settings.leonardoCount)) patch.leonardoCount = Number($('leoCount').value);
+  if (Object.keys(patch).length) settings = await saveSettings(patch);
+  const off = [$('leoMode').disabled && 'mode', $('leoSize').disabled && 'size', $('leoStyle').disabled && 'style'].filter(Boolean);
+  $('leoStatus').textContent = off.length ? `This model has no ${off.join(' / ')} control — skipped automatically.` : '';
+}
+
+async function leoCheckModel() {
+  $('leoStatus').textContent = 'Reading this model’s options…';
+  try {
+    const c = await chrome.runtime.sendMessage({ type: 'leonardoModelControls', model: settings.leonardoModel });
+    if (!c?.ok) throw new Error(c?.error || 'no response');
+    await leoApplyControls(c);
+  } catch (e) {
+    $('leoStatus').textContent = `Couldn't read options (${e.message}). Open app.leonardo.ai and retry.`;
+  }
+}
+
+async function leoSyncAll() {
+  const btn = $('leoSync');
+  btn.disabled = true;
+  $('leoStatus').textContent = 'Reading models from Leonardo…';
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'listLeonardoModels' });
+    if (!res?.ok) throw new Error(res?.error || 'no response');
+    await saveLeonardoModels([...(await getLeonardoModels()), ...(res.models || [])]);
+    await leoPopulate();
+    await leoCheckModel();
+  } catch (e) {
+    $('leoStatus').textContent = `Sync failed: ${e.message}. Keep a logged-in leonardo.ai tab open.`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Only Flow supports video; all other providers use their image-generator UI.
 function onProviderChange() {
   const provider = $('provider').value;
@@ -485,6 +589,8 @@ function onProviderChange() {
   if (videoOpt) videoOpt.disabled = imageOnly;
   if (imageOnly && isVideoSel()) $('mediaType').value = 'scene-image';
   $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
+  $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
+  if (provider === 'leonardo') leoPopulate();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider !== 'flow') checkWebGenerator(provider);

@@ -130,6 +130,7 @@ async function send(tabId, message) {
     'freegen:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
+    'leonardo:modelControls',
   ]).has(message?.type);
   const attempts = reloadSafe ? 4 : 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -482,6 +483,13 @@ function diagnoseFailure(error, item = {}) {
       hint: 'Check whether the asset exists in Flow, then retry the save or generation.',
       raw,
     };
+  if (match(/is not available for (?:this|the selected) model|model .* is not available/))
+    return {
+      code: 'settings',
+      title: 'Selected option not offered by this model',
+      hint: 'Pick the model in the side panel and re-check its style/mode/size options, then retry.',
+      raw,
+    };
   if (match(/permission denied|forbidden|\b403\b/))
     return {
       code: 'access',
@@ -825,6 +833,14 @@ async function listLeonardoModels() {
   return { ok: true, ...r.result };
 }
 
+// Select a model on the Leonardo tab and report which controls it really
+// offers (modes/sizes/ratios/maxCount/styles) so the panel can adapt.
+async function leonardoModelControls(model) {
+  const tab = await ensureProviderTab('leonardo');
+  const r = await send(tab.id, { type: 'leonardo:modelControls', params: { model } });
+  return { ok: true, ...r.result };
+}
+
 // Resume a paused/pending queue (e.g. after a Grok daily-limit pause).
 async function resumeQueue() {
   alarmCreate();
@@ -875,6 +891,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'listLeonardoModels':
       reply(listLeonardoModels());
+      return true;
+    case 'leonardoModelControls':
+      reply(leonardoModelControls(msg.model));
       return true;
     case 'resumeQueue':
       reply(resumeQueue());

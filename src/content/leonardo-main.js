@@ -36,13 +36,6 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function setNumber(element, value) {
-    element.focus();
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set.call(element, String(value));
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
   async function chooseModel(model) {
     if (!/^[a-z0-9.-]+$/i.test(model || '')) throw new Error('Leonardo model setting is invalid.');
     const trigger = document.querySelector(MODEL_TRIGGER_SELECTOR);
@@ -64,69 +57,94 @@
     if (!ready) throw new Error('Leonardo did not finish switching models. Reload the AI Creation page and retry.');
   }
 
+  // Every control below is ADAPTIVE: Leonardo's sidebar is model-specific
+  // (verified live 2026-07-01 — Phoenix has mode+size+ratio radios; FLUX has
+  // size+ratio but no mode; Nano Banana 2/Lite has only ratio). Forcing a
+  // control a model doesn't render was failing whole generations, so each
+  // setter applies its value only when the control exists and never throws
+  // over a missing one.
+
+  const QTY_COMBO_SELECTOR = '[role="combobox"][aria-label="Select quantity"]';
+
+  // Skip silently when the style combobox or the requested style is missing
+  // for this model — a wrong style must not sink the generation.
   async function chooseStyle(style) {
     if (!style) return;
     const trigger = document.querySelector(STYLE_TRIGGER_SELECTOR);
-    if (!visible(trigger)) throw new Error('Leonardo style selector was not found for the selected model.');
+    if (!visible(trigger)) return;
     trigger.click();
     const option = await waitFor(() =>
       [...document.querySelectorAll('[role="option"]')].find(
         (entry) => visible(entry) && entry.textContent.trim() === style
-      )
+      ), 3000
     );
     if (!option) {
-      trigger.click();
-      throw new Error(`Leonardo style "${style}" is not available for the selected model.`);
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return;
     }
     option.click();
-    const closed = await waitFor(() => trigger.getAttribute('aria-expanded') === 'false');
-    if (!closed) throw new Error('Leonardo did not finish applying the selected style.');
+    await waitFor(() => trigger.getAttribute('aria-expanded') === 'false', 3000);
   }
 
-  function chooseRadio(value, label) {
-    if (!/^[A-Z0-9:]+$/.test(value || '')) throw new Error(`Leonardo ${label} setting is invalid.`);
+  function chooseRadioIfPresent(value) {
+    if (!/^[A-Z0-9:]+$/.test(value || '')) return false;
     const option = document.querySelector(`[role="radio"][value="${value}"]`);
-    if (!visible(option)) throw new Error(`Leonardo ${label} "${value}" is not available for the selected model.`);
+    if (!visible(option)) return false;
     if (option.getAttribute('aria-checked') !== 'true') option.click();
+    return true;
   }
 
-  // Generation mode (Fast/Quality/Ultra) is model-specific — FLUX models omit the
-  // control entirely. Apply it only when the radio group is actually on the page;
-  // otherwise skip it rather than failing the whole generation.
-  function chooseGenerationMode(mode) {
-    const present = ['FAST', 'QUALITY', 'ULTRA'].some((m) => visible(document.querySelector(`[role="radio"][value="${m}"]`)));
-    if (present) chooseRadio(mode, 'generation mode');
-  }
-
-  // Number of images per generation. Free plans lock this (typically to 4);
-  // paid plans allow 1–8. We only ever keep the first result, so fewer images =
-  // less time and, on metered models, fewer tokens. Best-effort + adaptive:
-  // apply it when a settable control is found, otherwise leave the plan default
-  // — never fail the generation over it (same policy as generation mode).
-  function chooseImageCount(count) {
+  // Number of images per generation: numeric pill buttons for 1–4 plus a
+  // "Select quantity" combobox for 5–8 (paid plans; free locks the group).
+  async function chooseImageCount(count) {
     const n = Math.max(1, Math.min(8, Math.round(Number(count) || 1)));
-    // a. Radio group — the same shape Leonardo uses for size / ratio / mode.
-    const radio = document.querySelector(`[role="radio"][value="${n}"]`);
-    if (visible(radio)) {
-      if (radio.getAttribute('aria-checked') !== 'true') radio.click();
-      return;
-    }
-    // b. A number input labelled for image count / quantity.
-    const input = [...document.querySelectorAll('input[type="number"]')].find((el) => {
-      if (!visible(el)) return false;
-      const context = (el.closest('label, [class*="image" i], [class*="count" i], [class*="quantity" i]')?.textContent || '').toLowerCase();
-      return /image|number|quantity|count/.test(context);
-    });
-    if (input) {
-      setNumber(input, n);
-      return;
-    }
-    // c. A pill/button group of numeric siblings 1..8 — click the one == n.
-    const buttons = [...document.querySelectorAll('button, [role="button"], [role="option"]')].filter(
-      (el) => visible(el) && /^[1-8]$/.test((el.textContent || '').trim())
+    const pill = [...document.querySelectorAll('button')].find(
+      (el) => visible(el) && (el.textContent || '').trim() === String(n)
     );
-    if (buttons.length >= 3) buttons.find((el) => (el.textContent || '').trim() === String(n))?.click();
-    // else: control not found or locked — leave the plan's default untouched.
+    if (pill) {
+      if (pill.getAttribute('aria-pressed') !== 'true') pill.click();
+      return;
+    }
+    const combo = document.querySelector(QTY_COMBO_SELECTOR);
+    if (!visible(combo)) return; // locked plan — leave the default
+    combo.click();
+    const option = await waitFor(() =>
+      [...document.querySelectorAll('[role="option"]')].find(
+        (entry) => visible(entry) && (entry.textContent || '').trim() === String(n)
+      ), 3000
+    );
+    if (option) option.click();
+    else document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  }
+
+  // What the CURRENT model actually offers, read from the live sidebar. The
+  // panel uses this to show only real choices for the selected model.
+  async function availableControls() {
+    const radioValues = [...document.querySelectorAll('[role="radio"]')].filter(visible).map((el) => el.getAttribute('value'));
+    const modes = ['FAST', 'QUALITY', 'ULTRA'].filter((v) => radioValues.includes(v));
+    const sizes = ['SMALL', 'MEDIUM', 'LARGE'].filter((v) => radioValues.includes(v));
+    const ratios = radioValues.filter((v) => /^\d+:\d+$/.test(v || ''));
+    const pills = [...document.querySelectorAll('button')]
+      .filter((el) => visible(el) && /^[1-8]$/.test((el.textContent || '').trim()))
+      .map((el) => Number(el.textContent.trim()));
+    const maxCount = visible(document.querySelector(QTY_COMBO_SELECTOR)) ? 8 : pills.length ? Math.max(...pills) : 1;
+    let styles = [];
+    const styleTrigger = document.querySelector(STYLE_TRIGGER_SELECTOR);
+    if (visible(styleTrigger)) {
+      styleTrigger.click();
+      await waitFor(() => document.querySelector('[role="option"]'), 3000);
+      styles = [...document.querySelectorAll('[role="option"]')].filter(visible).map((el) => (el.textContent || '').trim()).filter(Boolean);
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(150);
+    }
+    const model = new URL(location.href).searchParams.get('model') || '';
+    return { model, modes, sizes, ratios, maxCount, styles };
+  }
+
+  // Select a model (optional), then report its real control set.
+  async function modelControls(params) {
+    if (params.model) await chooseModel(params.model);
+    return await availableControls();
   }
 
   function leonardoRatio(ratio) {
@@ -232,10 +250,10 @@
 
     await chooseModel(params.model || 'phoenix-v1.0');
     await chooseStyle(params.style || 'Dynamic');
-    chooseGenerationMode(params.mode || 'FAST');
-    chooseRadio(leonardoRatio(params.aspectRatio || '16:9'), 'aspect ratio');
-    chooseRadio(params.size || 'SMALL', 'image size');
-    chooseImageCount(params.count || 1);
+    chooseRadioIfPresent(params.mode || 'FAST');
+    chooseRadioIfPresent(leonardoRatio(params.aspectRatio || '16:9'));
+    chooseRadioIfPresent(params.size || 'SMALL');
+    await chooseImageCount(params.count || 1);
 
     const before = new Set(resultLinks());
     setValue(prompt, promptText);
@@ -260,10 +278,11 @@
       if (!id || out.has(id) || before.has(id)) continue;
       if (!/^[a-z0-9][a-z0-9.-]*$/i.test(id) || CONTROL_TESTID.test(id)) continue;
       if (!visible(el)) continue;
-      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 60) continue;
-      const badge = /unlimited/i.test(text) ? 'Unlimited' : /token/i.test(text) ? 'uses tokens' : '';
-      const label = text.replace(/\s*(?:—\s*)?(?:Unlimited|uses tokens|tokens)\s*$/i, '').trim() || id;
+      // Verified live: each picker entry is a <button data-testid="<model-id>">
+      // with an <h3> title and an "Unlimited" badge in its text when applicable.
+      const label = (el.querySelector('h3, p')?.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!label || label.length > 60) continue;
+      const badge = /unlimited/i.test(el.textContent || '') ? 'Unlimited' : 'uses tokens';
       out.set(id, { id, label, badge });
     }
     return [...out.values()];
@@ -285,7 +304,7 @@
     return { models };
   }
 
-  const handlers = { getContext, generateImage, listModels };
+  const handlers = { getContext, generateImage, listModels, modelControls };
   window.addEventListener('message', async (event) => {
     if (event.source !== window || event.data?.kind !== REQ) return;
     const { id, op, payload } = event.data;
