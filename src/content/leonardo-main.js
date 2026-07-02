@@ -281,18 +281,24 @@
 
     const before = new Set(resultLinks());
     setValue(prompt, promptText);
-    // The button can be transiently disabled (cold tab still initializing, cost
-    // re-estimate after a model/style change, previous run settling). Wait for
-    // it to become clickable instead of failing on a one-shot check — verified
-    // live that the ready path enables within a second, so 15s is generous.
+    // The button can be transiently disabled (cold tab, cost re-estimate after a
+    // model/style change, previous run settling), so wait rather than fail on a
+    // one-shot check. But a PERSISTENT disable is meaningful: verified live that
+    // when a premium/metered model hits its plan or daily cap, Leonardo silently
+    // disables Generate with no toast (Unlimited models still enable instantly).
+    // So if it never enables, treat it as a limit and PAUSE the batch instead of
+    // failing every remaining scene one by one.
     const started = Date.now();
     let button = null;
-    while (Date.now() - started < 15000) {
+    while (Date.now() - started < 20000) {
       const message = pageError();
       if (/not enough (?:token|credit)|insufficient (?:token|credit)|upgrade to continue|limit reached|too many requests/i.test(message)) {
         const error = new Error(message);
         error.limit = true;
         throw error;
+      }
+      if (/safety|responsible ai|policy|blocked prompt|prohibited|moderation/i.test(message)) {
+        throw new Error(`Leonardo rejected this prompt: ${message}`);
       }
       const b = document.querySelector(GENERATE_SELECTOR);
       if (b && !b.disabled) {
@@ -301,8 +307,14 @@
       }
       await sleep(300);
     }
-    if (!button)
-      throw new Error('Leonardo AI Generate button did not become clickable within 15s. Check the Leonardo tab for a token, verification, or moderation message.');
+    if (!button) {
+      const model = new URL(location.href).searchParams.get('model') || 'this model';
+      const error = new Error(
+        `Leonardo kept Generate disabled for "${model}" — its plan or daily cap for this premium model is likely reached (Unlimited models such as Phoenix, Lucid and FLUX still work). Paused: switch model or resume after it resets.`
+      );
+      error.limit = true; // pause the batch rather than fail all remaining scenes
+      throw error;
+    }
     button.click();
     return imagePayload(await waitForResult(before));
   }
