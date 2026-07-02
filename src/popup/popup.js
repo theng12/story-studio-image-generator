@@ -656,14 +656,25 @@ function renderQueueTiming(queue) {
   el.textContent = parts.join(' · ');
 }
 
+let lastQueueSig = '';
 async function pollQueue() {
   const [{ queue = [] } = {}, st] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'getQueue' }).then((r) => r || {}),
     chrome.storage.local.get('lastStatus'),
   ]);
+  renderQueueTiming(queue);
+  const s = st.lastStatus;
+  if (s && Date.now() - s.ts < 600000) setStatus(s.text, s.kind);
+  // Only rebuild the list when its contents actually change. A blind 1.5 s
+  // re-render would wipe an open "Technical details" panel (and any text the
+  // user is mid-selection on) — the raw error would flash for one tick and vanish.
+  const sig = JSON.stringify(
+    queue.map((it) => [it.id, it.status, it.durationMs, it.savedAs, it.error, it.failure?.code])
+  );
+  if (sig === lastQueueSig) return;
+  lastQueueSig = sig;
   const wrap = $('queue');
   wrap.innerHTML = '';
-  renderQueueTiming(queue);
   for (const it of queue) {
     const row = document.createElement('div');
     row.className = 'qitem' + (it.status === 'failed' ? ' has-failure' : '');
@@ -739,8 +750,6 @@ async function pollQueue() {
     }
     wrap.appendChild(row);
   }
-  const s = st.lastStatus;
-  if (s && Date.now() - s.ts < 600000) setStatus(s.text, s.kind);
 }
 
 // Brief confirmation when a panel setting changes (pollQueue restores the live
