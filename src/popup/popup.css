@@ -40,6 +40,10 @@ header h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .row.between { justify-content: space-between; }
 .row.end { justify-content: flex-end; }
+.hgroup { display: flex; align-items: center; gap: 8px; }
+.row.batch { flex-wrap: wrap; gap: 6px; }
+.row.batch .btn.small { min-width: 34px; }
+.row.batch #selectRemaining { margin-left: auto; }
 .grow { flex: 1; }
 
 .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 3px; }

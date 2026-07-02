@@ -49,12 +49,17 @@ function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
   $('project').onchange = onProjectChange;
   $('loadScenes').onclick = loadScenes;
+  $('refreshScenes').onclick = loadScenes;
   $('selectAll').onchange = (e) => {
     document.querySelectorAll('.scene input[type=checkbox]').forEach((c) => {
       if (!c.disabled) c.checked = e.target.checked;
     });
     updateQueueButton();
   };
+  $('batchControls').querySelectorAll('.batch-n').forEach((b) => {
+    b.onclick = () => selectNextMissing(Number(b.dataset.n));
+  });
+  $('selectRemaining').onclick = selectRemaining;
   $('queueSelected').onclick = confirmQueue;
   $('clearQueue').onclick = async () => {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
@@ -238,6 +243,7 @@ async function loadScenes() {
   const kind = currentKind();
   const video = isVideoSel();
   $('loadScenes').disabled = true;
+  $('refreshScenes').disabled = true;
   setStatus(`Loading ${video ? 'scene clips' : kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
   try {
     let scenes;
@@ -271,6 +277,9 @@ async function loadScenes() {
     setStatus(`Couldn't load: ${e.message}`, 'err');
   } finally {
     $('loadScenes').disabled = false;
+    // Refresh stays live once an episode is loaded, so a cut-off run can be
+    // re-pulled in place without touching the tab.
+    $('refreshScenes').disabled = false;
   }
 }
 
@@ -428,8 +437,43 @@ function selectedScenes() {
   return currentScenes.filter((s) => keys.has(String(s.key)) && (s.prompt || '').trim());
 }
 
+// Batch quick-select. "Missing" = still needs the asset (!hasImage) and is
+// queueable (checkbox not disabled). Preset buttons check the FIRST n missing in
+// display order and clear the rest — so after a batch generates + the list is
+// reloaded, those drop out and the next click grabs the following n.
+function missingCheckboxes() {
+  const done = new Set(currentScenes.filter((s) => s.hasImage).map((s) => String(s.key)));
+  return [...document.querySelectorAll('.scene input[type=checkbox]')].filter(
+    (c) => !c.disabled && !done.has(c.dataset.key)
+  );
+}
+
+function selectNextMissing(n) {
+  document.querySelectorAll('.scene input[type=checkbox]').forEach((c) => {
+    if (!c.disabled) c.checked = false;
+  });
+  missingCheckboxes()
+    .slice(0, n)
+    .forEach((c) => (c.checked = true));
+  $('selectAll').checked = false;
+  updateQueueButton();
+}
+
+// Reset to "only what's left": every missing scene checked, done ones cleared.
+function selectRemaining() {
+  const done = new Set(currentScenes.filter((s) => s.hasImage).map((s) => String(s.key)));
+  document.querySelectorAll('.scene input[type=checkbox]').forEach((c) => {
+    if (!c.disabled) c.checked = !done.has(c.dataset.key);
+  });
+  $('selectAll').checked = false;
+  updateQueueButton();
+}
+
 function updateQueueButton() {
-  $('queueSelected').disabled = selectedScenes().length === 0;
+  const n = selectedScenes().length;
+  const btn = $('queueSelected');
+  btn.disabled = n === 0;
+  btn.textContent = n ? `Queue selected (${n})` : 'Queue selected';
 }
 
 // Only Flow supports video; all other providers use their image-generator UI.
