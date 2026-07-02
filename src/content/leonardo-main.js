@@ -83,6 +83,14 @@
     if (option.getAttribute('aria-checked') !== 'true') option.click();
   }
 
+  // Generation mode (Fast/Quality/Ultra) is model-specific — FLUX models omit the
+  // control entirely. Apply it only when the radio group is actually on the page;
+  // otherwise skip it rather than failing the whole generation.
+  function chooseGenerationMode(mode) {
+    const present = ['FAST', 'QUALITY', 'ULTRA'].some((m) => visible(document.querySelector(`[role="radio"][value="${m}"]`)));
+    if (present) chooseRadio(mode, 'generation mode');
+  }
+
   function leonardoRatio(ratio) {
     if (ratio === '1:1') return '1:1';
     if (ratio === '9:16' || ratio === '3:4' || ratio === '2:3') return '2:3';
@@ -186,7 +194,7 @@
 
     await chooseModel(params.model || 'phoenix-v1.0');
     await chooseStyle(params.style || 'Dynamic');
-    chooseRadio(params.mode || 'FAST', 'generation mode');
+    chooseGenerationMode(params.mode || 'FAST');
     chooseRadio(leonardoRatio(params.aspectRatio || '16:9'), 'aspect ratio');
     chooseRadio(params.size || 'SMALL', 'image size');
 
