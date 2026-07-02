@@ -28,9 +28,15 @@ function callMain(op, payload = {}, timeoutMs = 270000) {
   });
 }
 
+const OPS = {
+  'leonardo:generateImage': 'generateImage',
+  'leonardo:getContext': 'getContext',
+  'leonardo:listModels': 'listModels',
+};
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== 'leonardo:generateImage' && message?.type !== 'leonardo:getContext') return false;
-  const op = message.type === 'leonardo:generateImage' ? 'generateImage' : 'getContext';
+  const op = OPS[message?.type];
+  if (!op) return false;
   callMain(op, message.params || {})
     .then((result) => sendResponse({ ok: true, ...result, result }))
     .catch((error) => sendResponse({ ok: false, error: String(error.message || error), limit: !!error.limit }));
