@@ -100,6 +100,37 @@
         </div>
         <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
       </div>
+      <div id="leonardoCard" class="leo hidden">
+        <div class="row between">
+          <div class="label">Leonardo options</div>
+          <button id="leoSync" class="btn small" title="Read models + this model's real options from your logged-in Leonardo tab">⟳ Sync from Leonardo</button>
+        </div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Model</span>
+            <select id="leoModel"></select>
+          </label>
+          <label class="grow">
+            <span class="mini">Style</span>
+            <select id="leoStyle"></select>
+          </label>
+        </div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Mode</span>
+            <select id="leoMode"></select>
+          </label>
+          <label class="grow">
+            <span class="mini">Size</span>
+            <select id="leoSize"></select>
+          </label>
+          <label class="grow">
+            <span class="mini">Images</span>
+            <select id="leoCount"></select>
+          </label>
+        </div>
+        <div id="leoStatus" class="muted small"></div>
+      </div>
     </section>
 
     <section class="card">

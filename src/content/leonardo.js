@@ -32,6 +32,7 @@ const OPS = {
   'leonardo:generateImage': 'generateImage',
   'leonardo:getContext': 'getContext',
   'leonardo:listModels': 'listModels',
+  'leonardo:modelControls': 'modelControls',
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
