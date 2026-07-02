@@ -145,6 +145,21 @@ export async function saveLeonardoModels(models) {
   await chrome.storage.local.set({ [LEONARDO_MODELS_KEY]: [...byId.values()] });
 }
 
+// Optional reference image attached to every Leonardo generation (style /
+// character consistency across a batch). LOCAL storage: image bytes are too big
+// for sync. Shape: { name, mime, base64 } — Leonardo caps uploads at 5MB.
+const LEONARDO_REF_KEY = 'leonardoReference';
+
+export async function getLeonardoReference() {
+  const stored = await chrome.storage.local.get(LEONARDO_REF_KEY);
+  return stored[LEONARDO_REF_KEY] || null;
+}
+
+export async function saveLeonardoReference(ref) {
+  if (ref) await chrome.storage.local.set({ [LEONARDO_REF_KEY]: ref });
+  else await chrome.storage.local.remove(LEONARDO_REF_KEY);
+}
+
 // Story Studio login, stored in LOCAL storage (not synced across machines).
 // Only needed for a remote/tailnet server — localhost bypasses auth entirely.
 const CRED_KEY = 'studioCredentials';
