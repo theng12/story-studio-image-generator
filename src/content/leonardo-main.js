@@ -257,9 +257,28 @@
 
     const before = new Set(resultLinks());
     setValue(prompt, promptText);
-    await sleep(200);
-    const button = document.querySelector(GENERATE_SELECTOR);
-    if (!button || button.disabled) throw new Error('Leonardo AI Generate button is unavailable. Check the prompt, token balance, and selected settings.');
+    // The button can be transiently disabled (cold tab still initializing, cost
+    // re-estimate after a model/style change, previous run settling). Wait for
+    // it to become clickable instead of failing on a one-shot check — verified
+    // live that the ready path enables within a second, so 15s is generous.
+    const started = Date.now();
+    let button = null;
+    while (Date.now() - started < 15000) {
+      const message = pageError();
+      if (/not enough (?:token|credit)|insufficient (?:token|credit)|upgrade to continue|limit reached|too many requests/i.test(message)) {
+        const error = new Error(message);
+        error.limit = true;
+        throw error;
+      }
+      const b = document.querySelector(GENERATE_SELECTOR);
+      if (b && !b.disabled) {
+        button = b;
+        break;
+      }
+      await sleep(300);
+    }
+    if (!button)
+      throw new Error('Leonardo AI Generate button did not become clickable within 15s. Check the Leonardo tab for a token, verification, or moderation message.');
     button.click();
     return imagePayload(await waitForResult(before));
   }
