@@ -6,7 +6,14 @@
 // persistent queue. A confirmation step guards every batch so an accidental
 // click can't burn work/credits.
 
-import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels } from '../lib/config.js';
+import {
+  getSettings,
+  saveSettings,
+  getLeonardoModels,
+  saveLeonardoModels,
+  getLeonardoReference,
+  saveLeonardoReference,
+} from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -91,6 +98,13 @@ function wire() {
   $('leoMode').onchange = async () => (settings = await saveSettings({ leonardoMode: $('leoMode').value }));
   $('leoSize').onchange = async () => (settings = await saveSettings({ leonardoSize: $('leoSize').value }));
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
+  $('leoRefPick').onclick = () => $('leoRefFile').click();
+  $('leoRefFile').onchange = () => leoRefPicked($('leoRefFile').files[0]);
+  $('leoRefClear').onclick = async () => {
+    await saveLeonardoReference(null);
+    $('leoRefFile').value = '';
+    leoRefRefresh();
+  };
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -537,6 +551,7 @@ async function leoPopulate() {
   leoFill($('leoSize'), LEO_SIZES, settings.leonardoSize);
   leoFill($('leoCount'), Array.from({ length: 8 }, (_, i) => [String(i + 1), String(i + 1)]), String(settings.leonardoCount || 1));
   $('leoStatus').textContent = models.length ? '' : 'Hit “Sync from Leonardo” (with a logged-in leonardo.ai tab) to load models + options.';
+  leoRefRefresh();
 }
 
 // Narrow every dependent select to what the selected model really offers.
@@ -553,8 +568,41 @@ async function leoApplyControls(c) {
   if (!$('leoStyle').disabled && $('leoStyle').value !== settings.leonardoStyle) patch.leonardoStyle = $('leoStyle').value;
   if (Number($('leoCount').value) !== Number(settings.leonardoCount)) patch.leonardoCount = Number($('leoCount').value);
   if (Object.keys(patch).length) settings = await saveSettings(patch);
-  const off = [$('leoMode').disabled && 'mode', $('leoSize').disabled && 'size', $('leoStyle').disabled && 'style'].filter(Boolean);
+  const noRef = c.supportsReference === false;
+  $('leoRefPick').disabled = noRef;
+  $('leoRefRow').title = noRef ? 'This model does not accept reference images' : '';
+  const off = [
+    $('leoMode').disabled && 'mode',
+    $('leoSize').disabled && 'size',
+    $('leoStyle').disabled && 'style',
+    noRef && 'reference',
+  ].filter(Boolean);
   $('leoStatus').textContent = off.length ? `This model has no ${off.join(' / ')} control — skipped automatically.` : '';
+}
+
+// Reference image picker. Attached to every Leonardo generation while set;
+// cleared = the extension never touches the tab's reference state.
+async function leoRefRefresh() {
+  const ref = await getLeonardoReference();
+  $('leoRefName').textContent = ref ? `${ref.name} — attached to every scene` : 'none (optional)';
+  $('leoRefClear').classList.toggle('hidden', !ref);
+}
+
+async function leoRefPicked(file) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    $('leoStatus').textContent = 'Reference too large — Leonardo caps uploads at 5MB.';
+    return;
+  }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  await saveLeonardoReference({ name: file.name, mime: file.type || 'image/png', base64: dataUrl.split(',')[1] });
+  $('leoStatus').textContent = '';
+  leoRefRefresh();
 }
 
 async function leoCheckModel() {
