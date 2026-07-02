@@ -38,7 +38,8 @@ implemented and verified.
 - `src/content/freegen-main.js` + `freegen.js`: FreeGen-specific visible-UI
   pair using its stable prompt, aspect-ratio, result, and error contracts.
 - `src/content/leonardo-main.js` + `leonardo.js`: Leonardo-specific visible-UI
-  pair with explicit model, style, mode, ratio, size, and result-card handling.
+  pair with explicit model, style, mode, ratio, size, and background-safe
+  MutationObserver result-card handling.
 
 MAIN-world scripts may access page JavaScript, auth state, and controls. Their
 isolated-world partner is the only layer that talks to `chrome.runtime`. Keep

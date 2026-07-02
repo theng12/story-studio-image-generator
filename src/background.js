@@ -79,8 +79,12 @@ async function ensureProviderTab(provider = 'flow') {
   const cfg = PROVIDER[provider] || PROVIDER.flow;
   const tabs = await chrome.tabs.query({ url: cfg.match });
   const ready = tabs.find((t) => t.status === 'complete');
-  if (ready) return ready;
+  if (ready) {
+    if (provider === 'leonardo') await chrome.tabs.update(ready.id, { autoDiscardable: false }).catch(() => {});
+    return ready;
+  }
   const tab = tabs[0] || (await chrome.tabs.create({ url: cfg.url, active: false }));
+  if (provider === 'leonardo') await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   await new Promise((resolve) => {
     const listener = (tabId, info) => {
       if (tabId === tab.id && info.status === 'complete') {
