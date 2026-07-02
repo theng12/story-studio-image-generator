@@ -1,4 +1,11 @@
-import { getSettings, saveSettings, getCredentials, saveCredentials } from '../lib/config.js';
+import {
+  getSettings,
+  saveSettings,
+  getCredentials,
+  saveCredentials,
+  getLeonardoModels,
+  saveLeonardoModels,
+} from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,12 +28,59 @@ const FIELDS = [
   'filenameTemplate',
 ];
 
+// Append any model ids not already in the <select>, keeping the curated static
+// options (and their friendlier labels) as-is. Returns how many were added.
+function addModelOptions(models) {
+  const sel = $('leonardoModel');
+  if (!sel) return 0;
+  const have = new Set([...sel.options].map((o) => o.value));
+  let added = 0;
+  for (const m of models) {
+    if (!m?.id || have.has(m.id)) continue;
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.badge ? `${m.label} — ${m.badge}` : m.label;
+    sel.appendChild(opt);
+    have.add(m.id);
+    added++;
+  }
+  return added;
+}
+
 async function load() {
   const s = await getSettings();
+  // Seed cached live models before restoring the saved value, so a saved model
+  // that isn't in the static list still resolves to a real option.
+  addModelOptions(await getLeonardoModels());
   for (const f of FIELDS) if ($(f)) $(f).value = s[f] ?? '';
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
   refreshGrantStatus();
+}
+
+async function refreshLeonardoModels() {
+  const status = $('leonardoModelsStatus');
+  const btn = $('refreshLeonardoModels');
+  btn.disabled = true;
+  status.textContent = 'Reading models from a logged-in Leonardo tab…';
+  status.style.color = 'var(--muted)';
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'listLeonardoModels' });
+    if (!res?.ok) throw new Error(res?.error || 'Could not read the model list.');
+    const models = res.models || [];
+    const added = addModelOptions(models);
+    // Cache everything found so the additions survive an options-page reload.
+    await saveLeonardoModels([...(await getLeonardoModels()), ...models]);
+    status.textContent = added
+      ? `Added ${added} new model${added === 1 ? '' : 's'} — ${models.length} found on Leonardo.`
+      : `Up to date — ${models.length} found, nothing new.`;
+    status.style.color = 'var(--ok)';
+  } catch (e) {
+    status.textContent = `Couldn't refresh: ${e.message}`;
+    status.style.color = 'var(--err)';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 let savedTimer = null;
@@ -145,6 +199,7 @@ async function grantAccess() {
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
+$('refreshLeonardoModels').onclick = refreshLeonardoModels;
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 // Wire auto-save: text fields on input, selects on change.
 for (const f of FIELDS) {

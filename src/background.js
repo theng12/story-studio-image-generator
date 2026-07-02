@@ -129,6 +129,7 @@ async function send(tabId, message) {
     'flow:getContext',
     'freegen:getContext',
     'leonardo:getContext',
+    'leonardo:listModels',
   ]).has(message?.type);
   const attempts = reloadSafe ? 4 : 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -815,6 +816,14 @@ async function webGeneratorContext(provider) {
   return { ok: true, ...r.result };
 }
 
+// Read Leonardo's live model catalogue from the picker on its own tab, so the
+// Options dropdown can pick up new models without a code change.
+async function listLeonardoModels() {
+  const tab = await ensureProviderTab('leonardo');
+  const r = await send(tab.id, { type: 'leonardo:listModels' });
+  return { ok: true, ...r.result };
+}
+
 // Resume a paused/pending queue (e.g. after a Grok daily-limit pause).
 async function resumeQueue() {
   alarmCreate();
@@ -862,6 +871,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'webGeneratorContext':
       reply(webGeneratorContext(msg.provider));
+      return true;
+    case 'listLeonardoModels':
+      reply(listLeonardoModels());
       return true;
     case 'resumeQueue':
       reply(resumeQueue());

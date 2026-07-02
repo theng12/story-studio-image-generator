@@ -123,6 +123,23 @@ export async function saveSettings(patch) {
   return next;
 }
 
+// Leonardo's model catalogue, read live from the site (Options → "Refresh
+// models") so new models appear without a code change. Kept in LOCAL storage:
+// it's regenerable derived data, not a user setting, and account-specific.
+// Shape: [{ id, label, badge }] where id is Leonardo's own model data-testid.
+const LEONARDO_MODELS_KEY = 'leonardoModels';
+
+export async function getLeonardoModels() {
+  const stored = await chrome.storage.local.get(LEONARDO_MODELS_KEY);
+  return stored[LEONARDO_MODELS_KEY] || [];
+}
+
+export async function saveLeonardoModels(models) {
+  const byId = new Map();
+  for (const m of models) if (m?.id) byId.set(m.id, { id: m.id, label: m.label || m.id, badge: m.badge || '' });
+  await chrome.storage.local.set({ [LEONARDO_MODELS_KEY]: [...byId.values()] });
+}
+
 // Story Studio login, stored in LOCAL storage (not synced across machines).
 // Only needed for a remote/tailnet server — localhost bypasses auth entirely.
 const CRED_KEY = 'studioCredentials';

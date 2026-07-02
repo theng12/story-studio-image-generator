@@ -207,7 +207,46 @@
     return imagePayload(await waitForResult(before));
   }
 
-  const handlers = { getContext, generateImage };
+  // Read the model picker live so new Leonardo models appear without a code
+  // change. Each model entry in the picker carries data-testid = the model id
+  // (the same id chooseModel selects by). We diff the data-testids present
+  // before vs. after opening the picker, which naturally scopes the scan to the
+  // freshly-rendered options and filters out the rest of the page chrome.
+  const CONTROL_TESTID = /(selector|trigger|close|search|input|button|tab|scroll|overlay|backdrop|dialog|header|footer|menu|tooltip|icon|placeholder|toggle)/i;
+
+  function collectModelOptions(before) {
+    const out = new Map();
+    for (const el of document.querySelectorAll('[data-testid]')) {
+      const id = el.getAttribute('data-testid');
+      if (!id || out.has(id) || before.has(id)) continue;
+      if (!/^[a-z0-9][a-z0-9.-]*$/i.test(id) || CONTROL_TESTID.test(id)) continue;
+      if (!visible(el)) continue;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 60) continue;
+      const badge = /unlimited/i.test(text) ? 'Unlimited' : /token/i.test(text) ? 'uses tokens' : '';
+      const label = text.replace(/\s*(?:—\s*)?(?:Unlimited|uses tokens|tokens)\s*$/i, '').trim() || id;
+      out.set(id, { id, label, badge });
+    }
+    return [...out.values()];
+  }
+
+  async function listModels() {
+    const trigger = document.querySelector(MODEL_TRIGGER_SELECTOR);
+    if (!visible(trigger)) throw new Error('Leonardo model selector was not found. Open the AI Creation image page and retry.');
+    const before = new Set([...document.querySelectorAll('[data-testid]')].map((el) => el.getAttribute('data-testid')));
+    trigger.click();
+    await waitFor(() => (collectModelOptions(before).length ? true : null), 6000);
+    const models = collectModelOptions(before);
+    // Close the picker without changing the current selection.
+    document.querySelector('[role="dialog"] button[aria-label="Close"]')?.click();
+    await sleep(150);
+    if (document.querySelector('[role="dialog"]'))
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    if (!models.length) throw new Error('No models were found in the Leonardo picker. Open the AI Creation image page and retry.');
+    return { models };
+  }
+
+  const handlers = { getContext, generateImage, listModels };
   window.addEventListener('message', async (event) => {
     if (event.source !== window || event.data?.kind !== REQ) return;
     const { id, op, payload } = event.data;
