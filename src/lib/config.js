@@ -32,6 +32,11 @@ export const DEFAULTS = {
   leonardoStyle: 'Dynamic',
   leonardoMode: 'FAST',
   leonardoSize: 'SMALL',
+  // Images generated per scene. Free plans are locked to 4 (we keep only the
+  // first anyway); paid plans allow 1–8. Default 1 so metered premium models
+  // aren't charged 4× for images we discard. Applied only when the control is
+  // available — skipped silently when the plan locks it.
+  leonardoCount: 1,
 
   // Human-paced gap between provider requests. A fresh random value in this
   // inclusive range is persisted after every attempt, surviving worker death.

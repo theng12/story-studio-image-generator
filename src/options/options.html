@@ -157,8 +157,19 @@
             <option value="LARGE">Large — highest cost</option>
           </select>
         </label>
+        <label class="grow">
+          <span class="label">Number of images</span>
+          <select id="leonardoCount">
+            <option value="1">1 — lowest cost</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+        </label>
       </div>
-      <div class="hint">Leonardo currently controls quantity on the free plan and may generate four candidates. Story Studio saves the first completed candidate.</div>
+      <div class="hint">We always keep only the first candidate, so fewer images = faster and (on metered models) cheaper. Applied only when your plan lets you choose — free plans are locked (often to 4) and this is skipped without error.</div>
     </section>
 
     <section class="card">

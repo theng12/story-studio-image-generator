@@ -17,6 +17,7 @@ const FIELDS = [
   'leonardoStyle',
   'leonardoMode',
   'leonardoSize',
+  'leonardoCount',
   'humanDelayMinSec',
   'humanDelayMaxSec',
   'imageModel',

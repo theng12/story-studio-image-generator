@@ -36,6 +36,13 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function setNumber(element, value) {
+    element.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set.call(element, String(value));
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
   async function chooseModel(model) {
     if (!/^[a-z0-9.-]+$/i.test(model || '')) throw new Error('Leonardo model setting is invalid.');
     const trigger = document.querySelector(MODEL_TRIGGER_SELECTOR);
@@ -89,6 +96,37 @@
   function chooseGenerationMode(mode) {
     const present = ['FAST', 'QUALITY', 'ULTRA'].some((m) => visible(document.querySelector(`[role="radio"][value="${m}"]`)));
     if (present) chooseRadio(mode, 'generation mode');
+  }
+
+  // Number of images per generation. Free plans lock this (typically to 4);
+  // paid plans allow 1–8. We only ever keep the first result, so fewer images =
+  // less time and, on metered models, fewer tokens. Best-effort + adaptive:
+  // apply it when a settable control is found, otherwise leave the plan default
+  // — never fail the generation over it (same policy as generation mode).
+  function chooseImageCount(count) {
+    const n = Math.max(1, Math.min(8, Math.round(Number(count) || 1)));
+    // a. Radio group — the same shape Leonardo uses for size / ratio / mode.
+    const radio = document.querySelector(`[role="radio"][value="${n}"]`);
+    if (visible(radio)) {
+      if (radio.getAttribute('aria-checked') !== 'true') radio.click();
+      return;
+    }
+    // b. A number input labelled for image count / quantity.
+    const input = [...document.querySelectorAll('input[type="number"]')].find((el) => {
+      if (!visible(el)) return false;
+      const context = (el.closest('label, [class*="image" i], [class*="count" i], [class*="quantity" i]')?.textContent || '').toLowerCase();
+      return /image|number|quantity|count/.test(context);
+    });
+    if (input) {
+      setNumber(input, n);
+      return;
+    }
+    // c. A pill/button group of numeric siblings 1..8 — click the one == n.
+    const buttons = [...document.querySelectorAll('button, [role="button"], [role="option"]')].filter(
+      (el) => visible(el) && /^[1-8]$/.test((el.textContent || '').trim())
+    );
+    if (buttons.length >= 3) buttons.find((el) => (el.textContent || '').trim() === String(n))?.click();
+    // else: control not found or locked — leave the plan's default untouched.
   }
 
   function leonardoRatio(ratio) {
@@ -197,6 +235,7 @@
     chooseGenerationMode(params.mode || 'FAST');
     chooseRadio(leonardoRatio(params.aspectRatio || '16:9'), 'aspect ratio');
     chooseRadio(params.size || 'SMALL', 'image size');
+    chooseImageCount(params.count || 1);
 
     const before = new Set(resultLinks());
     setValue(prompt, promptText);
