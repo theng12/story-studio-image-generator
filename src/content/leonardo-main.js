@@ -118,58 +118,17 @@
   }
 
   // ── Image reference (style/character consistency) ─────────────────────────
-  // Verified flow: "Add reference to generation" button → "Image Reference"
-  // row → "Select Media" dialog with a hidden file input (png/jpg/webp ≤5MB).
-  // Uploading auto-selects + attaches; the active ref shows as a chip under the
-  // prompt with an aria-label'd Remove button — that chip is our state signal.
+  // A reference attached in the Leonardo tab persists across the whole batch
+  // (imageGuidance stays in the SPA state; the extension reuses one tab), so we
+  // do NOT drive Leonardo's flaky "Select Media" upload dialog — that risks
+  // attaching the wrong image and wasting credits. We only DETECT the reference
+  // so the panel can report it: the active ref shows as a chip under the prompt
+  // with an aria-label'd Remove button, and the "Add reference" button only
+  // exists on models that support references.
 
   const ADD_REF_LABEL = 'Add reference to generation';
   const refAddButton = () => [...document.querySelectorAll('button')].find((el) => el.getAttribute('aria-label') === ADD_REF_LABEL);
-  const refChip = () => [...document.querySelectorAll('button')].find((el) => /^Remove Image Reference/i.test(el.getAttribute('aria-label') || ''));
-
-  // The same content-script instance serves the whole batch, so remember what
-  // we attached: re-attaching an identical reference every scene would stack
-  // uploads and waste time.
-  let attachedRefKey = null;
-
-  async function ensureImageReference(ref) {
-    if (!ref || !ref.base64) return; // no panel reference — never touch manual state
-    const addBtn = refAddButton();
-    if (!visible(addBtn)) return; // model has no reference support — adaptive skip
-    const key = `${ref.name || ''}:${ref.base64.length}:${ref.base64.slice(0, 32)}`;
-    if (refChip() && attachedRefKey === key) return; // ours, already attached
-    // Replace whatever is attached (ours-but-stale or manually set) with the
-    // panel's choice — the panel setting is the user's explicit instruction.
-    for (let guard = 0; guard < 6 && refChip(); guard++) {
-      refChip().click();
-      await sleep(600);
-    }
-    addBtn.click();
-    const row = await waitFor(() => {
-      const el = [...document.querySelectorAll('[role="dialog"] button')].find((b) => visible(b) && /image reference/i.test(b.textContent || ''));
-      return el || null;
-    }, 5000);
-    if (!row) throw new Error('Leonardo reference menu did not open. Reload the Leonardo tab and retry.');
-    row.click();
-    const input = await waitFor(() => document.querySelector('input[type="file"]'), 6000);
-    if (!input) throw new Error('Leonardo reference upload input was not found.');
-    const bytes = atob(ref.base64);
-    const arr = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    const file = new File([arr], ref.name || 'reference.png', { type: ref.mime || 'image/png' });
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    input.files = dt.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    // Upload auto-attaches; a Confirm step appears in some paths — click it if shown.
-    await waitFor(() => refChip() || [...document.querySelectorAll('button')].some((b) => visible(b) && (b.textContent || '').trim() === 'Confirm'), 20000);
-    const confirm = [...document.querySelectorAll('button')].find((b) => visible(b) && (b.textContent || '').trim() === 'Confirm');
-    if (confirm && !refChip()) confirm.click();
-    const attached = await waitFor(() => refChip(), 15000);
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    if (!attached) throw new Error('Leonardo did not attach the reference image (5MB png/jpg/webp limit). Check the tab and retry.');
-    attachedRefKey = key;
-  }
+  const referenceAttached = () => [...document.querySelectorAll('button')].some((el) => /^Remove Image Reference/i.test(el.getAttribute('aria-label') || ''));
 
   // What the CURRENT model actually offers, read from the live sidebar. The
   // panel uses this to show only real choices for the selected model.
@@ -192,7 +151,16 @@
       await sleep(150);
     }
     const model = new URL(location.href).searchParams.get('model') || '';
-    return { model, modes, sizes, ratios, maxCount, styles, supportsReference: !!visible(refAddButton()) };
+    return {
+      model,
+      modes,
+      sizes,
+      ratios,
+      maxCount,
+      styles,
+      supportsReference: !!visible(refAddButton()),
+      referenceAttached: referenceAttached(),
+    };
   }
 
   // Select a model (optional), then report its real control set.
@@ -308,7 +276,8 @@
     chooseRadioIfPresent(leonardoRatio(params.aspectRatio || '16:9'));
     chooseRadioIfPresent(params.size || 'SMALL');
     await chooseImageCount(params.count || 1);
-    await ensureImageReference(params.reference);
+    // Reference image (if any) is attached manually in the tab and persists
+    // across the batch — nothing to do here; we never touch the ref state.
 
     const before = new Set(resultLinks());
     setValue(prompt, promptText);
