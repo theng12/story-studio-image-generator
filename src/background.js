@@ -19,10 +19,21 @@ const FLOW_URL = 'https://labs.google/fx/tools/flow';
 const PROVIDER = {
   flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
   grok: { url: 'https://grok.com/imagine', match: 'https://grok.com/*' },
+  perchance: { url: 'https://perchance.org/ai-text-to-image-generator', match: 'https://perchance.org/*' },
+  freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
+  leonardo: { url: 'https://app.leonardo.ai/generate', match: 'https://app.leonardo.ai/*' },
+};
+const PROVIDER_NAME = {
+  flow: 'Flow',
+  grok: 'Grok',
+  perchance: 'Perchance',
+  freegen: 'FreeGen',
+  leonardo: 'Leonardo AI',
 };
 const QUEUE_KEY = 'queue';
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
+const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 
 // Small guards so a missing/disabled API can never break top-level evaluation
 // (which would stop the message listener from registering).
@@ -48,10 +59,10 @@ try {
   /* sidePanel unavailable on older Chrome */
 }
 
-// On install/update, reload open Flow tabs so their content scripts aren't stale.
+// On install/update, reload open provider tabs so their content scripts aren't stale.
 chrome.runtime.onInstalled.addListener(async () => {
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+    const tabs = await chrome.tabs.query({ url: Object.values(PROVIDER).map((entry) => entry.match) });
     for (const t of tabs) chrome.tabs.reload(t.id);
   } catch {
     /* best-effort */
@@ -116,6 +127,8 @@ async function send(tabId, message) {
     'flow:uploadImage',
     'flow:checkVideo',
     'flow:getContext',
+    'freegen:getContext',
+    'leonardo:getContext',
   ]).has(message?.type);
   const attempts = reloadSafe ? 4 : 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -135,7 +148,17 @@ async function send(tabId, message) {
   throw new Error('Provider tab did not become ready.');
 }
 
-// Generate one scene's image (Flow or Grok) and save it (project or Downloads).
+async function fetchImagePayload(imageUrl) {
+  const response = await fetch(imageUrl, { credentials: 'include' });
+  if (!response.ok) throw new Error(`Generated image download failed (${response.status}).`);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return { base64: btoa(binary), mime: response.headers.get('content-type') || 'image/png' };
+}
+
+// Generate one scene's image and save it to Story Studio or Downloads.
 async function generateAndSave(item, settings, tab) {
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const provider = item.provider || 'flow';
@@ -148,7 +171,7 @@ async function generateAndSave(item, settings, tab) {
     });
     base64 = r.base64;
     mime = r.mime;
-  } else {
+  } else if (provider === 'flow') {
     const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
     const r = await send(tab.id, {
@@ -162,8 +185,34 @@ async function generateAndSave(item, settings, tab) {
     });
     base64 = r.base64;
     mime = r.mime;
+  } else {
+    const messageType =
+      provider === 'perchance'
+        ? 'perchance:generateImage'
+        : provider === 'freegen'
+          ? 'freegen:generateImage'
+          : 'leonardo:generateImage';
+    const r = await send(tab.id, {
+      type: messageType,
+      params: {
+        prompt: item.prompt,
+        aspectRatio: item.aspectRatio || settings.aspectRatio,
+        style:
+          provider === 'perchance'
+            ? settings.perchanceStyle
+            : provider === 'leonardo'
+              ? settings.leonardoStyle
+              : undefined,
+        model: provider === 'leonardo' ? settings.leonardoModel : undefined,
+        mode: provider === 'leonardo' ? settings.leonardoMode : undefined,
+        size: provider === 'leonardo' ? settings.leonardoSize : undefined,
+      },
+    });
+    const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);
+    base64 = payload.base64;
+    mime = payload.mime;
   }
-  const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
 
   if (item.target === 'project' && item.slug && item.episodeCode && item.sceneKey != null) {
     try {
@@ -184,7 +233,7 @@ async function generateAndSave(item, settings, tab) {
     }
   }
 
-  const filename = item.downloadPath.replace(/\.(png|jpg|jpeg)$/i, '') + `.${ext}`;
+  const filename = item.downloadPath.replace(/\.(png|jpg|jpeg|webp)$/i, '') + `.${ext}`;
   const downloadId = await chrome.downloads.download({
     url: `data:${mime};base64,${base64}`,
     filename,
@@ -323,15 +372,35 @@ async function writeStatus(text, kind = 'info') {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Human-like, randomized 2–6 s gap between generations so a bulk run never
-// hammers the provider (Flow or Grok) at machine speed.
-const politeGap = () => 2000 + Math.floor(Math.random() * 4000); // 2–6 s
+
+function randomHumanDelayMs(settings) {
+  const min = Math.max(0, Math.round(Number(settings.humanDelayMinSec) || 0));
+  const max = Math.max(min, Math.round(Number(settings.humanDelayMaxSec) || 0));
+  return (min + Math.floor(Math.random() * (max - min + 1))) * 1000;
+}
+
+async function setNextProviderRun(settings) {
+  const delayMs = randomHumanDelayMs(settings);
+  await chrome.storage.local.set({ [NEXT_PROVIDER_RUN_KEY]: Date.now() + delayMs });
+  return delayMs;
+}
+
+async function waitForNextProviderRun(item) {
+  for (;;) {
+    const { [NEXT_PROVIDER_RUN_KEY]: nextRunAt = 0 } = await chrome.storage.local.get(NEXT_PROVIDER_RUN_KEY);
+    const remaining = Number(nextRunAt) - Date.now();
+    if (remaining <= 0) return;
+    const seconds = Math.max(1, Math.ceil(remaining / 1000));
+    await writeStatus(`Waiting ${seconds}s before ${PROVIDER_NAME[item.provider] || 'provider'} request: ${item.label}`, 'info');
+    await sleep(Math.min(remaining, 10000));
+  }
+}
 
 // ── the queue ───────────────────────────────────────────────────────────────
 function diagnoseFailure(error, item = {}) {
   const raw = String(error?.message || error || 'Unknown error');
   const text = raw.toLowerCase();
-  const provider = item.provider === 'grok' ? 'Grok' : 'Flow';
+  const provider = PROVIDER_NAME[item.provider] || 'Flow';
   const match = (pattern) => pattern.test(text);
 
   if (match(/story studio save failed|story studio rejected|scene image not found|scene image is empty/))
@@ -358,8 +427,8 @@ function diagnoseFailure(error, item = {}) {
   if (match(/recaptcha|captcha evaluation|grecaptcha/))
     return {
       code: 'recaptcha',
-      title: 'Flow verification failed',
-      hint: 'Reload the Flow tab, wait for it to finish loading, then retry.',
+      title: `${provider} verification failed`,
+      hint: `Reload the ${provider} tab, complete any browser check, then retry.`,
       raw,
     };
   if (match(/safety|responsible ai|policy|blocked prompt|prohibited|moderation/))
@@ -395,6 +464,13 @@ function diagnoseFailure(error, item = {}) {
       code: 'timeout',
       title: 'Generation timed out',
       hint: 'Check the provider tab for a completed asset before retrying, especially for paid video.',
+      raw,
+    };
+  if (match(/interrupted after submission|outcome is unknown/))
+    return {
+      code: 'ambiguous',
+      title: `${provider} result needs confirmation`,
+      hint: `Check the ${provider} tab for a completed image before retrying so tokens are not spent twice.`,
       raw,
     };
   if (match(/asset download|video download|downloaded asset was empty|returned no image url/))
@@ -446,7 +522,7 @@ let processing = false;
 // an episode — can't add the same scene twice and waste work/credits).
 function itemKey(it) {
   return it.episodeCode && it.sceneKey != null
-    ? `${it.episodeCode}::${it.assetType}::${it.kind}::${it.source}::${it.sceneKey}`
+    ? `${it.provider || 'flow'}::${it.episodeCode}::${it.assetType}::${it.kind}::${it.source}::${it.sceneKey}`
     : null;
 }
 
@@ -524,8 +600,8 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
   const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene'; // asset kind
   const stem = akind === 'thumbnail' ? 'Thumb' : 'Scene';
-  // Grok is image-only in this build (no Grok video path yet). Thumbnails too.
-  const isVideo = assetType === 'video' && prov !== 'grok' && akind === 'scene';
+  // Only Flow supports video; every web generator provider is image-only.
+  const isVideo = assetType === 'video' && prov === 'flow' && akind === 'scene';
   const effTarget = target || settings.saveTarget;
   // scenes are normalized: { source, key, label, prompt, hasImage }
   const items = (scenes || []).map((s) =>
@@ -572,23 +648,32 @@ async function processQueue() {
   if (processing) return;
   processing = true;
   try {
-    const settings = await getSettings();
+    let settings = await getSettings();
     const tabs = {}; // per-provider tab cache
     for (;;) {
       let q = await getQueue();
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
-      q[idx].status = 'running';
-      q[idx].startedAt = q[idx].startedAt || Date.now();
-      delete q[idx].finishedAt;
-      delete q[idx].durationMs;
+      const pendingId = q[idx].id;
+      await waitForNextProviderRun(q[idx]);
+      settings = await getSettings();
+      q = await getQueue();
+      const currentIdx = q.findIndex((i) => i.id === pendingId && i.status === 'pending');
+      if (currentIdx < 0) continue;
+      q[currentIdx].status = 'running';
+      q[currentIdx].startedAt = q[currentIdx].startedAt || Date.now();
+      delete q[currentIdx].finishedAt;
+      delete q[currentIdx].durationMs;
       await setQueue(q);
-      const item = q[idx];
+      const item = q[currentIdx];
       const provider = item.provider || 'flow';
       const pos = q.filter((i) => i.status === 'done' || i.status === 'failed').length + 1;
       await writeStatus(`(${pos}/${q.length}) ${item.label}…`, 'running');
+      let providerAttempted = false;
       try {
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
+        await setNextProviderRun(settings);
+        providerAttempted = true;
         const r =
           item.assetType === 'video'
             ? await generateVideoAndSave(item, settings, tabs[provider])
@@ -605,7 +690,7 @@ async function processQueue() {
         }
         await setQueue(q);
       } catch (e) {
-        // Grok daily free limit: pause the run instead of failing the whole
+        // A provider limit pauses the run instead of failing the whole
         // batch. Re-pend this item, stop the loop, and don't auto-hammer — it
         // resumes when the panel/worker next kicks the queue (e.g. tomorrow).
         if (e && e.limit) {
@@ -616,7 +701,8 @@ async function processQueue() {
             delete it.startedAt;
           }
           await setQueue(q);
-          await writeStatus('⏸ Grok daily free limit reached — paused. Resumes when you reopen the panel or click Resume.', 'info');
+          const name = PROVIDER_NAME[provider] || provider;
+          await writeStatus(`${name} free limit reached — paused. Resume after the quota resets or switch providers.`, 'info');
           alarmClear();
           return;
         }
@@ -646,9 +732,11 @@ async function processQueue() {
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
         await setQueue(q);
+      } finally {
+        if (providerAttempted) await setNextProviderRun(settings);
       }
       const more = (await getQueue()).some((i) => i.status === 'pending');
-      if (more) await sleep(politeGap());
+      if (more) await waitForNextProviderRun(item);
     }
     const q = await getQueue();
     if (q.length) {
@@ -677,8 +765,16 @@ async function clearQueue() {
   let changed = false;
   for (const i of q)
     if (i.status === 'running') {
-      i.status = 'pending';
-      delete i.startedAt;
+      if (i.provider === 'leonardo' && i.assetType === 'image') {
+        i.status = 'failed';
+        i.error = 'Leonardo generation was interrupted after submission; its outcome is unknown. Check the Leonardo tab before retrying.';
+        i.failure = diagnoseFailure(i.error, i);
+        i.finishedAt = Date.now();
+        i.durationMs = i.finishedAt - (i.startedAt || i.finishedAt);
+      } else {
+        i.status = 'pending';
+        delete i.startedAt;
+      }
       changed = true;
     }
   if (changed) await setQueue(q);
@@ -703,6 +799,19 @@ async function flowContext() {
 async function grokContext() {
   const tab = await ensureProviderTab('grok');
   const r = await send(tab.id, { type: 'grok:getContext' });
+  return { ok: true, ...r.result };
+}
+
+async function webGeneratorContext(provider) {
+  if (!PROVIDER[provider] || provider === 'flow' || provider === 'grok') throw new Error('Unknown web generator.');
+  const tab = await ensureProviderTab(provider);
+  const messageType =
+    provider === 'perchance'
+      ? 'perchance:getContext'
+      : provider === 'freegen'
+        ? 'freegen:getContext'
+        : 'leonardo:getContext';
+  const r = await send(tab.id, { type: messageType });
   return { ok: true, ...r.result };
 }
 
@@ -750,6 +859,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'grokContext':
       reply(grokContext());
+      return true;
+    case 'webGeneratorContext':
+      reply(webGeneratorContext(msg.provider));
       return true;
     case 'resumeQueue':
       reply(resumeQueue());

@@ -6,6 +6,22 @@ the **web credits from your Google AI subscription** (not the metered
 Vertex/Gemini Veo API) — and saves each asset back into the episode with the
 correct name.
 
+Image providers also include **Grok Imagine**, **Perchance**, **FreeGen**, and
+**Leonardo AI**. Perchance and FreeGen use their free browser generators;
+Leonardo uses the tokens available to the signed-in web account. These adapters
+operate the visible generator controls one job at a time and keep the provider
+tab open while the persistent queue runs. Only Google Flow supports video.
+Perchance runs in its sandboxed generator frame: the adapter explicitly sets
+the configured art style, maps Story Studio ratios to Square/Portrait/Landscape,
+and uses Perchance's minimum quantity of two while saving one result per scene.
+FreeGen has its own provider adapter built around the site's stable prompt,
+aspect-ratio, Generate, error, and completed JPEG controls; ad frames and other
+page images are deliberately excluded from result detection.
+Leonardo has separate model, visual-style, generation-mode, and image-size
+settings. Its adapter selects those controls for every request. Settings shows
+Leonardo's “Unlimited” catalog badge, but the site's displayed generation cost
+remains authoritative for the signed-in plan.
+
 Sibling to `fish-tts-extension`; same proven architecture (side panel, persistent
 resumable queue, MAIN-world content script, Story Studio companion client).
 
@@ -126,8 +142,8 @@ Recon against the logged-in studio settled the design. It's **fully API-driven**
 
 The panel has a **Provider** switch: **Google Flow** or **Grok Imagine** (xAI).
 Grok's free Imagine tier generates images with a **daily limit**; the queue is
-built around that — a 2–6 s human-like gap between every generation (both
-providers), and when Grok's daily limit is hit the run **pauses and resumes**
+built around that — a configurable, persisted human-paced gap between every
+provider request, and when Grok's daily limit is hit the run **pauses and resumes**
 later instead of failing the batch.
 
 **How it's driven — capture-and-replay.** Grok signs its API calls

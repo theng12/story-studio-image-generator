@@ -24,6 +24,11 @@ const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumb
 const isVideoSel = () => $('mediaType').value === 'scene-video';
 // Combined selection identity: 'scene' | 'video' | 'thumbnail'.
 const selKind = () => (isVideoSel() ? 'video' : currentKind());
+const humanDelayLabel = () => {
+  const min = Number(settings?.humanDelayMinSec) || 0;
+  const max = Number(settings?.humanDelayMaxSec) || 0;
+  return min === max ? `${min}s` : `${Math.min(min, max)}-${Math.max(min, max)}s`;
+};
 
 async function init() {
   settings = await getSettings();
@@ -427,15 +432,18 @@ function updateQueueButton() {
   $('queueSelected').disabled = selectedScenes().length === 0;
 }
 
-// Provider switch: Grok is image-only and has a daily limit; reflect that.
+// Only Flow supports video; all other providers use their image-generator UI.
 function onProviderChange() {
-  const grok = $('provider').value === 'grok';
-  saveSettings({ provider: $('provider').value });
+  const provider = $('provider').value;
+  const imageOnly = provider !== 'flow';
+  saveSettings({ provider });
   const videoOpt = $('mediaType').querySelector('option[value="scene-video"]');
-  if (videoOpt) videoOpt.disabled = grok; // Grok is image-only
-  if (grok && isVideoSel()) $('mediaType').value = 'scene-image';
+  if (videoOpt) videoOpt.disabled = imageOnly;
+  if (imageOnly && isVideoSel()) $('mediaType').value = 'scene-image';
+  $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
   onMediaTypeChange();
-  if (grok) checkGrok();
+  if (provider === 'grok') checkGrok();
+  else if (provider !== 'flow') checkWebGenerator(provider);
   else setStatus('', 'info');
 }
 
@@ -450,6 +458,27 @@ async function checkGrok() {
     else setStatus('Grok ready (template captured). Free tier has a daily limit — it pauses & resumes.', 'done');
   } catch (e) {
     setStatus(`Grok check failed: ${e.message}`, 'err');
+  }
+}
+
+async function checkWebGenerator(provider) {
+  const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
+  const name = names[provider] || provider;
+  setStatus(`Checking ${name}…`, 'running');
+  try {
+    const ctx = await chrome.runtime.sendMessage({ type: 'webGeneratorContext', provider });
+    if (!ctx?.ok) throw new Error(ctx?.error || `Could not reach ${name}.`);
+    if (!ctx.ready) {
+      setStatus(`${name}: open the image generator, complete any sign-in/browser check, and leave the tab open.`, 'err');
+      return;
+    }
+    const quota =
+      provider === 'leonardo'
+        ? 'Free accounts currently produce four images per prompt and deduct the displayed token cost.'
+        : 'Free web generation ready.';
+    setStatus(`${name} ready. ${quota}`, 'done');
+  } catch (e) {
+    setStatus(`${name} check failed: ${e.message}`, 'err');
   }
 }
 
@@ -469,13 +498,14 @@ function confirmQueue() {
   if (!scenes.length) return;
   const provider = $('provider').value;
   const isGrok = provider === 'grok';
+  const isFlow = provider === 'flow';
   const kind = currentKind();
-  const isVideo = !isGrok && isVideoSel();
+  const isVideo = isFlow && isVideoSel();
   const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
   const target = $('saveTarget').value;
   if (target === 'project' && !currentProject) return;
-  if (!isGrok && !settings.flowProjectId) {
+  if (isFlow && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
   }
@@ -485,9 +515,9 @@ function confirmQueue() {
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Grok Imagine → ` +
       `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
-      `the queue pauses when it's hit and resumes later. 2–6 s between each. Continue?`;
+      `the queue pauses when it's hit and resumes later. ${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Grok';
-  } else {
+  } else if (isFlow) {
     $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : `Queue these ${noun}s?`;
     $('confirmBody').textContent = isVideo
       ? `${scenes.length} clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} — image-to-video ` +
@@ -498,6 +528,15 @@ function confirmQueue() {
         `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
         `Images use Nano Banana 2 (free). One at a time.`;
     $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+  } else {
+    const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
+    const name = names[provider] || provider;
+    $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
+    $('confirmBody').textContent =
+      `${n} from ${currentEpisode.code} via the ${name} website → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Keep the generator tab open; jobs run one at a time with a ${humanDelayLabel()} gap.`;
+    $('confirmOk').textContent = `Queue on ${name}`;
   }
   const dlg = $('confirm');
   dlg.classList.remove('hidden');

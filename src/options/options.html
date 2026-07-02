@@ -35,6 +35,129 @@
     </section>
 
     <section class="card">
+      <div class="label">Human-paced queue</div>
+      <div class="row">
+        <label class="grow">
+          <span class="label">Minimum delay (seconds)</span>
+          <input type="number" id="humanDelayMinSec" min="0" max="3600" step="1" />
+        </label>
+        <label class="grow">
+          <span class="label">Maximum delay (seconds)</span>
+          <input type="number" id="humanDelayMaxSec" min="0" max="3600" step="1" />
+        </label>
+      </div>
+      <div class="hint">A new delay is chosen between these values after every provider attempt. Use equal values for a fixed delay, or 0 and 0 to disable it.</div>
+    </section>
+
+    <section class="card">
+      <div class="label">Perchance</div>
+      <div class="field">
+        <span class="label">Art style</span>
+        <input type="text" id="perchanceStyle" list="perchanceStyles" placeholder="No style" />
+        <datalist id="perchanceStyles">
+          <option value="No style"></option>
+          <option value="Cinematic"></option>
+          <option value="Casual Photo"></option>
+          <option value="Professional Photo"></option>
+          <option value="Digital Painting"></option>
+          <option value="Concept Art"></option>
+          <option value="Fantasy Painting"></option>
+          <option value="Illustration"></option>
+          <option value="Anime"></option>
+          <option value="Studio Ghibli"></option>
+          <option value="Watercolor"></option>
+          <option value="Pixel Art"></option>
+        </datalist>
+        <div class="hint">Applied explicitly to every Perchance job. “No style” lets the Story Studio prompt control the look.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Leonardo AI</div>
+      <div class="field">
+        <span class="label">Image model</span>
+        <select id="leonardoModel">
+          <option value="phoenix-v1.0">Phoenix 1.0 — Unlimited</option>
+          <option value="lucid-origin">Lucid Origin — Unlimited</option>
+          <option value="lucid-realism">Lucid Realism — Unlimited</option>
+          <option value="flux-dev">FLUX Dev — Unlimited</option>
+          <option value="flux-schnell">FLUX Schnell — Unlimited</option>
+          <option value="kino-xl">Cinematic Kino — Unlimited</option>
+          <option value="illustrative-albedo">Illustrative Albedo — Unlimited</option>
+          <option value="portrait-perfect">Portrait Perfect — Unlimited</option>
+          <option value="stock-photography">Stock Photography — Unlimited</option>
+          <option value="phoenix-v0.9">Phoenix 0.9 — Unlimited</option>
+          <option value="auto-preset">Auto — model chosen by Leonardo</option>
+          <option value="ideogram-v4.0">Ideogram 4.0 — uses tokens</option>
+          <option value="gpt-image-2">GPT Image 2 — uses tokens</option>
+          <option value="nano-banana-2">Nano Banana 2 — uses tokens</option>
+          <option value="nano-banana-2-lite">Nano Banana 2 Lite — uses tokens</option>
+          <option value="recraft-v4">Recraft V4 — uses tokens</option>
+          <option value="recraft-v4-pro">Recraft V4 Pro — uses tokens</option>
+          <option value="seedream-4.5">Seedream 4.5 — uses tokens</option>
+          <option value="flux-pro-2.0">FLUX.2 Pro — uses tokens</option>
+          <option value="gpt-image-1.5">GPT Image-1.5 — uses tokens</option>
+          <option value="gemini-image-2">Nano Banana Pro — uses tokens</option>
+          <option value="seedream-4.0">Seedream 4.0 — uses tokens</option>
+          <option value="gemini-2.5-flash-image">Nano Banana — uses tokens</option>
+          <option value="ideogram-v3.0">Ideogram 3.0 — uses tokens</option>
+          <option value="gpt-image-1">GPT Image-1 — uses tokens</option>
+          <option value="flux-kontext-max">FLUX.1 Kontext Max — uses tokens</option>
+          <option value="flux-kontext-pro">FLUX.1 Kontext — uses tokens</option>
+        </select>
+        <div class="hint">“Unlimited” is Leonardo's catalog badge, not a zero-token guarantee. Check the Generate button's displayed cost for your current plan.</div>
+      </div>
+      <div class="field">
+        <span class="label">Visual style</span>
+        <select id="leonardoStyle">
+          <option value="None">None</option>
+          <option value="3D Render">3D Render</option>
+          <option value="Bokeh">Bokeh</option>
+          <option value="Cinematic">Cinematic</option>
+          <option value="Cinematic Concept">Cinematic Concept</option>
+          <option value="Creative">Creative</option>
+          <option value="Dynamic">Dynamic</option>
+          <option value="Fashion">Fashion</option>
+          <option value="Graphic Design Pop Art">Graphic Design Pop Art</option>
+          <option value="Graphic Design Vector">Graphic Design Vector</option>
+          <option value="Illustration">Illustration</option>
+          <option value="Macro">Macro</option>
+          <option value="Minimalist">Minimalist</option>
+          <option value="Moody">Moody</option>
+          <option value="Portrait">Portrait</option>
+          <option value="Pro B&amp;W photography">Pro B&amp;W photography</option>
+          <option value="Pro color photography">Pro color photography</option>
+          <option value="Pro film photography">Pro film photography</option>
+          <option value="Ray Traced">Ray Traced</option>
+          <option value="Sketch (B&amp;W)">Sketch (B&amp;W)</option>
+          <option value="Sketch (Color)">Sketch (Color)</option>
+          <option value="Stock Photo">Stock Photo</option>
+          <option value="Vibrant">Vibrant</option>
+        </select>
+        <div class="hint">Style availability can vary by model. The queue stops with an actionable error if Leonardo removes the selected combination.</div>
+      </div>
+      <div class="row">
+        <label class="grow">
+          <span class="label">Generation mode</span>
+          <select id="leonardoMode">
+            <option value="FAST">Fast — lowest cost</option>
+            <option value="QUALITY">Quality</option>
+            <option value="ULTRA">Ultra — highest cost</option>
+          </select>
+        </label>
+        <label class="grow">
+          <span class="label">Image size</span>
+          <select id="leonardoSize">
+            <option value="SMALL">Small — lowest cost</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LARGE">Large — highest cost</option>
+          </select>
+        </label>
+      </div>
+      <div class="hint">Leonardo currently controls quantity on the free plan and may generate four candidates. Story Studio saves the first completed candidate.</div>
+    </section>
+
+    <section class="card">
       <div class="label">Google Flow</div>
       <div class="field">
         <span class="label">Flow project ID</span>
