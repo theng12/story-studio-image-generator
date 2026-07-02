@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.6.3",
-  "description": "Generate Story Studio KH scene images & video on Google Flow (and images on Grok Imagine) from your scene plan, using your web-subscription credits, and save each asset with the correct name.",
+  "version": "0.8.0",
+  "description": "Generate Story Studio KH scene images and video through Google Flow, Grok, Perchance, FreeGen, and Leonardo, then save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
     "http://localhost/*",
@@ -11,7 +11,13 @@
     "https://aisandbox-pa.googleapis.com/*",
     "https://flow-content.google/*",
     "https://grok.com/*",
-    "https://*.grok.com/*"
+    "https://*.grok.com/*",
+    "https://perchance.org/*",
+    "https://*.perchance.org/*",
+    "https://freegen.app/*",
+    "https://*.freegen.app/*",
+    "https://app.leonardo.ai/*",
+    "https://*.leonardo.ai/*"
   ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
@@ -46,6 +52,44 @@
     {
       "matches": ["https://grok.com/*"],
       "js": ["src/content/grok.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.leonardo.ai/*"],
+      "js": ["src/content/leonardo-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.leonardo.ai/*"],
+      "js": ["src/content/leonardo.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://freegen.app/*"],
+      "js": ["src/content/freegen-main.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://freegen.app/*"],
+      "js": ["src/content/freegen.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.perchance.org/ai-text-to-image-generator*",
+        "https://image-generation.perchance.org/embed*"
+      ],
+      "js": ["src/content/perchance-main.js"],
+      "world": "MAIN",
+      "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.perchance.org/ai-text-to-image-generator*"],
+      "js": ["src/content/perchance.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ],

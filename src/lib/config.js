@@ -18,10 +18,25 @@ export const DEFAULTS = {
   flowProjectId: '',
   flowProjectName: '',
 
-  // Generation provider: 'flow' (Google Flow) or 'grok' (xAI Grok Imagine).
-  // Both are driven from a logged-in web session; Flow's Nano Banana 2 is free
-  // and effectively unlimited, Grok's free Imagine has a daily limit.
+  // Generation provider. All providers use their visible web session/UI; only
+  // Flow supports video in addition to image generation.
   provider: 'flow',
+
+  // Perchance remembers the last website style, which can silently contaminate
+  // a batch. Force an explicit style for every queued image instead.
+  perchanceStyle: 'No style',
+
+  // Leonardo controls vary by model and account tier. These defaults are
+  // available on the free plan and minimize token use per generated image.
+  leonardoModel: 'phoenix-v1.0',
+  leonardoStyle: 'Dynamic',
+  leonardoMode: 'FAST',
+  leonardoSize: 'SMALL',
+
+  // Human-paced gap between provider requests. A fresh random value in this
+  // inclusive range is persisted after every attempt, surviving worker death.
+  humanDelayMinSec: 5,
+  humanDelayMaxSec: 60,
 
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
@@ -67,6 +82,21 @@ export const DEFAULTS = {
 
 const STORAGE_KEY = 'settings';
 
+function normalizeDelay(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(3600, Math.max(0, Math.round(number)));
+}
+
+function normalizeSettings(settings) {
+  settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
+  const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
+  const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
+  settings.humanDelayMinSec = Math.min(first, second);
+  settings.humanDelayMaxSec = Math.max(first, second);
+  return settings;
+}
+
 // Accept either the bare UUID or a copied Flow project URL. Keeping this at
 // the settings boundary prevents a URL from becoming part of the API path.
 export function normalizeFlowProjectId(value) {
@@ -78,10 +108,9 @@ export function normalizeFlowProjectId(value) {
 
 export async function getSettings() {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  const next = { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
-  const normalized = normalizeFlowProjectId(next.flowProjectId);
-  if (normalized !== next.flowProjectId) {
-    next.flowProjectId = normalized;
+  const original = { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
+  const next = normalizeSettings({ ...original });
+  if (JSON.stringify(next) !== JSON.stringify(original)) {
     await chrome.storage.sync.set({ [STORAGE_KEY]: next });
   }
   return next;
@@ -89,8 +118,7 @@ export async function getSettings() {
 
 export async function saveSettings(patch) {
   const current = await getSettings();
-  const next = { ...current, ...patch };
-  next.flowProjectId = normalizeFlowProjectId(next.flowProjectId);
+  const next = normalizeSettings({ ...current, ...patch });
   await chrome.storage.sync.set({ [STORAGE_KEY]: next });
   return next;
 }

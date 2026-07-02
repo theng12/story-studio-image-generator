@@ -5,6 +5,13 @@ const $ = (id) => document.getElementById(id);
 const FIELDS = [
   'studioBaseUrl',
   'flowProjectId',
+  'perchanceStyle',
+  'leonardoModel',
+  'leonardoStyle',
+  'leonardoMode',
+  'leonardoSize',
+  'humanDelayMinSec',
+  'humanDelayMaxSec',
   'imageModel',
   'videoModel',
   'videoSource',
