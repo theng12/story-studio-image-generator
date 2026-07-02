@@ -65,6 +65,11 @@ function wire() {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
     pollQueue();
   };
+  $('pauseQueue').onclick = async () => {
+    const resuming = $('pauseQueue').textContent === 'Resume';
+    await chrome.runtime.sendMessage({ type: resuming ? 'resumeQueue' : 'pauseQueue' });
+    pollQueue();
+  };
   $('retryFailed').onclick = async () => {
     const res = await chrome.runtime.sendMessage({ type: 'retryFailed' });
     if (res?.skippedPaid) setStatus(`Retrying ${res.retried}; ${res.skippedPaid} paid video needs its row Retry button.`, 'info');
@@ -764,13 +769,18 @@ function renderQueueTiming(queue) {
 
 let lastQueueSig = '';
 async function pollQueue() {
-  const [{ queue = [] } = {}, st] = await Promise.all([
+  const [{ queue = [], paused = false } = {}, st] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'getQueue' }).then((r) => r || {}),
     chrome.storage.local.get('lastStatus'),
   ]);
   renderQueueTiming(queue);
   const s = st.lastStatus;
   if (s && Date.now() - s.ts < 600000) setStatus(s.text, s.kind);
+  // Pause/Resume only matters while there is still work to do.
+  const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
+  const pause = $('pauseQueue');
+  pause.classList.toggle('hidden', !hasWork && !paused);
+  pause.textContent = paused ? 'Resume' : 'Pause';
   // Only rebuild the list when its contents actually change. A blind 1.5 s
   // re-render would wipe an open "Technical details" panel (and any text the
   // user is mid-selection on) — the raw error would flash for one tick and vanish.

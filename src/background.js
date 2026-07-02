@@ -31,6 +31,11 @@ const PROVIDER_NAME = {
   leonardo: 'Leonardo AI',
 };
 const QUEUE_KEY = 'queue';
+// User-requested pause: the current item finishes, then the loop stops before
+// the next one starts. Persisted so it survives service-worker death.
+const PAUSE_KEY = 'queuePaused';
+
+const isPaused = async () => !!(await chrome.storage.local.get(PAUSE_KEY))[PAUSE_KEY];
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
@@ -661,11 +666,20 @@ async function processQueue() {
     let settings = await getSettings();
     const tabs = {}; // per-provider tab cache
     for (;;) {
+      if (await isPaused()) {
+        await writeStatus('Queue paused — press Resume to continue.', 'info');
+        break;
+      }
       let q = await getQueue();
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
+      // Re-check after the human-pace delay (it can be up to a minute long).
+      if (await isPaused()) {
+        await writeStatus('Queue paused — press Resume to continue.', 'info');
+        break;
+      }
       settings = await getSettings();
       q = await getQueue();
       const currentIdx = q.findIndex((i) => i.id === pendingId && i.status === 'pending');
@@ -841,10 +855,18 @@ async function leonardoModelControls(model) {
   return { ok: true, ...r.result };
 }
 
-// Resume a paused/pending queue (e.g. after a Grok daily-limit pause).
+// Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
 async function resumeQueue() {
+  await chrome.storage.local.remove(PAUSE_KEY);
   alarmCreate();
   processQueue();
+  return { ok: true };
+}
+
+async function pauseQueue() {
+  await chrome.storage.local.set({ [PAUSE_KEY]: true });
+  // If something is mid-generation it finishes and saves; the loop then stops.
+  await writeStatus(processing ? 'Pausing — finishing the current item first…' : 'Queue paused — press Resume to continue.', 'info');
   return { ok: true };
 }
 
@@ -869,16 +891,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       reply(clearQueue());
       return true;
     case 'getQueue':
-      // Reopening the panel resumes a paused queue.
+      // Reopening the panel nudges a stalled queue — but never overrides an
+      // explicit user pause.
       reply(
-        getQueue().then((queue) => {
-          if (queue.some((i) => i.status === 'pending') && !processing) {
+        (async () => {
+          const [queue, paused] = await Promise.all([getQueue(), isPaused()]);
+          if (!paused && queue.some((i) => i.status === 'pending') && !processing) {
             alarmCreate();
             processQueue();
           }
-          return { ok: true, queue };
-        })
+          return { ok: true, queue, paused };
+        })()
       );
+      return true;
+    case 'pauseQueue':
+      reply(pauseQueue());
       return true;
     case 'flowContext':
       reply(flowContext());
