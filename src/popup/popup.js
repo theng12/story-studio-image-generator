@@ -60,6 +60,9 @@ function wire() {
     b.onclick = () => selectNextMissing(Number(b.dataset.n));
   });
   $('selectRemaining').onclick = selectRemaining;
+  $('sceneSearch').oninput = filterScenesList;
+  $('selectFailed').onclick = selectFailedScenes;
+  $('queueAllPending').onclick = queueAllPending;
   $('queueSelected').onclick = confirmQueue;
   $('clearQueue').onclick = async () => {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
@@ -222,6 +225,98 @@ function setEpisodeFilterUI(mode) {
     .forEach((b) => b.classList.toggle('active', b.dataset.f === mode));
 }
 
+// Lazily fill in each episode's done/total count in the dropdown label, so you
+// can see progress without loading each. Throttled + abortable (a new project
+// or filter bumps the run token).
+let episodeCountRun = 0;
+async function fetchEpisodeCounts(slug, codes) {
+  const run = ++episodeCountRun;
+  for (const code of codes) {
+    if (run !== episodeCountRun) return;
+    try {
+      const data = await client.sceneReview(slug, code);
+      const scenes = data?.scenes || [];
+      if (scenes.length) {
+        const done = scenes.filter((s) => s.image_filename).length;
+        const opt = [...$('episode').options].find((o) => o.value === code);
+        if (opt) {
+          const title = opt.dataset.title || '';
+          opt.textContent = `${code}${title ? ' — ' + title : ''} · ${done}/${scenes.length}${done === scenes.length ? ' ✓' : ''}`;
+        }
+      }
+    } catch {
+      /* episode without a scene plan, etc. — skip */
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+}
+
+// Queue every missing scene image across all pending episodes in the project.
+async function queueAllPending() {
+  if (!currentProject) return setStatus('Pick a project first.', 'err');
+  if (isVideoSel() || currentKind() === 'thumbnail')
+    return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
+  const provider = $('provider').value;
+  const target = $('saveTarget').value;
+  if (provider === 'flow' && !settings.flowProjectId) return setStatus('Set a Flow project first.', 'err');
+  let rows;
+  try {
+    rows = await client.listEpisodes(currentProject.slug);
+  } catch (e) {
+    return setStatus(`Couldn't list episodes: ${e.message}`, 'err');
+  }
+  const pending = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => {
+    const st = e.status || {};
+    return (st.scene_plan || st.scene_prompts) && !st.images;
+  });
+  if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
+  const dlg = $('confirm');
+  $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[provider] || provider}?`;
+  $('confirmBody').textContent =
+    `Loads ${pending.length} pending episode${pending.length > 1 ? 's' : ''} and queues every missing scene image via ` +
+    `${PROVIDER_LABEL[provider] || provider} → ${target === 'project' ? 'Story Studio folders' : 'Downloads'}. ` +
+    `Already-queued scenes are skipped. This can be a lot of scenes — continue?`;
+  $('confirmOk').textContent = 'Queue all pending';
+  dlg.classList.remove('hidden');
+  $('confirmOk').onclick = async () => {
+    dlg.classList.add('hidden');
+    setStatus(`Queuing ${pending.length} episode${pending.length > 1 ? 's' : ''}…`, 'running');
+    let queued = 0;
+    let eps = 0;
+    for (const e of pending) {
+      const code = e.episode_code || e.code;
+      try {
+        const r = await loadScenesFromEither(currentProject.slug, { code, title: e.title || '' });
+        const missing = (r.scenes || []).filter((s) => !s.hasImage && (s.prompt || '').trim());
+        if (!missing.length) continue;
+        const res = await chrome.runtime.sendMessage({
+          type: 'enqueueScenes',
+          payload: {
+            slug: currentProject.slug,
+            episodeCode: code,
+            episodeTitle: e.title || '',
+            projectName: currentProject.name,
+            scenes: missing,
+            source: r.source,
+            kind: 'scene',
+            target,
+            assetType: 'image',
+            provider,
+          },
+        });
+        if (res?.ok) {
+          queued += res.added || 0;
+          eps++;
+        }
+      } catch {
+        /* skip this episode */
+      }
+    }
+    setStatus(`Queued ${queued} scene${queued === 1 ? '' : 's'} across ${eps} episode${eps === 1 ? '' : 's'}.`, 'done');
+    pollQueue();
+  };
+}
+
 async function onProjectChange() {
   const sel = $('project');
   const slug = sel.value;
@@ -257,6 +352,7 @@ async function onProjectChange() {
       esel.appendChild(opt);
     }
     if (settings.lastEpisode) esel.value = settings.lastEpisode;
+    fetchEpisodeCounts(slug, eps.map((e) => e.episode_code || e.code));
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
@@ -421,6 +517,45 @@ async function loadScenesFromEither(slug, ep) {
   };
 }
 
+const PROVIDER_LABEL = {
+  flow: 'Google Flow',
+  grok: 'Grok',
+  perchance: 'Perchance',
+  freegen: 'FreeGen',
+  leonardo: 'Leonardo',
+  pollinations: 'Pollinations',
+};
+
+// Double-click a prompt to edit it in place; the edit is used when queued.
+function startEditPrompt(prm, scene) {
+  prm.classList.add('expanded', 'editing');
+  prm.contentEditable = 'true';
+  prm.focus();
+  const done = () => {
+    prm.contentEditable = 'false';
+    prm.classList.remove('editing');
+    prm.onblur = null;
+    prm.onkeydown = null;
+    scene.prompt = prm.textContent.trim();
+    prm.textContent = scene.prompt || '(no prompt)';
+    updateQueueButton();
+  };
+  prm.onblur = done;
+  prm.onkeydown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      prm.blur();
+    }
+  };
+}
+
+function filterScenesList() {
+  const q = $('sceneSearch').value.trim().toLowerCase();
+  document.querySelectorAll('#scenes .scene').forEach((row) => {
+    row.style.display = !q || row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
 function renderScenes() {
   const includeExisting = $('includeExisting').checked;
   const video = loadedKind === 'video';
@@ -430,6 +565,7 @@ function renderScenes() {
     const has = s.hasImage; // image (image modes) or fresh clip (video)
     const div = document.createElement('div');
     div.className = 'scene';
+    div.dataset.key = String(s.key);
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.dataset.key = String(s.key);
@@ -448,8 +584,12 @@ function renderScenes() {
     const prm = document.createElement('div');
     prm.className = 'prompt';
     prm.textContent = s.prompt || '(no prompt)';
-    prm.title = s.prompt ? 'Click to expand / collapse the full prompt' : '';
-    if (s.prompt) prm.onclick = () => prm.classList.toggle('expanded');
+    prm.title = 'Click to expand · double-click to edit';
+    prm.onclick = () => {
+      if (prm.classList.contains('editing')) return;
+      prm.classList.toggle('expanded');
+    };
+    prm.ondblclick = () => startEditPrompt(prm, s);
     meta.append(idx, prm);
     div.append(cb, meta);
     if (has) {
@@ -461,6 +601,7 @@ function renderScenes() {
     wrap.appendChild(div);
   }
   updateQueueButton();
+  filterScenesList();
 }
 
 function selectedScenes() {
@@ -509,6 +650,52 @@ function updateQueueButton() {
   const btn = $('queueSelected');
   btn.disabled = n === 0;
   btn.textContent = n ? `Queue selected (${n})` : 'Queue selected';
+}
+
+// Annotate each loaded scene row with its live queue status (done/running/
+// failed) by matching queue items for this episode on sceneKey. Also toggles
+// the "Select failed" button. Called every poll.
+function updateSceneQueueStatus(queue) {
+  const rows = document.querySelectorAll('#scenes .scene');
+  if (!rows.length || !currentEpisode) return;
+  const byKey = new Map();
+  for (const it of queue) {
+    if (it.episodeCode === currentEpisode.code && it.sceneKey != null) byKey.set(String(it.sceneKey), it);
+  }
+  let anyFailed = false;
+  const glyph = { done: '✓', running: '⟳', pending: '⋯', failed: '✗' };
+  rows.forEach((row) => {
+    row.classList.remove('q-done', 'q-running', 'q-pending', 'q-failed');
+    const it = byKey.get(String(row.dataset.key));
+    let badge = row.querySelector('.qbadge');
+    if (!it) {
+      if (badge) badge.remove();
+      return;
+    }
+    row.classList.add('q-' + it.status);
+    if (it.status === 'failed') anyFailed = true;
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'qbadge';
+      row.appendChild(badge);
+    }
+    badge.textContent = glyph[it.status] || '';
+    badge.title = `Queue: ${it.status}${it.failure ? ` — ${it.failure.title}` : ''}`;
+  });
+  $('selectFailed').classList.toggle('hidden', !anyFailed);
+}
+
+async function selectFailedScenes() {
+  if (!currentEpisode) return;
+  const { queue = [] } = (await chrome.runtime.sendMessage({ type: 'getQueue' })) || {};
+  const failed = new Set(
+    queue.filter((it) => it.status === 'failed' && it.episodeCode === currentEpisode.code && it.sceneKey != null).map((it) => String(it.sceneKey))
+  );
+  document.querySelectorAll('.scene input[type=checkbox]').forEach((c) => {
+    if (!c.disabled) c.checked = failed.has(String(c.dataset.key));
+  });
+  $('selectAll').checked = false;
+  updateQueueButton();
 }
 
 // ── Leonardo in-panel controls ──────────────────────────────────────────────
@@ -870,6 +1057,14 @@ async function pollQueue() {
   const pause = $('pauseQueue');
   pause.classList.toggle('hidden', !hasWork && !paused);
   pause.textContent = paused ? 'Resume' : 'Pause';
+  // Live per-scene status + tab-visibility reminder — run every tick, even when
+  // the queue-list DOM itself is unchanged.
+  updateSceneQueueStatus(queue);
+  const prov = $('provider').value;
+  const needsTab = hasWork && prov !== 'pollinations';
+  $('tabReminder').classList.toggle('hidden', !needsTab);
+  if (needsTab)
+    $('tabReminder').textContent = `Keep the ${PROVIDER_LABEL[prov] || prov} tab visible (active tab, not minimized) while this runs — hidden tabs get throttled.`;
   // Only rebuild the list when its contents actually change. A blind 1.5 s
   // re-render would wipe an open "Technical details" panel (and any text the
   // user is mid-selection on) — the raw error would flash for one tick and vanish.

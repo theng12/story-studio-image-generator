@@ -106,6 +106,15 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .segmented .seg { background: transparent; color: var(--muted); border: none; padding: 3px 10px; font-size: 12px; cursor: pointer; border-left: 1px solid var(--line); }
 .segmented .seg:first-child { border-left: none; }
 .segmented .seg.active { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.scene .prompt.editing { background: var(--card); outline: 1px solid var(--accent); border-radius: 4px; padding: 2px 4px; cursor: text; white-space: pre-wrap; }
+.scene { position: relative; }
+.scene .qbadge { font-size: 12px; margin-left: 6px; }
+.scene.q-done { opacity: 0.7; }
+.scene.q-done .qbadge { color: #5fd08a; }
+.scene.q-running .qbadge { color: var(--accent); }
+.scene.q-failed .qbadge { color: #ff6b6b; }
+#sceneTools input { padding: 4px 8px; }
+.reminder { font-size: 12px; color: #ffd479; background: rgba(255, 200, 90, 0.08); border: 1px solid rgba(255, 200, 90, 0.3); border-radius: 6px; padding: 5px 8px; margin: 4px 0; }
 .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
 .badge.has { background: rgba(76,195,138,.18); color: var(--ok); }
 .badge.stale { background: rgba(224,164,88,.18); color: var(--warn); }
