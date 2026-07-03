@@ -179,6 +179,63 @@
           </label>
         </div>
       </div>
+      <div id="freegenCard" class="leo hidden">
+        <div class="label">FreeGen options</div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Aspect ratio</span>
+            <select id="freegenAspect">
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+              <option value="4:3">4:3</option>
+              <option value="3:4">3:4</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div id="perchanceCard" class="leo hidden">
+        <div class="label">Perchance options</div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Art style</span>
+            <input id="perchanceStyleInput" list="perchanceStylesList" placeholder="No style" />
+            <datalist id="perchanceStylesList">
+              <option value="No style"></option>
+              <option value="Cinematic"></option>
+              <option value="Casual Photo"></option>
+              <option value="Professional Photo"></option>
+              <option value="Digital Painting"></option>
+              <option value="Concept Art"></option>
+              <option value="Fantasy Painting"></option>
+              <option value="Illustration"></option>
+              <option value="Anime"></option>
+              <option value="Studio Ghibli"></option>
+              <option value="Watercolor"></option>
+              <option value="Pixel Art"></option>
+            </datalist>
+          </label>
+          <label class="grow">
+            <span class="mini">Aspect ratio</span>
+            <select id="perchanceAspect">
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+              <option value="4:3">4:3</option>
+              <option value="3:4">3:4</option>
+            </select>
+          </label>
+          <label class="grow">
+            <span class="mini">Images</span>
+            <select id="perchanceCount">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+        </div>
+      </div>
     </section>
 
     <section class="card">

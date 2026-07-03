@@ -25,6 +25,10 @@ export const DEFAULTS = {
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
   perchanceStyle: 'No style',
+  // Images per Perchance job. We keep only the first, so 1 is fastest; Perchance
+  // is free so this is about speed, not cost. Snapped to the nearest option the
+  // site offers.
+  perchanceCount: 1,
 
   // Leonardo controls vary by model and account tier. These defaults are
   // available on the free plan and minimize token use per generated image.
