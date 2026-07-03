@@ -85,6 +85,7 @@
             <option value="perchance">Perchance</option>
             <option value="freegen">FreeGen</option>
             <option value="leonardo">Leonardo AI</option>
+            <option value="pollinations">Pollinations (no tab)</option>
           </select>
           Make:
           <select id="mediaType" class="inline">
@@ -234,6 +235,33 @@
               <option value="4">4</option>
             </select>
           </label>
+        </div>
+      </div>
+      <div id="pollinationsCard" class="leo hidden">
+        <div class="label">Pollinations options</div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Model</span>
+            <input id="pollModel" list="pollModelsList" placeholder="flux" />
+            <datalist id="pollModelsList">
+              <option value="flux"></option>
+              <option value="turbo"></option>
+              <option value="sana"></option>
+            </datalist>
+          </label>
+          <label class="grow">
+            <span class="mini">Seed (blank = random)</span>
+            <input id="pollSeed" inputmode="numeric" placeholder="random" />
+          </label>
+        </div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Token (optional)</span>
+            <input id="pollToken" placeholder="from auth.pollinations.ai — removes watermark" />
+          </label>
+        </div>
+        <div class="hint">
+          Runs in the background — <b>no tab needed</b>. Free/anonymous is rate-limited (~1 image/15s) and watermarked; register at auth.pollinations.ai and paste a token to remove the watermark and go faster. Aspect ratio follows your scene setting.
         </div>
       </div>
       <div id="grokCard" class="leo hidden">

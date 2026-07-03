@@ -22,6 +22,17 @@ export const DEFAULTS = {
   // Flow supports video in addition to image generation.
   provider: 'flow',
 
+  // Pollinations: a keyless image URL API (image.pollinations.ai). It needs no
+  // tab — the background worker fetches it directly, so it runs fully headless.
+  // Model list changes over time (see image.pollinations.ai/models); flux is the
+  // quality default and still works even when not in the anonymous list. Seed
+  // blank = random per scene; a fixed number makes results reproducible. Token
+  // (optional, from auth.pollinations.ai) removes the watermark + raises the
+  // rate limit.
+  pollinationsModel: 'flux',
+  pollinationsSeed: '',
+  pollinationsToken: '',
+
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
   perchanceStyle: 'No style',
