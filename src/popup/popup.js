@@ -648,6 +648,7 @@ function onProviderChange() {
   $('flowOptsCard').classList.toggle('hidden', provider !== 'flow');
   $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
   $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
+  $('grokCard').classList.toggle('hidden', provider !== 'grok');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
