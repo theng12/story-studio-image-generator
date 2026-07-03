@@ -157,46 +157,58 @@
     const aspect = IMAGE_ASPECT[p.aspectRatio] || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
     const seed = Number.isFinite(p.seed) ? p.seed : randomSeed();
 
-    const token = await mintToken('IMAGE_GENERATION');
-    const sid = sessionId();
-    const clientContext = {
-      recaptchaContext: recaptchaContext(token),
-      projectId,
-      tool: 'PINHOLE',
-      sessionId: sid,
-    };
-    const body = {
-      clientContext,
-      mediaGenerationContext: { batchId: uuid() },
-      useNewMedia: true,
-      requests: [
-        {
-          clientContext,
-          imageModelName: model,
-          imageAspectRatio: aspect,
-          structuredPrompt: { parts: [{ text: p.prompt }] },
-          seed,
-          imageInputs: Array.isArray(p.imageInputs) ? p.imageInputs : [],
-        },
-      ],
-    };
-
-    const r = await fetch(`${API}/projects/${encodeURIComponent(projectId)}/flowMedia:batchGenerateImages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
+    // reCAPTCHA Enterprise is score-based, so a self-minted token is sometimes
+    // rejected (403 "reCAPTCHA evaluation failed") — most often when the tab is
+    // hidden or during rapid bursts. The rejection happens BEFORE any image is
+    // generated (nothing is spent; images are free anyway), so re-mint a fresh
+    // token and retry rather than failing the scene.
+    let j = null;
+    for (let attempt = 1; ; attempt++) {
+      const token = await mintToken('IMAGE_GENERATION');
+      const clientContext = {
+        recaptchaContext: recaptchaContext(token),
+        projectId,
+        tool: 'PINHOLE',
+        sessionId: sessionId(),
+      };
+      const body = {
+        clientContext,
+        mediaGenerationContext: { batchId: uuid() },
+        useNewMedia: true,
+        requests: [
+          {
+            clientContext,
+            imageModelName: model,
+            imageAspectRatio: aspect,
+            structuredPrompt: { parts: [{ text: p.prompt }] },
+            seed,
+            imageInputs: Array.isArray(p.imageInputs) ? p.imageInputs : [],
+          },
+        ],
+      };
+      const r = await fetch(`${API}/projects/${encodeURIComponent(projectId)}/flowMedia:batchGenerateImages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        j = await r.json();
+        break;
+      }
       let detail = `${r.status}`;
       try {
-        const j = await r.json();
-        if (j?.error?.message) detail = j.error.message;
+        const e = await r.json();
+        if (e?.error?.message) detail = e.error.message;
       } catch {
         /* non-JSON */
       }
+      const recaptchaReject = r.status === 403 || /recaptcha|captcha|evaluation failed/i.test(detail);
+      if (recaptchaReject && attempt < 4) {
+        await new Promise((res) => setTimeout(res, 1200 * attempt));
+        continue;
+      }
       throw new Error(`Flow image generation failed (${r.status}): ${detail}`);
     }
-    const j = await r.json();
     const gen = j?.media?.[0]?.image?.generatedImage;
     const fifeUrl = gen?.fifeUrl;
     if (!fifeUrl) throw new Error('Flow returned no image URL.');
