@@ -91,6 +91,10 @@ function wire() {
   $('leoMode').onchange = async () => (settings = await saveSettings({ leonardoMode: $('leoMode').value }));
   $('leoSize').onchange = async () => (settings = await saveSettings({ leonardoSize: $('leoSize').value }));
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
+  $('flowImageModel').onchange = async () => (settings = await saveSettings({ imageModel: $('flowImageModel').value }));
+  $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
+  $('flowVideoModel').onchange = async () => (settings = await saveSettings({ videoModel: $('flowVideoModel').value }));
+  $('flowVideoSource').onchange = async () => (settings = await saveSettings({ videoSource: $('flowVideoSource').value }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -608,6 +612,16 @@ async function leoSyncAll() {
   }
 }
 
+// Google Flow options in the panel (mirrors the Options page). The video row
+// only matters when the "Make" selector is on scene video.
+function flowPopulate() {
+  $('flowImageModel').value = settings.imageModel || 'nano-banana-2';
+  $('flowAspect').value = settings.aspectRatio || '16:9';
+  $('flowVideoModel').value = settings.videoModel || 'veo-3.1-fast';
+  $('flowVideoSource').value = settings.videoSource || 'existing';
+  $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
+}
+
 // Only Flow supports video; all other providers use their image-generator UI.
 function onProviderChange() {
   const provider = $('provider').value;
@@ -617,8 +631,10 @@ function onProviderChange() {
   if (videoOpt) videoOpt.disabled = imageOnly;
   if (imageOnly && isVideoSel()) $('mediaType').value = 'scene-image';
   $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
+  $('flowOptsCard').classList.toggle('hidden', provider !== 'flow');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
+  if (provider === 'flow') flowPopulate();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider !== 'flow') checkWebGenerator(provider);
@@ -665,6 +681,7 @@ async function checkWebGenerator(provider) {
 // video now writes clips back via upload-clip too.
 async function onMediaTypeChange() {
   $('saveTarget').disabled = false;
+  if ($('provider').value === 'flow') $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
   if (currentEpisode && currentScenes.length && selKind() !== loadedKind) {
     await loadScenes();
   }

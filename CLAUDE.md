@@ -31,6 +31,20 @@ Fully API-driven from a logged-in `labs.google/fx` tab:
   needed — that route already existed.
 - Alternative save target: Downloads (per-project/episode subfolder, scene-derived name).
 
+## Running unattended (tab visibility)
+
+The extension works through a live provider tab, so that tab is subject to
+Chrome's background-tab throttling + Memory-Saver freezing. The provider tab must
+stay **`visible`** — the active tab in its window, window **not minimized**. It
+does **not** need OS focus: verified live 2026-07-01 that a tab reads
+`visibilityState:'visible'` while its window is unfocused (`hasFocus:false`). So
+the tab can sit in a window parked *behind* your work — just don't minimize it or
+cover it with another tab in the same window. A dedicated Chrome window/profile
+(or a second monitor / macOS Space) with the provider tab active is the reliable
+"leave it running" setup. Hidden tabs get timers clamped (~1s, then ~1/min after
+5 min) and can be frozen, which stalls the queue. This is inherent to driving a
+web session — it can't be made fully headless.
+
 ## Key files
 
 - `src/background.js` — the resumable queue (chrome.storage + chrome.alarms, dedupe).
