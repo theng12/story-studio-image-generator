@@ -99,6 +99,9 @@ function wire() {
   $('perchanceStyleInput').onchange = async () => (settings = await saveSettings({ perchanceStyle: $('perchanceStyleInput').value.trim() || 'No style' }));
   $('perchanceAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('perchanceAspect').value }));
   $('perchanceCount').onchange = async () => (settings = await saveSettings({ perchanceCount: Number($('perchanceCount').value) }));
+  $('pollModel').onchange = async () => (settings = await saveSettings({ pollinationsModel: $('pollModel').value.trim() || 'flux' }));
+  $('pollSeed').onchange = async () => (settings = await saveSettings({ pollinationsSeed: $('pollSeed').value.replace(/[^0-9]/g, '') }));
+  $('pollToken').onchange = async () => (settings = await saveSettings({ pollinationsToken: $('pollToken').value.trim() }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -630,6 +633,12 @@ function freegenPopulate() {
   $('freegenAspect').value = settings.aspectRatio || '16:9';
 }
 
+function pollinationsPopulate() {
+  $('pollModel').value = settings.pollinationsModel || 'flux';
+  $('pollSeed').value = settings.pollinationsSeed || '';
+  $('pollToken').value = settings.pollinationsToken || '';
+}
+
 function perchancePopulate() {
   $('perchanceStyleInput').value = settings.perchanceStyle || 'No style';
   $('perchanceAspect').value = settings.aspectRatio || '16:9';
@@ -649,13 +658,16 @@ function onProviderChange() {
   $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
   $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
   $('grokCard').classList.toggle('hidden', provider !== 'grok');
+  $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
   if (provider === 'freegen') freegenPopulate();
   if (provider === 'perchance') perchancePopulate();
+  if (provider === 'pollinations') pollinationsPopulate();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
+  else if (provider === 'pollinations') setStatus('Pollinations runs in the background — no tab needed.', 'info');
   else if (provider !== 'flow') checkWebGenerator(provider);
   else setStatus('', 'info');
 }
@@ -742,6 +754,14 @@ function confirmQueue() {
         `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
         `Images use Nano Banana 2 (free). One at a time.`;
     $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+  } else if (provider === 'pollinations') {
+    $('confirmTitle').textContent = `Queue these ${noun}s on Pollinations?`;
+    $('confirmBody').textContent =
+      `${n} from ${currentEpisode.code} via Pollinations (${settings.pollinationsModel || 'flux'}) → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Runs in the background — no tab needed. One at a time with a ${humanDelayLabel()} gap` +
+      `${settings.pollinationsToken ? '' : ' (free tier is watermarked and rate-limited ~1 image/15s)'}.`;
+    $('confirmOk').textContent = 'Queue on Pollinations';
   } else {
     const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
     const name = names[provider] || provider;

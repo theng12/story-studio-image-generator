@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.13.3",
-  "description": "Generate Story Studio KH scene images and video through Google Flow, Grok, Perchance, FreeGen, and Leonardo, then save each asset with the correct name.",
+  "version": "0.14.0",
+  "description": "Generate Story Studio KH scene images and video through Google Flow, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
   "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
   "host_permissions": [
     "http://localhost/*",
@@ -17,7 +17,9 @@
     "https://freegen.app/*",
     "https://*.freegen.app/*",
     "https://app.leonardo.ai/*",
-    "https://*.leonardo.ai/*"
+    "https://*.leonardo.ai/*",
+    "https://image.pollinations.ai/*",
+    "https://*.pollinations.ai/*"
   ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {

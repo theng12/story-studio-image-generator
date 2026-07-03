@@ -29,7 +29,10 @@ const PROVIDER_NAME = {
   perchance: 'Perchance',
   freegen: 'FreeGen',
   leonardo: 'Leonardo AI',
+  pollinations: 'Pollinations',
 };
+// Providers that need no browser tab — generated directly from the worker.
+const TABLESS = new Set(['pollinations']);
 const QUEUE_KEY = 'queue';
 // User-requested pause: the current item finishes, then the loop stops before
 // the next one starts. Persisted so it survives service-worker death.
@@ -159,14 +162,68 @@ async function send(tabId, message) {
   throw new Error('Provider tab did not become ready.');
 }
 
-async function fetchImagePayload(imageUrl) {
-  const response = await fetch(imageUrl, { credentials: 'include' });
-  if (!response.ok) throw new Error(`Generated image download failed (${response.status}).`);
+async function responseToPayload(response) {
   const buffer = await response.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return { base64: btoa(binary), mime: response.headers.get('content-type') || 'image/png' };
+}
+
+async function fetchImagePayload(imageUrl) {
+  const response = await fetch(imageUrl, { credentials: 'include' });
+  if (!response.ok) throw new Error(`Generated image download failed (${response.status}).`);
+  return responseToPayload(response);
+}
+
+// Pollinations is keyless and tabless: build the image URL and fetch it in the
+// background worker. No content script, no visible tab. Anonymous tier is rate
+// limited (~1 req/15s), so back off and retry on 429/5xx.
+function ratioToDims(ratio) {
+  switch (ratio) {
+    case '1:1':
+      return { width: 1024, height: 1024 };
+    case '9:16':
+      return { width: 768, height: 1344 };
+    case '4:3':
+      return { width: 1152, height: 896 };
+    case '3:4':
+      return { width: 896, height: 1152 };
+    default:
+      return { width: 1344, height: 768 }; // 16:9
+  }
+}
+
+async function pollinationsGenerate(item, settings) {
+  const { width, height } = ratioToDims(item.aspectRatio || settings.aspectRatio);
+  const params = new URLSearchParams({
+    model: settings.pollinationsModel || 'flux',
+    width: String(width),
+    height: String(height),
+    nologo: 'true',
+    referrer: 'story-studio-bulk-asset',
+  });
+  const seed = String(settings.pollinationsSeed || '').trim();
+  if (seed) params.set('seed', seed);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(item.prompt.trim())}?${params}`;
+  const headers = {};
+  const token = String(settings.pollinationsToken || '').trim();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const r = await fetch(url, { headers });
+    if (r.ok) return responseToPayload(r);
+    if ((r.status === 429 || r.status >= 500) && attempt < 3) {
+      await writeStatus('Pollinations is rate-limiting — waiting 16s…', 'running');
+      await sleep(16000);
+      continue;
+    }
+    if (r.status === 429) {
+      const e = new Error('Pollinations rate limit — slow down (register at auth.pollinations.ai for a faster tier).');
+      e.limit = true;
+      throw e;
+    }
+    throw new Error(`Pollinations generation failed (${r.status}).`);
+  }
 }
 
 // Generate one scene's image and save it to Story Studio or Downloads.
@@ -175,7 +232,11 @@ async function generateAndSave(item, settings, tab) {
   const provider = item.provider || 'flow';
 
   let base64, mime;
-  if (provider === 'grok') {
+  if (provider === 'pollinations') {
+    const payload = await pollinationsGenerate(item, settings);
+    base64 = payload.base64;
+    mime = payload.mime;
+  } else if (provider === 'grok') {
     const r = await send(tab.id, {
       type: 'grok:generateImage',
       params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio },
@@ -704,7 +765,7 @@ async function processQueue() {
       await writeStatus(`(${pos}/${q.length}) ${item.label}…`, 'running');
       let providerAttempted = false;
       try {
-        if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
+        if (!TABLESS.has(provider) && !tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         await setNextProviderRun(settings);
         providerAttempted = true;
         const r =
