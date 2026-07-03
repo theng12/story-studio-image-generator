@@ -90,10 +90,10 @@ export const DEFAULTS = {
   // and, for video, credits). Scene-level (within a loaded episode).
   includeExisting: false,
 
-  // Episode-list filter: by default hide episodes whose scene images are all
-  // done, so the dropdown only shows episodes that still need work. Toggle on
-  // to show completed episodes too.
-  showDoneEpisodes: false,
+  // Episode-list filter: 'todo' (still need scene images — the default so the
+  // dropdown only shows work), 'done' (all images present), or 'all'. Lets you
+  // tell finished episodes from pending ones without loading each to check.
+  episodeFilter: 'todo',
 
   // Last-used selections, restored when the panel reopens.
   lastProject: '',
