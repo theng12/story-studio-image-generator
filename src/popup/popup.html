@@ -41,10 +41,12 @@
         </label>
       </div>
       <div class="row between">
-        <label class="checkbox small">
-          <input type="checkbox" id="showDoneEpisodes" />
-          <span>Show episodes that already have all images</span>
-        </label>
+        <span class="label">Episodes</span>
+        <div class="segmented" id="episodeFilter">
+          <button type="button" class="seg" data-f="todo" title="Episodes that still need scene images">To do</button>
+          <button type="button" class="seg" data-f="done" title="Episodes whose scene images are all done">Done</button>
+          <button type="button" class="seg" data-f="all" title="Every episode with a scene plan">All</button>
+        </div>
       </div>
       <div class="row between">
         <label class="checkbox small">

@@ -36,7 +36,7 @@ async function init() {
   $('saveTarget').value = settings.saveTarget;
   $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
-  $('showDoneEpisodes').checked = !!settings.showDoneEpisodes;
+  setEpisodeFilterUI(settings.episodeFilter || 'todo');
   await refreshFlowProject();
   await loadProjects();
   wire();
@@ -107,11 +107,13 @@ function wire() {
     if (currentScenes.length) renderScenes();
     flashSaved();
   };
-  $('showDoneEpisodes').onchange = async () => {
-    await saveSettings({ showDoneEpisodes: $('showDoneEpisodes').checked });
-    flashSaved();
-    if ($('project').value) await onProjectChange();
-  };
+  $('episodeFilter').querySelectorAll('.seg').forEach((b) => {
+    b.onclick = async () => {
+      setEpisodeFilterUI(b.dataset.f);
+      settings = await saveSettings({ episodeFilter: b.dataset.f });
+      if ($('project').value) await onProjectChange();
+    };
+  });
   $('useCurrentProject').onclick = useCurrentFlowProject;
   $('testConn').onclick = testConnection;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
@@ -214,6 +216,12 @@ async function loadProjects() {
   }
 }
 
+function setEpisodeFilterUI(mode) {
+  $('episodeFilter')
+    .querySelectorAll('.seg')
+    .forEach((b) => b.classList.toggle('active', b.dataset.f === mode));
+}
+
 async function onProjectChange() {
   const sel = $('project');
   const slug = sel.value;
@@ -223,22 +231,22 @@ async function onProjectChange() {
   await saveSettings({ lastProject: slug });
   try {
     const rows = await client.listEpisodes(slug);
-    // Default: only episodes that still need images (scene plan present, images
-    // not all done). Toggle "Show episodes with all images" to include finished.
-    const showDone = $('showDoneEpisodes').checked;
-    // Qualifies if it has any prompt source (scene plan, scene prompts, or
-    // thumbnail prompts). Default hides episodes whose scene images AND
-    // thumbnails are both done; the toggle shows everything.
+    // Filter by scene-image completeness so finished episodes can be told apart
+    // from pending ones without loading each. An episode qualifies only if it
+    // has a prompt source (scene plan / scene prompts / thumbnail prompts);
+    // "done" = all scene images present (st.images).
+    const filter = settings.episodeFilter || 'todo';
     const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => {
       const st = e.status || {};
       const hasSource = st.scene_plan || st.scene_prompts || st.thumb_prompts;
-      const needsWork = !st.images || !st.thumbnails;
-      return hasSource && (showDone || needsWork);
+      if (!hasSource) return false;
+      const done = !!st.images;
+      return filter === 'all' ? true : filter === 'done' ? done : !done;
     });
     const esel = $('episode');
     esel.innerHTML = eps.length
       ? ''
-      : `<option value="">— no episodes ${showDone ? 'with a scene plan' : 'needing images'} —</option>`;
+      : `<option value="">— no ${filter === 'done' ? 'completed' : filter === 'todo' ? 'pending' : ''} episodes —</option>`;
     for (const e of eps) {
       const code = e.episode_code || e.code;
       const opt = document.createElement('option');
@@ -440,6 +448,8 @@ function renderScenes() {
     const prm = document.createElement('div');
     prm.className = 'prompt';
     prm.textContent = s.prompt || '(no prompt)';
+    prm.title = s.prompt ? 'Click to expand / collapse the full prompt' : '';
+    if (s.prompt) prm.onclick = () => prm.classList.toggle('expanded');
     meta.append(idx, prm);
     div.append(cb, meta);
     if (has) {
