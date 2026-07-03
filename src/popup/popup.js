@@ -95,6 +95,10 @@ function wire() {
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
   $('flowVideoModel').onchange = async () => (settings = await saveSettings({ videoModel: $('flowVideoModel').value }));
   $('flowVideoSource').onchange = async () => (settings = await saveSettings({ videoSource: $('flowVideoSource').value }));
+  $('freegenAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('freegenAspect').value }));
+  $('perchanceStyleInput').onchange = async () => (settings = await saveSettings({ perchanceStyle: $('perchanceStyleInput').value.trim() || 'No style' }));
+  $('perchanceAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('perchanceAspect').value }));
+  $('perchanceCount').onchange = async () => (settings = await saveSettings({ perchanceCount: Number($('perchanceCount').value) }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -622,6 +626,16 @@ function flowPopulate() {
   $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
 }
 
+function freegenPopulate() {
+  $('freegenAspect').value = settings.aspectRatio || '16:9';
+}
+
+function perchancePopulate() {
+  $('perchanceStyleInput').value = settings.perchanceStyle || 'No style';
+  $('perchanceAspect').value = settings.aspectRatio || '16:9';
+  $('perchanceCount').value = String(settings.perchanceCount || 1);
+}
+
 // Only Flow supports video; all other providers use their image-generator UI.
 function onProviderChange() {
   const provider = $('provider').value;
@@ -632,9 +646,13 @@ function onProviderChange() {
   if (imageOnly && isVideoSel()) $('mediaType').value = 'scene-image';
   $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
   $('flowOptsCard').classList.toggle('hidden', provider !== 'flow');
+  $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
+  $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
+  if (provider === 'freegen') freegenPopulate();
+  if (provider === 'perchance') perchancePopulate();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider !== 'flow') checkWebGenerator(provider);

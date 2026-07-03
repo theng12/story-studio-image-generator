@@ -86,6 +86,23 @@
     return { prompt, style, shape, quantity, generate };
   }
 
+  // Quantity options vary (numeric, up to 32). Snap to the requested count if
+  // present, else the largest option ≤ it, else the smallest — never throw over
+  // a value the site happens not to offer.
+  function selectQuantity(select, wanted) {
+    if (!select) return;
+    const opts = [...select.options]
+      .map((option) => ({ option, n: parseInt(normalize(option.textContent), 10) }))
+      .filter((entry) => Number.isFinite(entry.n))
+      .sort((a, b) => a.n - b.n);
+    if (!opts.length) return;
+    const want = Math.max(1, Number(wanted) || 1);
+    const pick = opts.find((e) => e.n === want) || [...opts].reverse().find((e) => e.n <= want) || opts[0];
+    select.value = pick.option.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
   function selectByText(select, wanted, label) {
     const normalizedWanted = normalize(wanted).toLowerCase();
     const option = [...select.options].find((candidate) => normalize(candidate.textContent).toLowerCase() === normalizedWanted);
@@ -158,7 +175,7 @@
     setPrompt(found.prompt, params.prompt.trim());
     selectByText(found.style, params.style || 'No style', 'style');
     selectByText(found.shape, shapeForRatio(params.aspectRatio || '16:9'), 'shape');
-    selectByText(found.quantity, '2', 'quantity');
+    selectQuantity(found.quantity, params.count || 1);
     await new Promise((resolve) => setTimeout(resolve, 150));
     found.generate.click();
     return imagePayload(await waitForResult(before));

@@ -217,7 +217,12 @@ async function generateAndSave(item, settings, tab) {
         model: provider === 'leonardo' ? settings.leonardoModel : undefined,
         mode: provider === 'leonardo' ? settings.leonardoMode : undefined,
         size: provider === 'leonardo' ? settings.leonardoSize : undefined,
-        count: provider === 'leonardo' ? settings.leonardoCount : undefined,
+        count:
+          provider === 'leonardo'
+            ? settings.leonardoCount
+            : provider === 'perchance'
+              ? settings.perchanceCount
+              : undefined,
       },
     });
     const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);
