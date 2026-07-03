@@ -56,6 +56,7 @@
       </div>
       <div class="row">
         <button id="loadScenes" class="btn">Load scenes</button>
+        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending…</button>
       </div>
     </section>
 
@@ -76,6 +77,10 @@
         <button class="btn small batch-n" data-n="80">80</button>
         <button class="btn small batch-n" data-n="100">100</button>
         <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
+      </div>
+      <div class="row" id="sceneTools">
+        <input id="sceneSearch" class="grow" placeholder="Filter scenes… (number or text)" />
+        <button id="selectFailed" class="btn small hidden" title="Select the scenes that failed in the queue">Select failed</button>
       </div>
       <div id="scenes" class="scenes"></div>
       <div class="row between">
@@ -284,6 +289,7 @@
         </div>
       </div>
       <div id="status" class="status"></div>
+      <div id="tabReminder" class="reminder hidden"></div>
       <div id="queueTiming" class="queue-timing muted small"></div>
       <div id="queue" class="queue"></div>
     </section>
