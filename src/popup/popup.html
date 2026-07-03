@@ -138,6 +138,47 @@
         </div>
         <div id="leoStatus" class="muted small"></div>
       </div>
+      <div id="flowOptsCard" class="leo hidden">
+        <div class="label">Google Flow options</div>
+        <div class="row leo-grid" id="flowImageRow">
+          <label class="grow">
+            <span class="mini">Image model</span>
+            <select id="flowImageModel">
+              <option value="nano-banana-2">Nano Banana 2 — free</option>
+              <option value="nano-banana-2-lite">Nano Banana 2 Lite — free, faster</option>
+              <option value="nano-banana-pro">Nano Banana Pro — premium</option>
+            </select>
+          </label>
+          <label class="grow">
+            <span class="mini">Aspect ratio</span>
+            <select id="flowAspect">
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+              <option value="4:3">4:3</option>
+              <option value="3:4">3:4</option>
+            </select>
+          </label>
+        </div>
+        <div class="row leo-grid hidden" id="flowVideoRow">
+          <label class="grow">
+            <span class="mini">Video model (credits)</span>
+            <select id="flowVideoModel">
+              <option value="omni-flash">Omni Flash — audio</option>
+              <option value="veo-3.1-lite">Veo 3.1 Lite — cheapest</option>
+              <option value="veo-3.1-fast">Veo 3.1 Fast</option>
+              <option value="veo-3.1-quality">Veo 3.1 Quality</option>
+            </select>
+          </label>
+          <label class="grow">
+            <span class="mini">Video image source</span>
+            <select id="flowVideoSource">
+              <option value="existing">Existing scene image</option>
+              <option value="generate">Generate fresh first</option>
+            </select>
+          </label>
+        </div>
+      </div>
     </section>
 
     <section class="card">
