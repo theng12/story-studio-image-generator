@@ -18,6 +18,7 @@ let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03/04 promp
 let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
+let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
 
 // The "Make:" selector encodes both the asset kind and media type.
 const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
@@ -114,7 +115,7 @@ function wire() {
     b.onclick = async () => {
       setEpisodeFilterUI(b.dataset.f);
       settings = await saveSettings({ episodeFilter: b.dataset.f });
-      if ($('project').value) await onProjectChange();
+      applyEpisodeFilter();
     };
   });
   $('useCurrentProject').onclick = useCurrentFlowProject;
@@ -225,6 +226,27 @@ function setEpisodeFilterUI(mode) {
     .forEach((b) => b.classList.toggle('active', b.dataset.f === mode));
 }
 
+const episodeNum = (code) => {
+  const m = String(code).match(/\d+/);
+  return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
+};
+
+// Show/hide episode options for the active filter, using the accurate
+// done/total when known and defaulting to "show" while a count still loads.
+function applyEpisodeFilter() {
+  const filter = settings.episodeFilter || 'todo';
+  const esel = $('episode');
+  const doneByCode = new Map(allEpisodes.map((e) => [e.code, e.done]));
+  let firstVisible = '';
+  for (const opt of esel.options) {
+    const done = doneByCode.get(opt.value);
+    const show = filter === 'all' ? true : filter === 'done' ? done === true : done !== true;
+    opt.hidden = !show;
+    if (show && !firstVisible) firstVisible = opt.value;
+  }
+  if (firstVisible && (esel.selectedOptions[0]?.hidden || !esel.value)) esel.value = firstVisible;
+}
+
 // Lazily fill in each episode's done/total count in the dropdown label, so you
 // can see progress without loading each. Throttled + abortable (a new project
 // or filter bumps the run token).
@@ -238,11 +260,15 @@ async function fetchEpisodeCounts(slug, codes) {
       const scenes = data?.scenes || [];
       if (scenes.length) {
         const done = scenes.filter((s) => s.image_filename).length;
+        const complete = done === scenes.length;
+        const ep = allEpisodes.find((e) => e.code === code);
+        if (ep) ep.done = complete;
         const opt = [...$('episode').options].find((o) => o.value === code);
         if (opt) {
           const title = opt.dataset.title || '';
-          opt.textContent = `${code}${title ? ' — ' + title : ''} · ${done}/${scenes.length}${done === scenes.length ? ' ✓' : ''}`;
+          opt.textContent = `${code}${title ? ' — ' + title : ''} · ${done}/${scenes.length}${complete ? ' ✓' : ''}`;
         }
+        applyEpisodeFilter(); // re-hide episodes now known complete/incomplete
       }
     } catch {
       /* episode without a scene plan, etc. — skip */
@@ -326,33 +352,26 @@ async function onProjectChange() {
   await saveSettings({ lastProject: slug });
   try {
     const rows = await client.listEpisodes(slug);
-    // Filter by scene-image completeness so finished episodes can be told apart
-    // from pending ones without loading each. An episode qualifies only if it
-    // has a prompt source (scene plan / scene prompts / thumbnail prompts);
-    // "done" = all scene images present (st.images).
-    const filter = settings.episodeFilter || 'todo';
-    const eps = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => {
-      const st = e.status || {};
-      const hasSource = st.scene_plan || st.scene_prompts || st.thumb_prompts;
-      if (!hasSource) return false;
-      const done = !!st.images;
-      return filter === 'all' ? true : filter === 'done' ? done : !done;
-    });
+    // Every episode with a prompt source, sorted numerically by code. The filter
+    // (To do / Done / All) is then applied by hiding options — reactively, once
+    // the accurate per-scene counts load, since st.images can be stale.
+    allEpisodes = (Array.isArray(rows) ? rows : rows.episodes || [])
+      .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', st: e.status || {} }))
+      .filter((e) => e.st.scene_plan || e.st.scene_prompts || e.st.thumb_prompts)
+      .sort((a, b) => episodeNum(a.code) - episodeNum(b.code) || String(a.code).localeCompare(String(b.code)));
+    for (const e of allEpisodes) e.done = e.st.images ? true : null; // hint; count overrides
     const esel = $('episode');
-    esel.innerHTML = eps.length
-      ? ''
-      : `<option value="">— no ${filter === 'done' ? 'completed' : filter === 'todo' ? 'pending' : ''} episodes —</option>`;
-    for (const e of eps) {
-      const code = e.episode_code || e.code;
+    esel.innerHTML = '';
+    for (const e of allEpisodes) {
       const opt = document.createElement('option');
-      opt.value = code;
-      opt.dataset.title = e.title || '';
-      const done = e.status?.images ? ' ✓' : '';
-      opt.textContent = `${code} — ${e.title || ''}${done}`;
+      opt.value = e.code;
+      opt.dataset.title = e.title;
+      opt.textContent = `${e.code}${e.title ? ' — ' + e.title : ''}${e.done ? ' ✓' : ''}`;
       esel.appendChild(opt);
     }
-    if (settings.lastEpisode) esel.value = settings.lastEpisode;
-    fetchEpisodeCounts(slug, eps.map((e) => e.episode_code || e.code));
+    applyEpisodeFilter();
+    if (settings.lastEpisode && [...esel.options].some((o) => o.value === settings.lastEpisode)) esel.value = settings.lastEpisode;
+    fetchEpisodeCounts(slug, allEpisodes.map((e) => e.code));
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
