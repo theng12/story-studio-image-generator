@@ -50,6 +50,7 @@ const isPaused = async () => !!(await chrome.storage.local.get(PAUSE_KEY))[PAUSE
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
+const FLOW_RECAPTCHA_RESUME_KEY = 'flowRecaptchaResumeAt';
 
 // Small guards so a missing/disabled API can never break top-level evaluation
 // (which would stop the message listener from registering).
@@ -571,6 +572,25 @@ async function waitForNextProviderRun(item) {
   }
 }
 
+async function holdForFlowRecaptchaCooldown(settings) {
+  const stored = await chrome.storage.local.get(FLOW_RECAPTCHA_RESUME_KEY);
+  const resumeAt = Number(stored[FLOW_RECAPTCHA_RESUME_KEY]) || 0;
+  if (!settings.flowRecaptchaAutoPause || resumeAt <= Date.now()) {
+    if (resumeAt) await chrome.storage.local.remove(FLOW_RECAPTCHA_RESUME_KEY);
+    return false;
+  }
+  await writeStatus('Flow reCAPTCHA cooldown — the queue will resume automatically.', 'info', {
+    countdownUntil: resumeAt,
+    countdownReason: 'recaptcha',
+  });
+  alarmCreate();
+  return true;
+}
+
+function isFlowRecaptchaFailure(error, item) {
+  return (item.provider || 'flow') === 'flow' && item.assetType === 'image' && diagnoseFailure(error, item).code === 'recaptcha';
+}
+
 // ── the queue ───────────────────────────────────────────────────────────────
 function diagnoseFailure(error, item = {}) {
   const raw = String(error?.message || error || 'Unknown error');
@@ -862,9 +882,11 @@ async function processQueue() {
         await writeStatus('Queue paused — press Resume to continue.', 'info');
         break;
       }
+      settings = await getSettings();
       let q = await getQueue();
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
+      if (await holdForFlowRecaptchaCooldown(settings)) return;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
       // Re-check after the human-pace delay (it can be up to a minute long).
@@ -907,6 +929,28 @@ async function processQueue() {
         }
         await setQueue(q);
       } catch (e) {
+        if (settings.flowRecaptchaAutoPause && isFlowRecaptchaFailure(e, item)) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) {
+            it.status = 'pending';
+            delete it.error;
+            delete it.failure;
+            delete it.startedAt;
+            delete it.finishedAt;
+            delete it.durationMs;
+          }
+          await setQueue(q);
+          const cooldownMinutes = Math.max(1, Number(settings.flowRecaptchaCooldownMin) || 15);
+          const resumeAt = Date.now() + cooldownMinutes * 60000;
+          await chrome.storage.local.set({ [FLOW_RECAPTCHA_RESUME_KEY]: resumeAt });
+          await writeStatus(`Flow reCAPTCHA rejected four fresh tokens — cooling down for ${cooldownMinutes} minutes.`, 'info', {
+            countdownUntil: resumeAt,
+            countdownReason: 'recaptcha',
+          });
+          alarmCreate();
+          return;
+        }
         // A provider limit pauses the run instead of failing the whole
         // batch. Re-pend this item, stop the loop, and don't auto-hammer — it
         // resumes when the panel/worker next kicks the queue (e.g. tomorrow).
@@ -972,6 +1016,7 @@ async function processQueue() {
 async function clearQueue() {
   const q = (await getQueue()).filter((i) => i.status === 'running');
   await setQueue(q);
+  if (!q.length) await chrome.storage.local.remove(FLOW_RECAPTCHA_RESUME_KEY);
   await writeStatus('Queue cleared.', 'info');
   return { ok: true };
 }
@@ -1053,7 +1098,7 @@ async function leonardoModelControls(model) {
 
 // Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
 async function resumeQueue() {
-  await chrome.storage.local.remove(PAUSE_KEY);
+  await chrome.storage.local.remove([PAUSE_KEY, FLOW_RECAPTCHA_RESUME_KEY]);
   alarmCreate();
   processQueue();
   return { ok: true };
@@ -1091,12 +1136,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // explicit user pause.
       reply(
         (async () => {
-          const [queue, paused] = await Promise.all([getQueue(), isPaused()]);
+          const [queue, paused, cooldown] = await Promise.all([
+            getQueue(),
+            isPaused(),
+            chrome.storage.local.get(FLOW_RECAPTCHA_RESUME_KEY),
+          ]);
+          const coolingDown = Number(cooldown[FLOW_RECAPTCHA_RESUME_KEY]) > Date.now();
           if (!paused && queue.some((i) => i.status === 'pending') && !processing) {
             alarmCreate();
             processQueue();
           }
-          return { ok: true, queue, paused };
+          return { ok: true, queue, paused: paused || coolingDown, coolingDown };
         })()
       );
       return true;

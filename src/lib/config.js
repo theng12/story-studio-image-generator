@@ -62,6 +62,12 @@ export const DEFAULTS = {
   humanDelayMinSec: 5,
   humanDelayMaxSec: 60,
 
+  // Flow already remints a fresh reCAPTCHA token four times. If all attempts
+  // fail, preserve the current image job and cool the queue down before trying
+  // it again instead of cascading the same failure through the batch.
+  flowRecaptchaAutoPause: true,
+  flowRecaptchaCooldownMin: 15,
+
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
   aspectRatio: '16:9',
@@ -112,12 +118,23 @@ function normalizeDelay(value, fallback) {
   return Math.min(3600, Math.max(0, Math.round(number)));
 }
 
+function normalizeCooldownMinutes(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(1440, Math.max(1, Math.round(number)));
+}
+
 function normalizeSettings(settings) {
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
   const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
   settings.humanDelayMinSec = Math.min(first, second);
   settings.humanDelayMaxSec = Math.max(first, second);
+  settings.flowRecaptchaAutoPause = settings.flowRecaptchaAutoPause !== false;
+  settings.flowRecaptchaCooldownMin = normalizeCooldownMinutes(
+    settings.flowRecaptchaCooldownMin,
+    DEFAULTS.flowRecaptchaCooldownMin
+  );
   return settings;
 }
 
