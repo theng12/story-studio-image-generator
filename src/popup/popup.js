@@ -19,6 +19,7 @@ let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
+let liveStatus = null;
 
 // The "Make:" selector encodes both the asset kind and media type.
 const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
@@ -44,6 +45,7 @@ async function init() {
   onProviderChange();
   pollQueue();
   setInterval(pollQueue, 1500);
+  setInterval(renderLiveStatus, 250);
 }
 
 function wire() {
@@ -1127,7 +1129,11 @@ async function pollQueue() {
   ]);
   renderQueueTiming(queue);
   const s = st.lastStatus;
-  if (s && Date.now() - s.ts < 600000) setStatus(s.text, s.kind);
+  liveStatus = s && Date.now() - s.ts < 600000 ? s : null;
+  if (liveStatus) {
+    if (Number.isFinite(liveStatus.countdownUntil)) renderLiveStatus();
+    else setStatus(liveStatus.text, liveStatus.kind);
+  }
   // Pause/Resume only matters while there is still work to do.
   const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
   const pause = $('pauseQueue');
@@ -1232,6 +1238,15 @@ async function pollQueue() {
 // queue status on its next tick, ~1.5 s later).
 function flashSaved() {
   setStatus('Saved ✓', 'done');
+}
+
+function renderLiveStatus() {
+  if (!liveStatus || !Number.isFinite(liveStatus.countdownUntil)) return;
+  const seconds = Math.max(0, Math.ceil((liveStatus.countdownUntil - Date.now()) / 1000));
+  const provider = liveStatus.countdownProvider || 'provider';
+  const label = liveStatus.countdownLabel || '';
+  const text = seconds > 0 ? `Waiting ${seconds}s before ${provider} request: ${label}` : `Starting ${provider} request: ${label}`;
+  setStatus(text, liveStatus.kind);
 }
 
 function setStatus(text, kind = 'info') {
