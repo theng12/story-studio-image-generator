@@ -402,7 +402,7 @@
   }
 
   const handlers = { getContext, generateImage, listModels, modelControls };
-  window.addEventListener('message', async (event) => {
+  const handleMessage = async (event) => {
     if (event.source !== window || event.data?.kind !== REQ) return;
     const { id, op, payload } = event.data;
     try {
@@ -412,5 +412,13 @@
     } catch (error) {
       window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
     }
-  });
+  };
+
+  // Programmatic recovery may reinject this file into a tab that survived an
+  // extension update. Replace the previous handler instead of stacking a
+  // second listener that could submit the same generation twice.
+  if (window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__)
+    window.removeEventListener('message', window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__);
+  window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__ = handleMessage;
+  window.addEventListener('message', handleMessage);
 })();

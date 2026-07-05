@@ -118,34 +118,40 @@
         <button id="selectFailed" class="btn small hidden" title="Select the scenes that failed in the queue">Select failed</button>
       </div>
       <div id="scenes" class="scenes"></div>
-      <div class="row between">
-        <div class="muted small">
-          Provider:
-          <select id="provider" class="inline">
-            <option value="flow">Google Flow</option>
-            <option value="aistudio">Google AI Studio</option>
-            <option value="grok">Grok Imagine</option>
-            <option value="perchance">Perchance</option>
-            <option value="freegen">FreeGen</option>
-            <option value="leonardo">Leonardo AI</option>
-            <option value="pollinations">Pollinations (no tab)</option>
-          </select>
-          Make:
-          <select id="mediaType" class="inline">
-            <option value="scene-image">Scene images</option>
-            <option value="scene-video">Scene video — Veo (credits)</option>
-            <option value="thumbnail-image">Thumbnail images</option>
-          </select>
-          Save to:
-          <select id="saveTarget" class="inline">
-            <option value="project">Story Studio folder</option>
-            <option value="download">Downloads</option>
-          </select>
+      <div class="asset-toolbar">
+        <div class="asset-settings">
+          <label class="asset-setting">
+            <span class="mini">Provider</span>
+            <select id="provider">
+              <option value="flow">Google Flow</option>
+              <option value="aistudio">Google AI Studio</option>
+              <option value="grok">Grok Imagine</option>
+              <option value="perchance">Perchance</option>
+              <option value="freegen">FreeGen</option>
+              <option value="leonardo">Leonardo AI</option>
+              <option value="pollinations">Pollinations (no tab)</option>
+            </select>
+          </label>
+          <label class="asset-setting">
+            <span class="mini">Make</span>
+            <select id="mediaType">
+              <option value="scene-image">Scene images</option>
+              <option value="scene-video">Scene video — Veo (credits)</option>
+              <option value="thumbnail-image">Thumbnail images</option>
+            </select>
+          </label>
+          <label class="asset-setting">
+            <span class="mini">Save to</span>
+            <select id="saveTarget">
+              <option value="project">Story Studio folder</option>
+              <option value="download">Downloads</option>
+            </select>
+          </label>
         </div>
         <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
       </div>
       <div id="leonardoCard" class="leo hidden">
-        <div class="row between">
+        <div class="row between leo-heading">
           <div class="label">Leonardo options</div>
           <button id="leoSync" class="btn small" title="Read models + this model's real options from your logged-in Leonardo tab">⟳ Sync from Leonardo</button>
         </div>
