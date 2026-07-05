@@ -85,6 +85,16 @@ header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .hidden { display: none !important; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.whats-new { position: relative; font-size: 12px; }
+.ndot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff6b6b; margin-left: 3px; vertical-align: top; }
+.dialog.wide { width: 420px; max-width: 92vw; }
+.changelog { max-height: 62vh; overflow-y: auto; margin-top: 8px; font-size: 13px; }
+.changelog h3.cl-ver { color: var(--accent); font-size: 13px; margin: 14px 0 4px; }
+.changelog h3.cl-ver:first-child { margin-top: 2px; }
+.changelog .cl-item { color: var(--muted); padding-left: 4px; margin: 3px 0; line-height: 1.35; }
+.changelog p { color: var(--muted); margin: 4px 0; }
+.changelog code { background: var(--card); padding: 0 4px; border-radius: 3px; }
 
 label.grow { display: block; }
 select, input[type="text"], input[type="password"], input[type="number"] {
