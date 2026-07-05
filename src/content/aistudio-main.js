@@ -3,7 +3,7 @@
 // AI Studio's image API (MakerSuiteService/GenerateContent) uses SAPISIDHASH
 // cookie auth + a protojson positional-array body and runs on a transport that
 // bypasses fetch/XHR hooks — impractical to replay. So we drive the UI, like the
-// Perchance/Leonardo providers: open a fresh chat, phrase the prompt as an
+// Perchance/Leonardo providers: reuse the current image chat, phrase the prompt as an
 // instruction ("Generate an image of …" — a BARE description 403s / returns text),
 // click Run, and read the resulting inline data: image out of the DOM. This uses
 // AI Studio's free daily image quota. Verified live 2026-07-05.
@@ -25,7 +25,6 @@
   const promptInput = () =>
     document.querySelector('textarea[aria-label="Enter a prompt"]') || [...document.querySelectorAll('textarea')].filter(vis).pop();
   const runButton = () => [...document.querySelectorAll('button')].filter(vis).find((b) => /^run\b/i.test(norm(b.textContent)));
-  const newChatButton = () => [...document.querySelectorAll('[aria-label="New chat"]')].find(vis);
 
   function setTextarea(ta, val) {
     // Angular-bound textarea — go through the native setter so the model updates.
@@ -81,13 +80,6 @@
 
   async function generateImage(params) {
     if (!params.prompt || !params.prompt.trim()) throw new Error('Empty image prompt.');
-    // Fresh chat so prior turns don't steer the model and the new image is
-    // unambiguous.
-    const nc = newChatButton();
-    if (nc) {
-      nc.click();
-      await sleep(800);
-    }
     const ta = promptInput();
     if (!ta) throw new Error('AI Studio prompt box not found — open aistudio.google.com in image mode.');
     const before = new Set(dataImages());

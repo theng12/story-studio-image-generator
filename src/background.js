@@ -69,16 +69,6 @@ try {
   /* sidePanel unavailable on older Chrome */
 }
 
-// On install/update, reload open provider tabs so their content scripts aren't stale.
-chrome.runtime.onInstalled.addListener(async () => {
-  try {
-    const tabs = await chrome.tabs.query({ url: Object.values(PROVIDER).map((entry) => entry.match) });
-    for (const t of tabs) chrome.tabs.reload(t.id);
-  } catch {
-    /* best-effort */
-  }
-});
-
 // ── provider tab plumbing ────────────────────────────────────────────────────
 async function ensureProviderTab(provider = 'flow') {
   const cfg = PROVIDER[provider] || PROVIDER.flow;
@@ -102,6 +92,45 @@ async function ensureProviderTab(provider = 'flow') {
   return tab;
 }
 const ensureFlowTab = () => ensureProviderTab('flow');
+
+async function probeAiStudio(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: 'aistudio:getContext' });
+    return response?.ok && response?.ready ? response : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureAiStudioReady(tab) {
+  let current = await chrome.tabs.get(tab.id).catch(() => null);
+  if (!current) throw new Error('The AI Studio tab was closed. Reopen it to resume the queue.');
+
+  // A dashboard/settings tab is on the right domain but cannot generate. Move
+  // to the generator only when needed; an existing prompt page is preserved.
+  if (!/^https:\/\/aistudio\.google\.com\/prompts\//i.test(current.url || '')) {
+    current = await chrome.tabs.update(current.id, { url: PROVIDER.aistudio.url });
+    await waitForTabReady(current.id);
+  }
+
+  // Most jobs return on the first probe. During normal Angular route changes,
+  // wait for the controls instead of refreshing the page beneath the user.
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const context = await probeAiStudio(current.id);
+    if (context) return await chrome.tabs.get(current.id);
+    await sleep(1000);
+  }
+
+  // One bounded recovery reload for a stale content script or frozen page.
+  // Never loop reloads: if the controls still do not return, surface the error.
+  await writeStatus('AI Studio appears stuck — reloading its tab once…', 'running');
+  await chrome.tabs.reload(current.id);
+  await waitForTabReady(current.id);
+  const context = await probeAiStudio(current.id);
+  if (!context)
+    throw new Error('AI Studio is not ready after one recovery reload. Open image mode and verify the Run button is available.');
+  return await chrome.tabs.get(current.id);
+}
 
 function isTabReloadError(error) {
   return /message port closed|receiving end does not exist|could not establish connection|frame (?:was )?removed|tab (?:was )?closed|context invalidated|no tab with id|asynchronous response|provider tab (?:was closed|reload timed out)/i.test(
@@ -818,6 +847,7 @@ async function processQueue() {
       let providerAttempted = false;
       try {
         if (!TABLESS.has(provider) && !tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
+        if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
         await setNextProviderRun(settings);
         providerAttempted = true;
         const r =
