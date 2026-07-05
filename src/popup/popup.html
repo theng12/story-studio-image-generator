@@ -373,7 +373,7 @@
           Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen uses one submission per scene; the Flow reCAPTCHA attempt setting does not apply. Explicit quota/rate-limit messages pause the queue until you press Resume.
         </div>
         <div class="hint">
-          Reference-photo attachment is not enabled yet: Qwen currently treats uploads as conversation/editing context, and that workflow still needs a safe consistency test.
+          Character reference (img2img) is supported: pick a character above and its sheet is dropped into the composer before each character scene. Qwen consumes it per generation, so it re-attaches every time.
         </div>
       </div>
     </section>

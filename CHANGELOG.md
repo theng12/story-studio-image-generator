@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.24.1 — Fix Qwen reference upload
+- **Qwen img2img now actually attaches.** The reference is added by a real drag-drop (a plain file-input set was silently ignored inside a conversation) and detected via Qwen's own attachment chip — fixing "did not accept the reference image upload." Leftover attachments are cleared first so they don't stack.
+
 ## 0.24 — Qwen quota auto-resume
 - **Qwen auto-pauses on its quota and resumes itself.** When Qwen says it's out (~30 images/window), the queue waits (Qwen's stated time if given, otherwise a configurable ~8h) and resumes on its own — with a live countdown. If it resumes too early it just re-pauses, so an off estimate is harmless. Toggle + fallback hours in the Qwen card.
 
