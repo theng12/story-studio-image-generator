@@ -859,7 +859,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       target: effTarget,
       projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
       model: isVideo ? settings.videoModel : settings.imageModel,
-      aspectRatio: settings.aspectRatio,
+      aspectRatio: prov === 'qwen' ? settings.qwenAspectRatio || '16:9' : settings.aspectRatio,
       applyRef: appliesRef(s.key),
       characterRef: appliesRef(s.key) ? characterRef : undefined,
       label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || akind + ' ' + s.key}`,

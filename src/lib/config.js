@@ -37,6 +37,10 @@ export const DEFAULTS = {
   pollinationsSeed: '',
   pollinationsToken: '',
 
+  // Qwen has no reliable ratio control in its chat UI. Keep its preferred
+  // shape separate and reinforce it with numeric + natural-language prompting.
+  qwenAspectRatio: '16:9',
+
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
   perchanceStyle: 'No style',
@@ -112,6 +116,7 @@ export const DEFAULTS = {
 };
 
 const STORAGE_KEY = 'settings';
+const QWEN_ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4']);
 
 function normalizeDelay(value, fallback) {
   const number = Number(value);
@@ -133,6 +138,7 @@ function normalizeRecaptchaAttempts(value, fallback) {
 
 function normalizeSettings(settings) {
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
+  if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
   const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
   settings.humanDelayMinSec = Math.min(first, second);
