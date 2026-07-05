@@ -339,6 +339,7 @@ async function generateAndSave(item, settings, tab) {
       prompt: item.prompt,
       model: item.model || settings.imageModel,
       aspectRatio: item.aspectRatio || settings.aspectRatio,
+      recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
     };
     // Character reference — only on scenes flagged as character scenes at enqueue.
     if (item.applyRef && item.characterRef) {
@@ -944,10 +945,12 @@ async function processQueue() {
           const cooldownMinutes = Math.max(1, Number(settings.flowRecaptchaCooldownMin) || 15);
           const resumeAt = Date.now() + cooldownMinutes * 60000;
           await chrome.storage.local.set({ [FLOW_RECAPTCHA_RESUME_KEY]: resumeAt });
-          await writeStatus(`Flow reCAPTCHA rejected four fresh tokens — cooling down for ${cooldownMinutes} minutes.`, 'info', {
-            countdownUntil: resumeAt,
-            countdownReason: 'recaptcha',
-          });
+          const attempts = Math.max(1, Number(settings.flowRecaptchaMaxAttempts) || 4);
+          await writeStatus(
+            `Flow reCAPTCHA rejected ${attempts} fresh token${attempts === 1 ? '' : 's'} — cooling down for ${cooldownMinutes} minutes.`,
+            'info',
+            { countdownUntil: resumeAt, countdownReason: 'recaptcha' }
+          );
           alarmCreate();
           return;
         }

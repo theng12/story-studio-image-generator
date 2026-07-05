@@ -66,6 +66,7 @@ export const DEFAULTS = {
   // fail, preserve the current image job and cool the queue down before trying
   // it again instead of cascading the same failure through the batch.
   flowRecaptchaAutoPause: true,
+  flowRecaptchaMaxAttempts: 4,
   flowRecaptchaCooldownMin: 15,
 
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
@@ -124,6 +125,12 @@ function normalizeCooldownMinutes(value, fallback) {
   return Math.min(1440, Math.max(1, Math.round(number)));
 }
 
+function normalizeRecaptchaAttempts(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(10, Math.max(1, Math.round(number)));
+}
+
 function normalizeSettings(settings) {
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
@@ -131,6 +138,10 @@ function normalizeSettings(settings) {
   settings.humanDelayMinSec = Math.min(first, second);
   settings.humanDelayMaxSec = Math.max(first, second);
   settings.flowRecaptchaAutoPause = settings.flowRecaptchaAutoPause !== false;
+  settings.flowRecaptchaMaxAttempts = normalizeRecaptchaAttempts(
+    settings.flowRecaptchaMaxAttempts,
+    DEFAULTS.flowRecaptchaMaxAttempts
+  );
   settings.flowRecaptchaCooldownMin = normalizeCooldownMinutes(
     settings.flowRecaptchaCooldownMin,
     DEFAULTS.flowRecaptchaCooldownMin

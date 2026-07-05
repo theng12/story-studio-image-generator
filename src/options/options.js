@@ -20,6 +20,7 @@ const FIELDS = [
   'leonardoCount',
   'humanDelayMinSec',
   'humanDelayMaxSec',
+  'flowRecaptchaMaxAttempts',
   'flowRecaptchaCooldownMin',
   'imageModel',
   'videoModel',

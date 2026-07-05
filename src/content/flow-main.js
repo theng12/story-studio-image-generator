@@ -156,6 +156,7 @@
     const model = IMAGE_MODELS[p.model] || 'NARWHAL';
     const aspect = IMAGE_ASPECT[p.aspectRatio] || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
     const seed = Number.isFinite(p.seed) ? p.seed : randomSeed();
+    const recaptchaMaxAttempts = Math.min(10, Math.max(1, Math.round(Number(p.recaptchaMaxAttempts) || 4)));
 
     // reCAPTCHA Enterprise is score-based, so a self-minted token is sometimes
     // rejected (403 "reCAPTCHA evaluation failed") — most often when the tab is
@@ -203,7 +204,7 @@
         /* non-JSON */
       }
       const recaptchaReject = r.status === 403 || /recaptcha|captcha|evaluation failed/i.test(detail);
-      if (recaptchaReject && attempt < 4) {
+      if (recaptchaReject && attempt < recaptchaMaxAttempts) {
         await new Promise((res) => setTimeout(res, 1200 * attempt));
         continue;
       }
