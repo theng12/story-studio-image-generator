@@ -1281,6 +1281,35 @@ function renderQueueTiming(queue) {
   el.textContent = parts.join(' · ');
 }
 
+// Prominent generation status above the Queue: green + glowing while running,
+// orange while paused, with running success/failed/remaining counts.
+function updateGenStatus(queue, paused) {
+  const bar = $('genStatusBar');
+  if (!bar) return;
+  const done = queue.filter((i) => i.status === 'done').length;
+  const failed = queue.filter((i) => i.status === 'failed').length;
+  const left = queue.filter((i) => i.status === 'pending' || i.status === 'running').length;
+  const running = queue.some((i) => i.status === 'running');
+  let state = 'Idle';
+  let cls = 'idle';
+  if (paused) {
+    state = 'Paused';
+    cls = 'paused';
+  } else if (left > 0) {
+    state = running ? 'Generating' : 'Queued';
+    cls = 'running';
+  } else if (queue.length) {
+    state = 'Finished';
+    cls = 'done';
+  }
+  bar.className = 'genstatus ' + cls;
+  $('gsStateText').textContent = state;
+  $('gsDone').textContent = `${done} done`;
+  $('gsFailed').textContent = `${failed} failed`;
+  $('gsLeft').textContent = `${left} left`;
+  bar.querySelector('.gs-counts').classList.toggle('hidden', queue.length === 0);
+}
+
 let lastQueueSig = '';
 async function pollQueue() {
   const [{ queue = [], paused = false } = {}, st] = await Promise.all([
@@ -1299,6 +1328,7 @@ async function pollQueue() {
   const pause = $('pauseQueue');
   pause.classList.toggle('hidden', !hasWork && !paused);
   pause.textContent = paused ? 'Resume' : 'Pause';
+  updateGenStatus(queue, paused);
   // Live per-scene status + tab-visibility reminder — run every tick, even when
   // the queue-list DOM itself is unchanged.
   updateSceneQueueStatus(queue);

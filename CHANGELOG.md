@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.22 — Generation status bar
+- **A prominent status bar above the Queue**: green + glowing while generating, **orange while paused**, grey when idle — so you can tell at a glance whether it's running or stopped.
+- Live **done / failed / left** counts right in the bar.
+
 ## 0.21 — Qwen img2img + unblock
 - **Qwen auto-dismisses the "which response do you prefer?" A/B prompt** so batches no longer stall waiting for you to pick a side.
 - **Qwen character reference (img2img)** — pick a character in the panel and its Story Studio sheet is uploaded into Qwen before each character scene. Qwen consumes the image per generation, so it re-uploads every time.
