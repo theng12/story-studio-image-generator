@@ -57,9 +57,10 @@ The queue must remain:
 - Conservative when a paid request has an unknown outcome.
 - Human-paced using the persisted, user-configured min/max delay; worker death
   must not bypass the next allowed provider-request timestamp.
-- Flow image reCAPTCHA exhaustion re-pends the current item and uses the
-  persisted, configurable cooldown timestamp before automatic alarm-driven
-  resume. Manual Resume may clear that cooldown early.
+- Flow image reCAPTCHA uses a configurable total of 1–10 fresh-token attempts
+  (default 4). Exhaustion re-pends the current item and uses the persisted,
+  configurable cooldown timestamp before automatic alarm-driven resume. Manual
+  Resume may clear that cooldown early.
 
 Never automatically replay an ambiguous paid submission. Leonardo image jobs
 interrupted after submission must ask the user to inspect the provider tab

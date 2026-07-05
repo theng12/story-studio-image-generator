@@ -95,10 +95,11 @@ Recon against the logged-in studio settled the design. It's **fully API-driven**
   context that already scores well. No paid captcha service (unlike datacenter
   wrappers like useapi.net). This is the make-or-break finding for the project.
 
-  If all four fresh-token attempts are rejected, the queue can automatically
-  re-pend the current image and enter a persisted 5–60 minute cooldown (15
-  minutes by default). It resumes itself through `chrome.alarms`; Settings can
-  disable the behavior or choose the interval, and Resume bypasses it early.
+  If all fresh-token attempts are rejected, the queue can automatically re-pend
+  the current image and enter a persisted 5–60 minute cooldown (15 minutes by
+  default). Settings controls the total attempts from 1–10 (default 4), can
+  disable the cooldown behavior or choose its interval, and Resume bypasses it
+  early. Automatic resume runs through `chrome.alarms`.
 
 - **Image generation** (Nano Banana 2 — internal name `NARWHAL`):
   `POST https://aisandbox-pa.googleapis.com/v1/projects/{projectId}/flowMedia:batchGenerateImages`.
