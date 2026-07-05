@@ -234,11 +234,20 @@
     const ratio = String(params.aspectRatio || '16:9');
     const ratioInstruction = RATIO_INSTRUCTIONS[ratio] || `Create an image with an exact ${ratio} aspect ratio`;
     setTextarea(textarea, `${ratioInstruction}. Compose all content inside that format. Image prompt: ${prompt}`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
 
-    const send = sendButton();
-    if (!visible(send) || send.disabled || send.classList.contains('disabled'))
-      throw new Error('Qwen Studio Send button is unavailable. Check the tab for a sign-in or verification prompt.');
+    // Wait for Send to actually be ready (present, visible, enabled) rather than
+    // a one-shot check — after an attachment it can take a beat to enable.
+    let send = null;
+    const sendDeadline = Date.now() + 8000;
+    while (Date.now() < sendDeadline) {
+      const button = sendButton();
+      if (button && visible(button) && !button.disabled && !button.classList.contains('disabled')) {
+        send = button;
+        break;
+      }
+      await sleep(300);
+    }
+    if (!send) throw new Error('Qwen Studio Send button did not become available. Check the tab for a sign-in or verification prompt.');
     send.click();
     postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);
