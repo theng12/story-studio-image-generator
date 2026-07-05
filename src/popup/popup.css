@@ -82,7 +82,7 @@ header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-
 .hidden { display: none !important; }
 
 label.grow { display: block; }
-select, input[type="text"], input[type="password"] {
+select, input[type="text"], input[type="password"], input[type="number"] {
   width: 100%;
   background: #1f1f24;
   color: var(--fg);
@@ -92,6 +92,26 @@ select, input[type="text"], input[type="password"] {
   font: inherit;
 }
 select.inline { width: auto; display: inline-block; padding: 3px 6px; }
+
+.pace-heading { align-items: flex-start; margin-top: 0; }
+.pace-card .mini { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.pace-preset { display: block; margin-top: 8px; }
+.pace-custom { align-items: flex-end; }
+.pace-state {
+  flex: none;
+  max-width: 58%;
+  color: var(--ok);
+  background: rgba(76,195,138,.12);
+  border: 1px solid rgba(76,195,138,.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-align: right;
+}
+.pace-state.off { color: var(--muted); background: transparent; border-color: var(--line); }
+.pace-card .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
 .checkbox { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .checkbox input { width: auto; }

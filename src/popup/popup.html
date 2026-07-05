@@ -26,6 +26,38 @@
       <div id="flowSignin" class="muted small hidden">Not signed in to Flow — open labs.google/fx and sign in.</div>
     </section>
 
+    <section class="card pace-card">
+      <div class="row between pace-heading">
+        <div>
+          <div class="label">Human pace</div>
+          <div class="muted small">Delay between provider requests</div>
+        </div>
+        <span id="humanPaceState" class="pace-state" aria-live="polite"></span>
+      </div>
+      <label class="pace-preset">
+        <span class="mini">Suggested pace</span>
+        <select id="humanPacePreset">
+          <option value="off">Off (no delay)</option>
+          <option value="quick">Quick (5-15 seconds)</option>
+          <option value="balanced">Balanced (15-45 seconds) - recommended</option>
+          <option value="cautious">Cautious (30-90 seconds)</option>
+          <option value="very-cautious">Very cautious (60-180 seconds)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <div id="humanPaceCustom" class="row pace-custom hidden">
+        <label class="grow">
+          <span class="mini">Minimum seconds</span>
+          <input id="humanPaceMin" type="number" min="0" max="3600" step="1" />
+        </label>
+        <label class="grow">
+          <span class="mini">Maximum seconds</span>
+          <input id="humanPaceMax" type="number" min="0" max="3600" step="1" />
+        </label>
+      </div>
+      <div class="hint">The next queue gap uses this setting. A wait already in progress keeps its chosen time.</div>
+    </section>
+
     <section class="card">
       <div class="row between">
         <button id="testConn" class="btn small">Test Studio connection</button>

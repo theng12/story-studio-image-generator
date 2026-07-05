@@ -28,6 +28,11 @@ hidden gallery thumbnail to paint.
 Sibling to `fish-tts-extension`; same proven architecture (side panel, persistent
 resumable queue, MAIN-world content script, Story Studio companion client).
 
+The side panel includes shared human-pace controls for every provider: suggested
+delay presets, custom minimum/maximum timing, and a live indicator showing the
+active mode and whether its delay is random, fixed, or disabled. These values
+stay synchronized with the Options page.
+
 ```
 ┌────────────┐ scene prompts ┌───────────┐  image (same-origin) ┌────────────┐
 │ Story      │ ─────────────▶│ Extension │ ────────────────────▶│ Google Flow│
