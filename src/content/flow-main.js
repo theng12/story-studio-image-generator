@@ -207,6 +207,7 @@
         await new Promise((res) => setTimeout(res, 1200 * attempt));
         continue;
       }
+      if (recaptchaReject) throw new Error(`Flow reCAPTCHA failed after ${attempt} fresh-token attempts (${r.status}): ${detail}`);
       throw new Error(`Flow image generation failed (${r.status}): ${detail}`);
     }
     const gen = j?.media?.[0]?.image?.generatedImage;

@@ -50,6 +50,25 @@
     </section>
 
     <section class="card">
+      <div class="label">Flow reCAPTCHA recovery</div>
+      <label class="checkbox field">
+        <input type="checkbox" id="flowRecaptchaAutoPause" />
+        <span>Automatically pause and retry after repeated reCAPTCHA failures</span>
+      </label>
+      <div class="field">
+        <span class="label">Cooldown before automatic resume</span>
+        <select id="flowRecaptchaCooldownMin">
+          <option value="5">5 minutes</option>
+          <option value="10">10 minutes</option>
+          <option value="15">15 minutes — recommended</option>
+          <option value="30">30 minutes</option>
+          <option value="60">60 minutes</option>
+        </select>
+      </div>
+      <div class="hint">Flow first tries four freshly minted tokens. If all four are rejected, the current image stays pending, the whole queue cools down, and it resumes itself after this interval. The side-panel Resume button can retry sooner.</div>
+    </section>
+
+    <section class="card">
       <div class="label">Perchance</div>
       <div class="field">
         <span class="label">Art style</span>

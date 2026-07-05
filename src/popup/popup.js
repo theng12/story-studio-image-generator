@@ -1329,6 +1329,13 @@ function flashSaved() {
 function renderLiveStatus() {
   if (!liveStatus || !Number.isFinite(liveStatus.countdownUntil)) return;
   const seconds = Math.max(0, Math.ceil((liveStatus.countdownUntil - Date.now()) / 1000));
+  if (liveStatus.countdownReason === 'recaptcha') {
+    const text = seconds > 0
+      ? `Flow reCAPTCHA cooldown — resuming automatically in ${formatDuration(seconds * 1000)}.`
+      : 'Flow reCAPTCHA cooldown finished — resuming now.';
+    setStatus(text, liveStatus.kind);
+    return;
+  }
   const provider = liveStatus.countdownProvider || 'provider';
   const label = liveStatus.countdownLabel || '';
   const text = seconds > 0 ? `Waiting ${seconds}s before ${provider} request: ${label}` : `Starting ${provider} request: ${label}`;
