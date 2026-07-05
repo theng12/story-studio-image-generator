@@ -227,6 +227,26 @@ async function pollinationsGenerate(item, settings) {
 }
 
 // Generate one scene's image and save it to Story Studio or Downloads.
+// Character reference: upload the chosen character's sheet to Flow ONCE per
+// (project, character, file) and cache the returned mediaId, so every character
+// scene in the batch reuses it. Runs through the Flow content-script tab.
+const refMediaCache = new Map();
+async function resolveCharacterRefMediaId(item, settings, tab) {
+  const ref = item.characterRef;
+  if (!ref || !ref.characterId || !ref.filename) return null;
+  const key = `${item.slug}::${ref.characterId}::${ref.filename}`;
+  if (refMediaCache.has(key)) return refMediaCache.get(key);
+  const client = new StudioClient(settings.studioBaseUrl);
+  const img = await client.characterReferenceImageBase64(item.slug, ref.characterId, ref.filename);
+  const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
+  const up = await send(tab.id, {
+    type: 'flow:uploadImage',
+    params: { projectId, base64: img.base64, mime: img.mime, fileName: `char_${ref.characterId}.png` },
+  });
+  if (up.mediaId) refMediaCache.set(key, up.mediaId);
+  return up.mediaId;
+}
+
 async function generateAndSave(item, settings, tab) {
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const provider = item.provider || 'flow';
@@ -246,15 +266,18 @@ async function generateAndSave(item, settings, tab) {
   } else if (provider === 'flow') {
     const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
-    const r = await send(tab.id, {
-      type: 'flow:generateImage',
-      params: {
-        projectId,
-        prompt: item.prompt,
-        model: item.model || settings.imageModel,
-        aspectRatio: item.aspectRatio || settings.aspectRatio,
-      },
-    });
+    const params = {
+      projectId,
+      prompt: item.prompt,
+      model: item.model || settings.imageModel,
+      aspectRatio: item.aspectRatio || settings.aspectRatio,
+    };
+    // Character reference — only on scenes flagged as character scenes at enqueue.
+    if (item.applyRef && item.characterRef) {
+      const refId = await resolveCharacterRefMediaId(item, settings, tab);
+      if (refId) params.imageInputs = [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: refId }];
+    }
+    const r = await send(tab.id, { type: 'flow:generateImage', params });
     base64 = r.base64;
     mime = r.mime;
   } else {
@@ -679,7 +702,7 @@ async function retryFailed(id = null) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, assetType, provider }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, assetType, provider, characterRef }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || 'flow';
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
@@ -688,6 +711,29 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   // Only Flow supports video; every web generator provider is image-only.
   const isVideo = assetType === 'video' && prov === 'flow' && akind === 'scene';
   const effTarget = target || settings.saveTarget;
+
+  // Character reference (Flow images only). Gate by scene_type so the sheet only
+  // lands on character scenes — read the raw scene plan (scene-review doesn't
+  // expose scene_type). Untagged scenes count as character (matches SS's
+  // renderer). Non-plan sources have no scene_type, so the reference applies to
+  // all of them.
+  const wantRef = prov === 'flow' && !isVideo && akind === 'scene' && !!(characterRef && characterRef.characterId && characterRef.filename);
+  let sceneTypeById = null;
+  if (wantRef && src === 'plan') {
+    try {
+      const plan = await new StudioClient(settings.studioBaseUrl).scenePlan(slug, episodeCode);
+      sceneTypeById = new Map((plan?.scene_plan?.scenes || []).map((s) => [s.id, s.scene_type]));
+    } catch {
+      sceneTypeById = null; // fail-open: if we can't read types, reference all
+    }
+  }
+  const appliesRef = (key) => {
+    if (!wantRef) return false;
+    if (src !== 'plan' || !sceneTypeById) return true;
+    const t = sceneTypeById.get(key);
+    return t === 'character' || t == null;
+  };
+
   // scenes are normalized: { source, key, label, prompt, hasImage }
   const items = (scenes || []).map((s) =>
     mkItem({
@@ -707,6 +753,8 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
       model: isVideo ? settings.videoModel : settings.imageModel,
       aspectRatio: settings.aspectRatio,
+      applyRef: appliesRef(s.key),
+      characterRef: appliesRef(s.key) ? characterRef : undefined,
       label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || akind + ' ' + s.key}`,
       // tokens for Downloads naming:
       project: projectName || episodeTitle || slug,

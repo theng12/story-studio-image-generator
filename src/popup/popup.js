@@ -97,6 +97,7 @@ function wire() {
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
   $('flowImageModel').onchange = async () => (settings = await saveSettings({ imageModel: $('flowImageModel').value }));
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
+  $('flowCharacterRef').onchange = async () => (settings = await saveSettings({ characterRefId: $('flowCharacterRef').value }));
   $('flowVideoModel').onchange = async () => (settings = await saveSettings({ videoModel: $('flowVideoModel').value }));
   $('flowVideoSource').onchange = async () => (settings = await saveSettings({ videoSource: $('flowVideoSource').value }));
   $('freegenAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('freegenAspect').value }));
@@ -328,6 +329,7 @@ async function queueAllPending() {
             target,
             assetType: 'image',
             provider,
+            characterRef: getCharacterRef(),
           },
         });
         if (res?.ok) {
@@ -372,9 +374,48 @@ async function onProjectChange() {
     applyEpisodeFilter();
     if (settings.lastEpisode && [...esel.options].some((o) => o.value === settings.lastEpisode)) esel.value = settings.lastEpisode;
     fetchEpisodeCounts(slug, allEpisodes.map((e) => e.code));
+    loadCharacters(slug);
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
+}
+
+// Populate the Flow "Character reference" dropdown from the project's characters
+// (only those that actually have a reference image). Selection persists.
+async function loadCharacters(slug) {
+  const sel = $('flowCharacterRef');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">None</option>';
+  if (!slug) return;
+  try {
+    const data = await client.listCharacters(slug);
+    const list = Array.isArray(data) ? data : data.characters || [];
+    for (const c of list) {
+      const imgs = (c.references && c.references.images) || c.reference_images || [];
+      const first = imgs[0];
+      const filename = typeof first === 'string' ? first : first?.filename || first?.name;
+      if (!filename) continue; // skip characters with no reference sheet
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.dataset.filename = filename;
+      opt.textContent = c.name || c.id;
+      sel.appendChild(opt);
+    }
+    if (settings.characterRefId && [...sel.options].some((o) => o.value === settings.characterRefId)) {
+      sel.value = settings.characterRefId;
+    }
+  } catch {
+    /* characters are optional — leave "None" */
+  }
+}
+
+// The current character reference selection → { characterId, filename } or null.
+function getCharacterRef() {
+  const sel = $('flowCharacterRef');
+  if (!sel || !sel.value) return null;
+  const opt = sel.selectedOptions[0];
+  const filename = opt?.dataset.filename;
+  return filename ? { characterId: sel.value, filename } : null;
 }
 
 // ── scenes ──────────────────────────────────────────────────────────────────
@@ -843,6 +884,8 @@ function flowPopulate() {
   $('flowVideoModel').value = settings.videoModel || 'veo-3.1-fast';
   $('flowVideoSource').value = settings.videoSource || 'existing';
   $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
+  // Character reference is an image-only feature.
+  $('flowCharRow').classList.toggle('hidden', isVideoSel());
 }
 
 function freegenPopulate() {
@@ -928,7 +971,10 @@ async function checkWebGenerator(provider) {
 // video now writes clips back via upload-clip too.
 async function onMediaTypeChange() {
   $('saveTarget').disabled = false;
-  if ($('provider').value === 'flow') $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
+  if ($('provider').value === 'flow') {
+    $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
+    $('flowCharRow').classList.toggle('hidden', isVideoSel());
+  }
   if (currentEpisode && currentScenes.length && selKind() !== loadedKind) {
     await loadScenes();
   }
@@ -1011,6 +1057,7 @@ async function doEnqueue(scenes, target, assetType, provider, kind) {
         target,
         assetType,
         provider,
+        characterRef: getCharacterRef(),
       },
     });
     if (!res?.ok) throw new Error(res?.error || 'enqueue failed');

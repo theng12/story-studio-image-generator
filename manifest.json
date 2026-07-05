@@ -1,9 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "Generate Story Studio KH scene images and video through Google Flow, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
-  "permissions": ["downloads", "storage", "scripting", "tabs", "sidePanel", "alarms"],
+  "permissions": [
+    "downloads",
+    "storage",
+    "scripting",
+    "tabs",
+    "sidePanel",
+    "alarms"
+  ],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
@@ -21,7 +28,10 @@
     "https://image.pollinations.ai/*",
     "https://*.pollinations.ai/*"
   ],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
@@ -35,47 +45,79 @@
   "options_page": "src/options/options.html",
   "content_scripts": [
     {
-      "matches": ["https://labs.google/fx/*"],
-      "js": ["src/content/flow-main.js"],
+      "matches": [
+        "https://labs.google/fx/*"
+      ],
+      "js": [
+        "src/content/flow-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://labs.google/fx/*"],
-      "js": ["src/content/flow.js"],
+      "matches": [
+        "https://labs.google/fx/*"
+      ],
+      "js": [
+        "src/content/flow.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://grok.com/*"],
-      "js": ["src/content/grok-main.js"],
+      "matches": [
+        "https://grok.com/*"
+      ],
+      "js": [
+        "src/content/grok-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://grok.com/*"],
-      "js": ["src/content/grok.js"],
+      "matches": [
+        "https://grok.com/*"
+      ],
+      "js": [
+        "src/content/grok.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://app.leonardo.ai/*"],
-      "js": ["src/content/leonardo-main.js"],
+      "matches": [
+        "https://app.leonardo.ai/*"
+      ],
+      "js": [
+        "src/content/leonardo-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://app.leonardo.ai/*"],
-      "js": ["src/content/leonardo.js"],
+      "matches": [
+        "https://app.leonardo.ai/*"
+      ],
+      "js": [
+        "src/content/leonardo.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://freegen.app/*"],
-      "js": ["src/content/freegen-main.js"],
+      "matches": [
+        "https://freegen.app/*"
+      ],
+      "js": [
+        "src/content/freegen-main.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://freegen.app/*"],
-      "js": ["src/content/freegen.js"],
+      "matches": [
+        "https://freegen.app/*"
+      ],
+      "js": [
+        "src/content/freegen.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -83,14 +125,20 @@
         "https://*.perchance.org/ai-text-to-image-generator*",
         "https://image-generation.perchance.org/embed*"
       ],
-      "js": ["src/content/perchance-main.js"],
+      "js": [
+        "src/content/perchance-main.js"
+      ],
       "world": "MAIN",
       "all_frames": true,
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.perchance.org/ai-text-to-image-generator*"],
-      "js": ["src/content/perchance.js"],
+      "matches": [
+        "https://*.perchance.org/ai-text-to-image-generator*"
+      ],
+      "js": [
+        "src/content/perchance.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }

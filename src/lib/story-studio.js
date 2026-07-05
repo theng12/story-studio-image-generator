@@ -151,6 +151,35 @@ export class StudioClient {
     return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
   }
 
+  // ── character references (for Flow imageInputs / character consistency) ─────
+  // List the project's characters. Each: { id, name, references:{ images:[<filename>] }, ... }.
+  listCharacters(slug) {
+    return this._json(`/projects/${encodeURIComponent(slug)}/characters`);
+  }
+
+  // The raw scene plan → { scene_plan: { scenes: [{ id, scene_type, ... }] }, ... }.
+  // Used to read each scene's `scene_type` (character/environment/event/…), which
+  // scene-review does NOT expose — so the reference only lands on character scenes.
+  scenePlan(slug, code) {
+    return this._json(
+      `/projects/${encodeURIComponent(slug)}/scene-plan/${encodeURIComponent(code)}`
+    );
+  }
+
+  // Fetch a character's reference-image bytes as base64 (to upload to Flow).
+  async characterReferenceImageBase64(slug, characterId, filename) {
+    const res = await fetch(
+      `${this.base}/api/projects/${encodeURIComponent(slug)}/characters/${encodeURIComponent(
+        characterId
+      )}/reference-image/${encodeURIComponent(filename)}`,
+      { credentials: 'include' }
+    );
+    if (!res.ok) throw new Error(`Character reference image not found (${res.status}).`);
+    const buf = await res.arrayBuffer();
+    if (!buf.byteLength) throw new Error('Character reference image is empty.');
+    return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
+  }
+
   // Save an animated clip for a scene. mp4 is raw bytes (ArrayBuffer/Uint8Array)
   // POSTed as Content-Type video/mp4 — the upload-clip route takes raw binary
   // (256 MB cap), NOT base64 JSON. Writes {scene_id}.mp4 to "11 Video Assets".
