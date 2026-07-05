@@ -12,6 +12,7 @@ episode or to Downloads with canonical filenames.
 Supported providers:
 
 - Google Flow: image and video; uses the logged-in Flow web session.
+- Qwen Studio: image only; drives the signed-in conversational image workflow.
 - Grok Imagine: image only; capture-and-replay adapter.
 - Perchance: image only; drives the visible generator controls.
 - FreeGen: image only; drives the visible generator controls.
@@ -33,6 +34,8 @@ implemented and verified.
 - `src/lib/story-studio.js`: Story Studio REST client.
 - `src/content/flow-main.js` + `flow.js`: Flow MAIN/isolated-world pair.
 - `src/content/grok-main.js` + `grok.js`: Grok MAIN/isolated-world pair.
+- `src/content/qwen-main.js` + `qwen.js`: Qwen Studio conversational image
+  pair using the prompt, send, assistant-response, and qwen-image contracts.
 - `src/content/perchance-main.js` + `perchance.js`: Perchance generator-frame
   pair with explicit style, shape, and quantity controls.
 - `src/content/freegen-main.js` + `freegen.js`: FreeGen-specific visible-UI

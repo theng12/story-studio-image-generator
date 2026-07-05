@@ -658,6 +658,7 @@ async function loadScenesFromEither(slug, ep) {
 const PROVIDER_LABEL = {
   flow: 'Google Flow',
   aistudio: 'AI Studio',
+  qwen: 'Qwen Studio',
   grok: 'Grok',
   perchance: 'Perchance',
   freegen: 'FreeGen',
@@ -1007,6 +1008,7 @@ function onProviderChange() {
   $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
   $('grokCard').classList.toggle('hidden', provider !== 'grok');
   $('aistudioCard').classList.toggle('hidden', provider !== 'aistudio');
+  $('qwenCard').classList.toggle('hidden', provider !== 'qwen');
   $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
@@ -1029,19 +1031,23 @@ async function checkGrok() {
     if (!ctx.signedIn) setStatus('Grok: not signed in — open grok.com and sign in.', 'err');
     else if (!ctx.hasTemplate)
       setStatus('Grok: sign-in OK. Generate ONE image at grok.com/imagine (free daily quota) so the extension can learn the API, then batch here.', 'err');
-    else setStatus('Grok ready (template captured). Free tier has a daily limit — it pauses & resumes.', 'done');
+    else setStatus('Grok ready (template captured). A daily-limit message pauses the queue until you Resume.', 'done');
   } catch (e) {
     setStatus(`Grok check failed: ${e.message}`, 'err');
   }
 }
 
 async function checkWebGenerator(provider) {
-  const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
+  const names = { aistudio: 'AI Studio', qwen: 'Qwen Studio', perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
   const name = names[provider] || provider;
   setStatus(`Checking ${name}…`, 'running');
   try {
     const ctx = await chrome.runtime.sendMessage({ type: 'webGeneratorContext', provider });
     if (!ctx?.ok) throw new Error(ctx?.error || `Could not reach ${name}.`);
+    if (ctx.signedIn === false) {
+      setStatus(`${name}: not signed in — open its tab and sign in.`, 'err');
+      return;
+    }
     if (!ctx.ready) {
       setStatus(`${name}: open the image generator, complete any sign-in/browser check, and leave the tab open.`, 'err');
       return;
@@ -1049,6 +1055,8 @@ async function checkWebGenerator(provider) {
     const quota =
       provider === 'leonardo'
         ? 'Free accounts currently produce four images per prompt and deduct the displayed token cost.'
+        : provider === 'qwen'
+          ? 'Web image generation ready. Qwen publishes no numeric web quota; an explicit limit pauses the queue.'
         : 'Free web generation ready.';
     setStatus(`${name} ready. ${quota}`, 'done');
   } catch (e) {
@@ -1093,7 +1101,7 @@ function confirmQueue() {
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Grok Imagine → ` +
       `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
-      `the queue pauses when it's hit and resumes later. ${humanDelayLabel()} between each. Continue?`;
+      `the queue pauses when it's hit; press Resume after it resets. ${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Grok';
   } else if (isFlow) {
     $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : `Queue these ${noun}s?`;
@@ -1111,9 +1119,17 @@ function confirmQueue() {
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Google AI Studio → ` +
       `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the AI Studio tab open in ` +
-      `image mode. Uses your FREE DAILY image quota — the queue pauses when it's hit and resumes later. ` +
+      `image mode. Uses your FREE DAILY image quota — the queue pauses when it's hit; press Resume after reset. ` +
       `${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on AI Studio';
+  } else if (provider === 'qwen') {
+    $('confirmTitle').textContent = `Queue these ${noun}s on Qwen Studio?`;
+    $('confirmBody').textContent =
+      `${n} from ${currentEpisode.code} via Qwen Studio → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the Qwen tab open. ` +
+      `Qwen uses one submission per scene, ratio is best-effort, and explicit usage limits pause the queue. ` +
+      `${humanDelayLabel()} between each. Continue?`;
+    $('confirmOk').textContent = 'Queue on Qwen';
   } else if (provider === 'pollinations') {
     $('confirmTitle').textContent = `Queue these ${noun}s on Pollinations?`;
     $('confirmBody').textContent =
