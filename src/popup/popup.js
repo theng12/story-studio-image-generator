@@ -579,6 +579,7 @@ async function loadScenesFromEither(slug, ep) {
 
 const PROVIDER_LABEL = {
   flow: 'Google Flow',
+  aistudio: 'AI Studio',
   grok: 'Grok',
   perchance: 'Perchance',
   freegen: 'FreeGen',
@@ -917,6 +918,7 @@ function onProviderChange() {
   $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
   $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
   $('grokCard').classList.toggle('hidden', provider !== 'grok');
+  $('aistudioCard').classList.toggle('hidden', provider !== 'aistudio');
   $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   if (provider === 'leonardo') leoPopulate();
@@ -1016,6 +1018,14 @@ function confirmQueue() {
         `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
         `Images use Nano Banana 2 (free). One at a time.`;
     $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+  } else if (provider === 'aistudio') {
+    $('confirmTitle').textContent = `Queue these ${noun}s on AI Studio?`;
+    $('confirmBody').textContent =
+      `${n} from ${currentEpisode.code} via Google AI Studio → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the AI Studio tab open in ` +
+      `image mode. Uses your FREE DAILY image quota — the queue pauses when it's hit and resumes later. ` +
+      `${humanDelayLabel()} between each. Continue?`;
+    $('confirmOk').textContent = 'Queue on AI Studio';
   } else if (provider === 'pollinations') {
     $('confirmTitle').textContent = `Queue these ${noun}s on Pollinations?`;
     $('confirmBody').textContent =

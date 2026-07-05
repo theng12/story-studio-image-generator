@@ -18,6 +18,7 @@ import { buildDownloadPath } from './lib/naming.js';
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 const PROVIDER = {
   flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
+  aistudio: { url: 'https://aistudio.google.com/prompts/new_chat', match: 'https://aistudio.google.com/*' },
   grok: { url: 'https://grok.com/imagine', match: 'https://grok.com/*' },
   perchance: { url: 'https://perchance.org/ai-text-to-image-generator', match: 'https://perchance.org/*' },
   freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
@@ -25,6 +26,7 @@ const PROVIDER = {
 };
 const PROVIDER_NAME = {
   flow: 'Flow',
+  aistudio: 'AI Studio',
   grok: 'Grok',
   perchance: 'Perchance',
   freegen: 'FreeGen',
@@ -286,7 +288,9 @@ async function generateAndSave(item, settings, tab) {
         ? 'perchance:generateImage'
         : provider === 'freegen'
           ? 'freegen:generateImage'
-          : 'leonardo:generateImage';
+          : provider === 'aistudio'
+            ? 'aistudio:generateImage'
+            : 'leonardo:generateImage';
     const r = await send(tab.id, {
       type: messageType,
       params: {
@@ -953,7 +957,9 @@ async function webGeneratorContext(provider) {
       ? 'perchance:getContext'
       : provider === 'freegen'
         ? 'freegen:getContext'
-        : 'leonardo:getContext';
+        : provider === 'aistudio'
+          ? 'aistudio:getContext'
+          : 'leonardo:getContext';
   const r = await send(tab.id, { type: messageType });
   return { ok: true, ...r.result };
 }

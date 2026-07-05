@@ -88,6 +88,7 @@
           Provider:
           <select id="provider" class="inline">
             <option value="flow">Google Flow</option>
+            <option value="aistudio">Google AI Studio</option>
             <option value="grok">Grok Imagine</option>
             <option value="perchance">Perchance</option>
             <option value="freegen">FreeGen</option>
@@ -283,6 +284,12 @@
         <div class="label">Grok Imagine options</div>
         <div class="hint">
           Set model, aspect ratio, style and Image/Video on the <b>Grok Imagine page</b> — Grok saves them to your account and the extension replays your prompt with whatever you last chose there. Set them once; they apply to every scene. (Grok takes no per-request options, so there's nothing to set here.)
+        </div>
+      </div>
+      <div id="aistudioCard" class="leo hidden">
+        <div class="label">Google AI Studio options</div>
+        <div class="hint">
+          Open <b>aistudio.google.com</b> in <b>image mode</b> (pick an image model, e.g. Nano Banana 2 Lite) and keep that tab visible. The extension types “Generate an image of …”, runs it, and reads the result. Model / aspect ratio / resolution are whatever you set in the AI Studio tab. Uses your <b>free daily image quota</b>; when it's exhausted the queue pauses and resumes later.
         </div>
       </div>
     </section>
