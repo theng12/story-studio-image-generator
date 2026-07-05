@@ -18,6 +18,10 @@ export const DEFAULTS = {
   flowProjectId: '',
   flowProjectName: '',
 
+  // Selected character whose reference sheet is attached to Flow character-scene
+  // image generations (imageInputs REFERENCE). '' = none. Per project.
+  characterRefId: '',
+
   // Generation provider. All providers use their visible web session/UI; only
   // Flow supports video in addition to image generation.
   provider: 'flow',
