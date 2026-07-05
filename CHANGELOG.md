@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.24.2 — Qwen reference upload reliability
+- **Qwen img2img reference now attaches via paste** (the drag-drop worked on the first scene but failed on the ones right after a generation). Paste attaches reliably every scene, with a retry if it doesn't land.
+
 ## 0.24.1 — Fix Qwen reference upload
 - **Qwen img2img now actually attaches.** The reference is added by a real drag-drop (a plain file-input set was silently ignored inside a conversation) and detected via Qwen's own attachment chip — fixing "did not accept the reference image upload." Leftover attachments are cleared first so they don't stack.
 

@@ -146,10 +146,10 @@
   }
 
   // img2img: upload the character reference into the composer before generating.
-  // Qwen consumes the image each generation, so this runs every scene. Setting
-  // the composer's file input directly does NOT attach (Qwen clears it silently);
-  // a real drag-drop does. Verified live 2026-07-03: the attachment shows as a
-  // `.vision-item-container` chip with a `.close-button`.
+  // Qwen consumes the image each generation, so this runs every scene. The
+  // attachment shows as a `.vision-item-container` chip with a `.close-button`.
+  // (A file-input set is ignored and a synthetic drag-drop is flaky; a paste
+  // event attaches reliably — see attachReference.)
   const refChips = () => [...document.querySelectorAll('.vision-item-container')].filter(visible);
 
   async function clearReferences() {
@@ -165,21 +165,35 @@
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' });
-    const target = document.querySelector('.message-input-container-area') || promptInput();
-    if (!target) throw new Error('Qwen Studio composer was not found. Open chat.qwen.ai and sign in.');
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    for (const type of ['dragenter', 'dragover', 'drop']) {
-      const event = new DragEvent(type, { bubbles: true, cancelable: true });
-      Object.defineProperty(event, 'dataTransfer', { value: dt });
-      target.dispatchEvent(event);
-    }
+    // Paste is the reliable attach path: verified live that a synthetic file-
+    // input set is ignored and a synthetic drag-drop is flaky (worked on the
+    // first scene, failed on later ones), but a paste event with the file in
+    // clipboardData attaches every time (~600ms) and shows a .vision-item chip.
+    const pasteFile = () => {
+      const ta = promptInput();
+      if (!ta) return;
+      ta.focus();
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' }));
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: dt });
+      ta.dispatchEvent(event);
+    };
     const started = Date.now();
+    let nextAttemptAt = 0;
     while (Date.now() - started < 20000) {
       if (refChips().length) {
-        await sleep(500); // let the upload settle before typing the prompt
+        // trim any duplicate from a retry, then let it settle before typing
+        while (refChips().length > 1) {
+          refChips()[refChips().length - 1].querySelector('.close-button')?.click();
+          await sleep(300);
+        }
+        await sleep(500);
         return;
+      }
+      if (Date.now() >= nextAttemptAt) {
+        pasteFile();
+        nextAttemptAt = Date.now() + 4000; // retry every 4s if it hasn't landed
       }
       await sleep(400);
     }
