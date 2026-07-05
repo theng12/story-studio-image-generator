@@ -1061,6 +1061,13 @@ function onProviderChange() {
   $('qwenCard').classList.toggle('hidden', provider !== 'qwen');
   $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
+  const wantsChar = provider === 'flow' || provider === 'qwen';
+  $('charRefCard').classList.toggle('hidden', !wantsChar);
+  if (wantsChar)
+    $('charRefHint').textContent =
+      provider === 'qwen'
+        ? 'Uploaded to Qwen as an img2img reference before each character scene — Qwen consumes it per generation, so it re-uploads every time.'
+        : 'Uploaded to Flow once and applied as a reference on character scenes.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
   if (provider === 'freegen') freegenPopulate();

@@ -216,14 +216,6 @@
             </select>
           </label>
         </div>
-        <div class="row leo-grid" id="flowCharRow">
-          <label class="grow">
-            <span class="mini">Character reference (character scenes only)</span>
-            <select id="flowCharacterRef">
-              <option value="">None</option>
-            </select>
-          </label>
-        </div>
         <div class="row leo-grid hidden" id="flowVideoRow">
           <label class="grow">
             <span class="mini">Video model (credits)</span>
@@ -242,6 +234,17 @@
             </select>
           </label>
         </div>
+      </div>
+      <div id="charRefCard" class="leo hidden">
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Character reference (character scenes only)</span>
+            <select id="flowCharacterRef">
+              <option value="">None</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint" id="charRefHint"></div>
       </div>
       <div id="freegenCard" class="leo hidden">
         <div class="label">FreeGen options</div>

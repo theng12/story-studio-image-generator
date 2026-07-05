@@ -308,6 +308,23 @@ async function pollinationsGenerate(item, settings) {
 // Character reference: upload the chosen character's sheet to Flow ONCE per
 // (project, character, file) and cache the returned mediaId, so every character
 // scene in the batch reuses it. Runs through the Flow content-script tab.
+// For content-script providers (Qwen) the character sheet is uploaded into the
+// site's own composer each generation, so we just need its raw bytes. Cache the
+// Story Studio fetch per (project, character, file) — the content script
+// re-uploads from these bytes every scene (Qwen consumes the image each time).
+const refImageCache = new Map();
+async function resolveCharacterRefImage(item, settings) {
+  const ref = item.characterRef;
+  if (!ref || !ref.characterId || !ref.filename) return null;
+  const key = `${item.slug}::${ref.characterId}::${ref.filename}`;
+  if (refImageCache.has(key)) return refImageCache.get(key);
+  const client = new StudioClient(settings.studioBaseUrl);
+  const img = await client.characterReferenceImageBase64(item.slug, ref.characterId, ref.filename);
+  const payload = { base64: img.base64, mime: img.mime, name: `char_${ref.characterId}.png` };
+  refImageCache.set(key, payload);
+  return payload;
+}
+
 const refMediaCache = new Map();
 async function resolveCharacterRefMediaId(item, settings, tab) {
   const ref = item.characterRef;
@@ -370,11 +387,16 @@ async function generateAndSave(item, settings, tab) {
             : provider === 'qwen'
               ? 'qwen:generateImage'
               : 'leonardo:generateImage';
+    // Qwen img2img: fetch the character sheet bytes so the content script can
+    // upload it into the Qwen composer before generating (character scenes only).
+    const reference =
+      provider === 'qwen' && item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
     const r = await send(tab.id, {
       type: messageType,
       params: {
         prompt: item.prompt,
         aspectRatio: item.aspectRatio || settings.aspectRatio,
+        reference: provider === 'qwen' ? reference : undefined,
         style:
           provider === 'perchance'
             ? settings.perchanceStyle
@@ -824,7 +846,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   // expose scene_type). Untagged scenes count as character (matches SS's
   // renderer). Non-plan sources have no scene_type, so the reference applies to
   // all of them.
-  const wantRef = prov === 'flow' && !isVideo && akind === 'scene' && !!(characterRef && characterRef.characterId && characterRef.filename);
+  const wantRef = (prov === 'flow' || prov === 'qwen') && !isVideo && akind === 'scene' && !!(characterRef && characterRef.characterId && characterRef.filename);
   let sceneTypeById = null;
   if (wantRef && src === 'plan') {
     try {

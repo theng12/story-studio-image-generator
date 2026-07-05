@@ -18,7 +18,7 @@ if (!globalThis.__STORY_STUDIO_QWEN_BRIDGE__) {
       : request.reject(Object.assign(new Error(event.data.error || 'Qwen Studio error.'), { limit: !!event.data.limit }));
   });
 
-  function callMain(op, payload = {}, timeoutMs = 270000) {
+  function callMain(op, payload = {}, timeoutMs = 300000) {
     const id = `${Date.now()}-${seq++}`;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
