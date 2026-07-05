@@ -33,6 +33,9 @@ const humanDelayLabel = () => {
 };
 
 async function init() {
+  const manifest = chrome.runtime.getManifest();
+  $('extensionVersion').textContent = `v${manifest.version}`;
+  $('extensionVersion').title = `${manifest.name} v${manifest.version}`;
   settings = await getSettings();
   client = new StudioClient(settings.studioBaseUrl);
   $('saveTarget').value = settings.saveTarget;

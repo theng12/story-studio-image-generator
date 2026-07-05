@@ -28,6 +28,30 @@ header {
   margin-bottom: 8px;
 }
 header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.header-brand { display: flex; align-items: center; gap: 7px; }
+.version-badge {
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+header .settings-gear {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 24px;
+  line-height: 1;
+}
+header .settings-gear:hover { background: var(--card); }
+header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .card {
   background: var(--card);
