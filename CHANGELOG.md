@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.24 — Qwen quota auto-resume
+- **Qwen auto-pauses on its quota and resumes itself.** When Qwen says it's out (~30 images/window), the queue waits (Qwen's stated time if given, otherwise a configurable ~8h) and resumes on its own — with a live countdown. If it resumes too early it just re-pauses, so an off estimate is harmless. Toggle + fallback hours in the Qwen card.
+
 ## 0.23 — Qwen phase note + character toggle
 - **Qwen shows its live sub-phase** in the status line — "uploading reference…" vs "generating…" — so a long img2img batch is easy to watch.
 - **"Use character reference this run"** toggle — flip the character reference on/off per run without losing the picked character.

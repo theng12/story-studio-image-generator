@@ -61,6 +61,7 @@ const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 const FLOW_RECAPTCHA_RESUME_KEY = 'flowRecaptchaResumeAt';
+const QWEN_QUOTA_RESUME_KEY = 'qwenQuotaResumeAt';
 
 // Small guards so a missing/disabled API can never break top-level evaluation
 // (which would stop the message listener from registering).
@@ -611,6 +612,33 @@ async function waitForNextProviderRun(item) {
   }
 }
 
+// Pull a "wait N hours / N minutes" (or Chinese 小时/分钟) out of Qwen's limit
+// message. Returns ms, or 0 when nothing parseable.
+function parseWaitMs(message) {
+  const s = String(message || '');
+  const h = s.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|小时|時間|時)/i);
+  const m = s.match(/(\d+)\s*(?:minutes?|mins?|分钟|分鐘|分)/i);
+  return (h ? parseFloat(h[1]) * 3600000 : 0) + (m ? parseInt(m[1], 10) * 60000 : 0);
+}
+
+// Qwen quota cooldown (mirror of the Flow reCAPTCHA cooldown): hold the queue
+// until qwenQuotaResumeAt, then clear and proceed. Self-corrects — if Qwen is
+// still limited after resuming, the next attempt re-arms this.
+async function holdForQwenCooldown(settings) {
+  const stored = await chrome.storage.local.get(QWEN_QUOTA_RESUME_KEY);
+  const resumeAt = Number(stored[QWEN_QUOTA_RESUME_KEY]) || 0;
+  if (!settings.qwenAutoResume || resumeAt <= Date.now()) {
+    if (resumeAt) await chrome.storage.local.remove(QWEN_QUOTA_RESUME_KEY);
+    return false;
+  }
+  await writeStatus('Qwen quota cooldown — the queue will resume automatically.', 'info', {
+    countdownUntil: resumeAt,
+    countdownReason: 'qwen-quota',
+  });
+  alarmCreate();
+  return true;
+}
+
 async function holdForFlowRecaptchaCooldown(settings) {
   const stored = await chrome.storage.local.get(FLOW_RECAPTCHA_RESUME_KEY);
   const resumeAt = Number(stored[FLOW_RECAPTCHA_RESUME_KEY]) || 0;
@@ -926,6 +954,7 @@ async function processQueue() {
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
       if (await holdForFlowRecaptchaCooldown(settings)) return;
+      if (await holdForQwenCooldown(settings)) return;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
       // Re-check after the human-pace delay (it can be up to a minute long).
@@ -997,6 +1026,31 @@ async function processQueue() {
         // A provider limit pauses the run instead of failing the whole batch.
         // Re-pend this item and persist Pause so panel polling cannot hammer an
         // account whose unknown quota reset time has not elapsed.
+        // Qwen quota hit with auto-resume on: re-pend and schedule a cooldown
+        // (parsed from the message when possible, else the configured hours + a
+        // 20-min buffer) instead of a hard pause. Resumes itself; re-arms if
+        // still limited.
+        if (e && e.limit && provider === 'qwen' && settings.qwenAutoResume) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) {
+            it.status = 'pending';
+            delete it.startedAt;
+          }
+          await setQueue(q);
+          const parsed = parseWaitMs(e.message);
+          const hours = Math.max(0.25, Number(settings.qwenQuotaCooldownHours) || 8);
+          const waitMs = parsed ? parsed + 20 * 60000 : hours * 3600000;
+          const resumeAt = Date.now() + waitMs;
+          await chrome.storage.local.set({ [QWEN_QUOTA_RESUME_KEY]: resumeAt });
+          await writeStatus(
+            `Qwen quota reached — auto-resuming in ~${(waitMs / 3600000).toFixed(1)}h.`,
+            'info',
+            { countdownUntil: resumeAt, countdownReason: 'qwen-quota' }
+          );
+          alarmCreate();
+          return;
+        }
         if (e && e.limit) {
           q = await getQueue();
           const it = q.find((i) => i.id === item.id);

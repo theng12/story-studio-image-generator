@@ -73,7 +73,9 @@
   function classifyResponseError(text) {
     if (!text) return null;
     if (/quota|usage limit|daily limit|limit reached|too many requests|rate.?limit|try again later|requests? (?:are )?too frequent|额度|限额|次数.*(?:用完|耗尽)|请求过于频繁|稍后再试/i.test(text)) {
-      const error = new Error('Qwen Studio usage limit reached. Resume the queue after the account limit resets.');
+      // Keep the raw text — the worker parses any "wait N hours" from it to size
+      // the auto-resume cooldown.
+      const error = new Error(`Qwen Studio usage limit reached — ${text.slice(0, 160)}`);
       error.limit = true;
       return error;
     }

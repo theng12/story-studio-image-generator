@@ -359,6 +359,16 @@
             </select>
           </label>
         </div>
+        <label class="checkbox small charref-toggle">
+          <input type="checkbox" id="qwenAutoResume" /> <span>Auto-resume after quota cooldown</span>
+        </label>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Cooldown hours (fallback)</span>
+            <input id="qwenCooldownHours" type="number" min="1" max="24" step="1" />
+          </label>
+        </div>
+        <div class="hint">Qwen limits ~30 images per window. On a limit the queue waits (Qwen's stated time if given, otherwise this many hours), then resumes on its own — re-pausing if it's still limited.</div>
         <div class="hint">
           Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen uses one submission per scene; the Flow reCAPTCHA attempt setting does not apply. Explicit quota/rate-limit messages pause the queue until you press Resume.
         </div>
