@@ -105,13 +105,15 @@
       </div>
       <div class="row batch" id="batchControls">
         <span class="muted small">Select next:</span>
+        <button class="btn small batch-n" data-n="5">5</button>
         <button class="btn small batch-n" data-n="10">10</button>
+        <button class="btn small batch-n" data-n="15">15</button>
         <button class="btn small batch-n" data-n="20">20</button>
-        <button class="btn small batch-n" data-n="30">30</button>
-        <button class="btn small batch-n" data-n="50">50</button>
-        <button class="btn small batch-n" data-n="80">80</button>
-        <button class="btn small batch-n" data-n="100">100</button>
         <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
+        <div class="batch-custom">
+          <input id="customBatchSize" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" aria-label="Custom selection quantity" />
+          <button class="btn small" id="selectCustomBatch" title="Select a custom number of missing scenes">Select</button>
+        </div>
       </div>
       <div class="row" id="sceneTools">
         <input id="sceneSearch" class="grow" placeholder="Filter scenes… (number or text)" />
