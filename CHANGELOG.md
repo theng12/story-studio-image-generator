@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.24.3 — Fixes
+- Qwen reference no longer double-pastes: the aggressive retry could fire a second paste while a large sheet was still uploading, leaving two references. Now it retries only after a long wait (clearing first) and trims to exactly one.
+- Guarded content-script relays against "Extension context invalidated" after an extension reload.
+
 ## 0.24.2 — Qwen reference upload reliability
 - **Qwen img2img reference now attaches via paste** (the drag-drop worked on the first scene but failed on the ones right after a generation). Paste attaches reliably every scene, with a retry if it doesn't land.
 

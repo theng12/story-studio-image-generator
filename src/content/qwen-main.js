@@ -179,25 +179,32 @@
       Object.defineProperty(event, 'clipboardData', { value: dt });
       ta.dispatchEvent(event);
     };
-    const started = Date.now();
-    let nextAttemptAt = 0;
-    while (Date.now() - started < 20000) {
-      if (refChips().length) {
-        // trim any duplicate from a retry, then let it settle before typing
-        while (refChips().length > 1) {
-          refChips()[refChips().length - 1].querySelector('.close-button')?.click();
-          await sleep(300);
-        }
-        await sleep(500);
-        return;
+    const waitForChip = async (ms) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        if (refChips().length) return true;
+        await sleep(300);
       }
-      if (Date.now() >= nextAttemptAt) {
-        pasteFile();
-        nextAttemptAt = Date.now() + 4000; // retry every 4s if it hasn't landed
-      }
-      await sleep(400);
+      return false;
+    };
+    // One paste, then wait GENEROUSLY (a large sheet can take several seconds to
+    // register). Only retry after a full 10s of no chip — retrying sooner would
+    // fire a second paste while a slow-but-successful first paste is still in
+    // flight, ending up with TWO references. Clear before the retry so it starts
+    // clean, and trim to exactly one at the end as a safety net.
+    pasteFile();
+    let attached = await waitForChip(10000);
+    if (!attached) {
+      await clearReferences();
+      pasteFile();
+      attached = await waitForChip(10000);
     }
-    throw new Error('Qwen Studio did not accept the reference image upload within 20s.');
+    if (!attached) throw new Error('Qwen Studio did not accept the reference image upload within 20s.');
+    await sleep(700);
+    while (refChips().length > 1) {
+      refChips()[refChips().length - 1].querySelector('.close-button')?.click();
+      await sleep(300);
+    }
   }
 
   function getContext() {
