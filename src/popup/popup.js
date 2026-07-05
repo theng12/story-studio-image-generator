@@ -142,6 +142,8 @@ async function init() {
   $('saveTarget').value = settings.saveTarget;
   $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
+  $('charRefEnabled').checked = settings.characterRefEnabled !== false;
+  $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
   renderHumanPace();
   await refreshFlowProject();
@@ -214,6 +216,10 @@ function wire() {
   $('flowImageModel').onchange = async () => (settings = await saveSettings({ imageModel: $('flowImageModel').value }));
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
   $('flowCharacterRef').onchange = async () => (settings = await saveSettings({ characterRefId: $('flowCharacterRef').value }));
+  $('charRefEnabled').onchange = async () => {
+    settings = await saveSettings({ characterRefEnabled: $('charRefEnabled').checked });
+    $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
+  };
   $('flowVideoModel').onchange = async () => (settings = await saveSettings({ videoModel: $('flowVideoModel').value }));
   $('flowVideoSource').onchange = async () => (settings = await saveSettings({ videoSource: $('flowVideoSource').value }));
   $('freegenAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('freegenAspect').value }));
@@ -535,6 +541,7 @@ async function loadCharacters(slug) {
 
 // The current character reference selection → { characterId, filename } or null.
 function getCharacterRef() {
+  if (!$('charRefEnabled')?.checked) return null; // per-run off toggle
   const sel = $('flowCharacterRef');
   if (!sel || !sel.value) return null;
   const opt = sel.selectedOptions[0];

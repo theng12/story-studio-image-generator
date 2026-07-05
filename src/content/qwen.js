@@ -5,8 +5,15 @@ if (!globalThis.__STORY_STUDIO_QWEN_BRIDGE__) {
 
   const REQ = 'STUDIO_QWEN_REQ';
   const RES = 'STUDIO_QWEN_RES';
+  const PROGRESS = 'STUDIO_QWEN_PROGRESS';
   let seq = 0;
   const pending = new Map();
+
+  // Relay sub-phase notes (upload vs generate) from the MAIN world to the worker.
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.kind !== PROGRESS) return;
+    chrome.runtime.sendMessage({ type: 'qwen:progress', phase: event.data.phase }).catch(() => {});
+  });
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.kind !== RES) return;

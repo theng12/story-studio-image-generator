@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.23 — Qwen phase note + character toggle
+- **Qwen shows its live sub-phase** in the status line — "uploading reference…" vs "generating…" — so a long img2img batch is easy to watch.
+- **"Use character reference this run"** toggle — flip the character reference on/off per run without losing the picked character.
+
 ## 0.22 — Generation status bar
 - **A prominent status bar above the Queue**: green + glowing while generating, **orange while paused**, grey when idle — so you can tell at a glance whether it's running or stopped.
 - Live **done / failed / left** counts right in the bar.

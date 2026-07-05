@@ -21,6 +21,9 @@ export const DEFAULTS = {
   // Selected character whose reference sheet is attached to Flow character-scene
   // image generations (imageInputs REFERENCE). '' = none. Per project.
   characterRefId: '',
+  // Quick per-run on/off for the character reference, without losing the picked
+  // character. When off, no reference is applied even if one is selected.
+  characterRefEnabled: true,
 
   // Generation provider. All providers use their visible web session/UI; only
   // Flow supports video in addition to image generation.
