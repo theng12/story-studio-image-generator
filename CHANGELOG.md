@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.21 — Qwen img2img + unblock
+- **Qwen auto-dismisses the "which response do you prefer?" A/B prompt** so batches no longer stall waiting for you to pick a side.
+- **Qwen character reference (img2img)** — pick a character in the panel and its Story Studio sheet is uploaded into Qwen before each character scene. Qwen consumes the image per generation, so it re-uploads every time.
+
 ## 0.20 — What's new
 - **This panel.** A "✨ What's new" button in the header opens the changelog, with a red dot when there are updates you haven't seen yet.
 

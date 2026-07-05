@@ -3,8 +3,10 @@
 // Qwen exposes no stable web API contract for the signed-in chat, so this
 // adapter drives the verified textarea/send controls and returns only a newly
 // rendered qwen-image CDN result. Ratio is prompt-guided: the site may still
-// choose a different shape. Reference uploads remain deliberately unsupported
-// until their conversation/editing semantics are verified end to end.
+// choose a different shape. A character reference (img2img) is uploaded into the
+// composer before each generation (Qwen consumes it per generation), and the A/B
+// "which response do you prefer" comparison is auto-dismissed so batches don't
+// stall on it.
 
 (() => {
   const REQ = 'STUDIO_QWEN_REQ';
@@ -12,6 +14,7 @@
   const TIMEOUT_MS = 240000;
 
   const norm = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const visible = (element) => {
     if (!element) return false;
     const style = getComputedStyle(element);
@@ -112,6 +115,64 @@
     });
   }
 
+  // After a generation Qwen often shows an A/B "Which response do you prefer?
+  // Select one to continue." comparison that BLOCKS the composer until a choice
+  // is made (verified live 2026-07-03). Any choice is fine — click the first
+  // enabled "I prefer this response" so the next scene can send. No-op when
+  // there's no comparison (single-response generation).
+  async function dismissPreference() {
+    const started = Date.now();
+    const prefButtons = () =>
+      [...document.querySelectorAll('button')].filter((b) => visible(b) && /prefer this response/i.test(b.textContent || ''));
+    while (Date.now() - started < 20000) {
+      const btns = prefButtons();
+      if (btns.length) {
+        const enabled = btns.find((b) => !b.disabled && !b.classList.contains('disabled'));
+        if (enabled) {
+          enabled.click();
+          await sleep(600);
+          return true;
+        }
+      } else if (Date.now() - started > 4000) {
+        return false; // no comparison appeared — nothing to dismiss
+      }
+      await sleep(400);
+    }
+    return false;
+  }
+
+  // img2img: upload the character reference into the composer before generating.
+  // Qwen consumes the image each generation, so this runs every scene. Setting
+  // the composer's file input directly attaches a preview thumbnail (verified
+  // live 2026-07-03).
+  async function attachReference(ref) {
+    if (!ref || !ref.base64) return;
+    const input = document.querySelector('input[type="file"]');
+    if (!input) throw new Error('Qwen Studio upload input was not found. Open chat.qwen.ai and sign in.');
+    const bin = atob(ref.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' });
+    const before = new Set([...document.querySelectorAll('img')].map((image) => image.src));
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    // Wait for the upload preview to register (a new small data:/blob: thumbnail).
+    const started = Date.now();
+    while (Date.now() - started < 20000) {
+      const attached = [...document.querySelectorAll('img')].some(
+        (image) => visible(image) && /^(data:|blob:)/.test(image.src || '') && !before.has(image.src) && image.getBoundingClientRect().width < 220
+      );
+      if (attached) {
+        await sleep(500);
+        return;
+      }
+      await sleep(400);
+    }
+    throw new Error('Qwen Studio did not accept the reference image upload within 20s.');
+  }
+
   function getContext() {
     const textarea = promptInput();
     return {
@@ -129,6 +190,8 @@
     const textarea = promptInput();
     if (!textarea) throw new Error('Qwen Studio prompt box was not found. Open chat.qwen.ai and sign in.');
 
+    if (params.reference) await attachReference(params.reference);
+
     const beforeImages = new Set(imageUrls());
     const beforeMessageCount = assistantMessages().length;
     const ratio = String(params.aspectRatio || '16:9');
@@ -140,7 +203,10 @@
     if (!visible(send) || send.disabled || send.classList.contains('disabled'))
       throw new Error('Qwen Studio Send button is unavailable. Check the tab for a sign-in or verification prompt.');
     send.click();
-    return waitForImage(beforeImages, beforeMessageCount);
+    const result = await waitForImage(beforeImages, beforeMessageCount);
+    // Unblock the composer for the next scene if the A/B comparison appeared.
+    await dismissPreference();
+    return result;
   }
 
   const handlers = { getContext, generateImage };
