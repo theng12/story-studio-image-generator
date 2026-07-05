@@ -33,6 +33,12 @@ const PROVIDER_NAME = {
   leonardo: 'Leonardo AI',
   pollinations: 'Pollinations',
 };
+const PROVIDER_SCRIPTS = {
+  leonardo: {
+    main: 'src/content/leonardo-main.js',
+    isolated: 'src/content/leonardo.js',
+  },
+};
 // Providers that need no browser tab — generated directly from the worker.
 const TABLESS = new Set(['pollinations']);
 const QUEUE_KEY = 'queue';
@@ -92,6 +98,23 @@ async function ensureProviderTab(provider = 'flow') {
   return tab;
 }
 const ensureFlowTab = () => ensureProviderTab('flow');
+
+function providerForMessage(type) {
+  if (String(type || '').startsWith('leonardo:')) return 'leonardo';
+  return null;
+}
+
+function isMissingReceiverError(error) {
+  return /receiving end does not exist|could not establish connection/i.test(String(error?.message || error || ''));
+}
+
+async function restoreProviderScripts(provider, tabId) {
+  const scripts = PROVIDER_SCRIPTS[provider];
+  if (!scripts) throw new Error(`${PROVIDER_NAME[provider] || 'Provider'} cannot restore its page connection automatically.`);
+  await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: [scripts.main] });
+  await chrome.scripting.executeScript({ target: { tabId }, world: 'ISOLATED', files: [scripts.isolated] });
+  await sleep(250);
+}
 
 async function probeAiStudio(tabId) {
   try {
@@ -176,6 +199,8 @@ async function send(tabId, message) {
     'leonardo:modelControls',
   ]).has(message?.type);
   const attempts = reloadSafe ? 4 : 1;
+  const provider = providerForMessage(message?.type);
+  let restoredScripts = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const res = await chrome.tabs.sendMessage(tabId, message);
@@ -185,6 +210,17 @@ async function send(tabId, message) {
         });
       return res;
     } catch (error) {
+      // Tabs that survived an extension update still contain the old, now
+      // invalid content-script context. A missing receiver means the page
+      // operation never started, so reinjection and one retry are safe even
+      // for a generation request.
+      if (provider && !restoredScripts && isMissingReceiverError(error)) {
+        await writeStatus(`Restoring the ${PROVIDER_NAME[provider]} tab connection…`, 'running');
+        await restoreProviderScripts(provider, tabId);
+        restoredScripts = true;
+        attempt--;
+        continue;
+      }
       if (!reloadSafe || !isTabReloadError(error) || attempt === attempts) throw error;
       await writeStatus('Provider tab refreshed — waiting to resume the current job…', 'running');
       await waitForTabReady(tabId);

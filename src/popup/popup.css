@@ -67,10 +67,14 @@ header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-
 .hgroup { display: flex; align-items: center; gap: 8px; }
 .leo { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
 .leo .mini { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
-.leo-grid { align-items: flex-end; }
+.leo-grid { align-items: flex-end; gap: 12px; margin: 12px 0; }
 .leo-grid .grow { flex: 1; min-width: 0; }
-.leo select { width: 100%; }
+.leo select { width: 100%; padding: 9px 10px; }
 .leo select:disabled { opacity: 0.45; }
+.leo-heading { margin-bottom: 12px; }
+#leonardoCard { margin-top: 16px; padding-top: 14px; }
+#leonardoCard #leoRefRow { margin-top: 14px; }
+#leonardoCard #leoStatus { margin-top: 8px; line-height: 1.45; }
 .row.batch { flex-wrap: wrap; gap: 6px; }
 .row.batch .btn.small { min-width: 34px; }
 .row.batch #selectRemaining { margin-left: auto; }
@@ -92,6 +96,31 @@ select, input[type="text"], input[type="password"], input[type="number"] {
   font: inherit;
 }
 select.inline { width: auto; display: inline-block; padding: 3px 6px; }
+
+.asset-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  margin: 14px 0 4px;
+}
+.asset-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.asset-setting { display: block; min-width: 0; }
+.asset-setting .mini { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.asset-setting select { width: 100%; padding: 9px 10px; }
+.asset-toolbar #queueSelected { min-height: 58px; min-width: 132px; }
+
+@media (max-width: 540px) {
+  .asset-toolbar { grid-template-columns: 1fr; }
+  .asset-settings { grid-template-columns: 1fr; }
+  .asset-toolbar #queueSelected { width: 100%; min-height: 42px; }
+  .leo-grid { flex-wrap: wrap; }
+  .leo-grid .grow { flex-basis: 140px; }
+}
 
 .pace-heading { align-items: flex-start; margin-top: 0; }
 .pace-card .mini { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }

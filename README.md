@@ -24,6 +24,9 @@ remains authoritative for the signed-in plan.
 Leonardo can remain an inactive tab: it is marked non-discardable while queued,
 and new results are detected from DOM mutations/CDN URLs without waiting for a
 hidden gallery thumbnail to paint.
+If no Leonardo tab exists, the extension opens its generator automatically. It
+also restores the Leonardo page bridge after an extension update when an older
+tab reports that no message receiver exists.
 
 Sibling to `fish-tts-extension`; same proven architecture (side panel, persistent
 resumable queue, MAIN-world content script, Story Studio companion client).

@@ -877,7 +877,7 @@ async function leoPopulate() {
   leoFill($('leoMode'), LEO_MODES, settings.leonardoMode);
   leoFill($('leoSize'), LEO_SIZES, settings.leonardoSize);
   leoFill($('leoCount'), Array.from({ length: 8 }, (_, i) => [String(i + 1), String(i + 1)]), String(settings.leonardoCount || 1));
-  $('leoStatus').textContent = models.length ? '' : 'Hit “Sync from Leonardo” (with a logged-in leonardo.ai tab) to load models + options.';
+  $('leoStatus').textContent = models.length ? '' : 'Hit “Sync from Leonardo” to open the generator and load its models + options.';
   leoRefState(null);
 }
 
@@ -928,7 +928,7 @@ async function leoCheckModel() {
     if (!c?.ok) throw new Error(c?.error || 'no response');
     await leoApplyControls(c);
   } catch (e) {
-    $('leoStatus').textContent = `Couldn't read options (${e.message}). Open app.leonardo.ai and retry.`;
+    $('leoStatus').textContent = `Couldn't read options (${e.message}). Sync again to reconnect the Leonardo generator.`;
   }
 }
 
@@ -943,7 +943,7 @@ async function leoSyncAll() {
     await leoPopulate();
     await leoCheckModel();
   } catch (e) {
-    $('leoStatus').textContent = `Sync failed: ${e.message}. Keep a logged-in leonardo.ai tab open.`;
+    $('leoStatus').textContent = `Sync failed: ${e.message}. Check the Leonardo generator for a sign-in or verification prompt, then sync again.`;
   } finally {
     btn.disabled = false;
   }
