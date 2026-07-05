@@ -126,6 +126,12 @@ function wire() {
     b.onclick = () => selectNextMissing(Number(b.dataset.n));
   });
   $('selectRemaining').onclick = selectRemaining;
+  $('selectCustomBatch').onclick = selectCustomBatch;
+  $('customBatchSize').onkeydown = (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    selectCustomBatch();
+  };
   $('sceneSearch').oninput = filterScenesList;
   $('selectFailed').onclick = selectFailedScenes;
   $('queueAllPending').onclick = queueAllPending;
@@ -766,6 +772,16 @@ function selectNextMissing(n) {
     .forEach((c) => (c.checked = true));
   $('selectAll').checked = false;
   updateQueueButton();
+}
+
+function selectCustomBatch() {
+  const input = $('customBatchSize');
+  const quantity = input.valueAsNumber;
+  if (!input.checkValidity() || !Number.isInteger(quantity) || quantity < 1) {
+    input.reportValidity();
+    return;
+  }
+  selectNextMissing(quantity);
 }
 
 // Reset to "only what's left": every missing scene checked, done ones cleared.
