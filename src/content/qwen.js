@@ -12,7 +12,15 @@ if (!globalThis.__STORY_STUDIO_QWEN_BRIDGE__) {
   // Relay sub-phase notes (upload vs generate) from the MAIN world to the worker.
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.kind !== PROGRESS) return;
-    chrome.runtime.sendMessage({ type: 'qwen:progress', phase: event.data.phase }).catch(() => {});
+    // After the extension is reloaded, this orphaned content script's
+    // chrome.runtime is invalidated and sendMessage throws SYNCHRONOUSLY (so a
+    // .catch() alone doesn't help). Guard on runtime.id and swallow the throw.
+    try {
+      if (!chrome.runtime?.id) return;
+      chrome.runtime.sendMessage({ type: 'qwen:progress', phase: event.data.phase }).catch(() => {});
+    } catch {
+      /* extension context invalidated — reload the Qwen tab to re-inject */
+    }
   });
 
   window.addEventListener('message', (event) => {

@@ -38,7 +38,14 @@ function callMain(op, payload, timeoutMs = 180000) {
 // it as the working project without the user copying a UUID.
 (function reportProject() {
   const m = location.pathname.match(/\/project\/([0-9a-f-]{36})/i);
-  if (m) chrome.runtime.sendMessage({ type: 'flow:projectSeen', projectId: m[1] }).catch(() => {});
+  if (!m) return;
+  // Guard against a reloaded-extension orphan: chrome.runtime.sendMessage throws
+  // synchronously when the context is invalidated, so .catch() alone won't do.
+  try {
+    if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'flow:projectSeen', projectId: m[1] }).catch(() => {});
+  } catch {
+    /* extension context invalidated — reload the tab to re-inject */
+  }
 })();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
