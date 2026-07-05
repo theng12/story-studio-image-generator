@@ -230,6 +230,9 @@ function wire() {
   $('pollSeed').onchange = async () => (settings = await saveSettings({ pollinationsSeed: $('pollSeed').value.replace(/[^0-9]/g, '') }));
   $('pollToken').onchange = async () => (settings = await saveSettings({ pollinationsToken: $('pollToken').value.trim() }));
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
+  $('qwenAutoResume').onchange = async () => (settings = await saveSettings({ qwenAutoResume: $('qwenAutoResume').checked }));
+  $('qwenCooldownHours').onchange = async () =>
+    (settings = await saveSettings({ qwenQuotaCooldownHours: Math.max(1, Math.min(24, Number($('qwenCooldownHours').value) || 8)) }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -1043,6 +1046,8 @@ function pollinationsPopulate() {
 
 function qwenPopulate() {
   $('qwenAspect').value = settings.qwenAspectRatio || '16:9';
+  $('qwenAutoResume').checked = settings.qwenAutoResume !== false;
+  $('qwenCooldownHours').value = settings.qwenQuotaCooldownHours || 8;
 }
 
 function perchancePopulate() {
@@ -1444,6 +1449,13 @@ function renderLiveStatus() {
     const text = seconds > 0
       ? `Flow reCAPTCHA cooldown — resuming automatically in ${formatDuration(seconds * 1000)}.`
       : 'Flow reCAPTCHA cooldown finished — resuming now.';
+    setStatus(text, liveStatus.kind);
+    return;
+  }
+  if (liveStatus.countdownReason === 'qwen-quota') {
+    const text = seconds > 0
+      ? `Qwen quota cooldown — resuming automatically in ${formatDuration(seconds * 1000)}.`
+      : 'Qwen quota cooldown finished — resuming now.';
     setStatus(text, liveStatus.kind);
     return;
   }

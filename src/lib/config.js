@@ -44,6 +44,14 @@ export const DEFAULTS = {
   // shape separate and reinforce it with numeric + natural-language prompting.
   qwenAspectRatio: '16:9',
 
+  // Qwen has a rolling generation quota (~30 images per ~8h window, observed
+  // 2026-07-03; may change). On a quota hit the queue can auto-pause and resume
+  // itself after a cooldown instead of needing a manual resume. The wait is
+  // parsed from Qwen's message when present, else this many hours (+ a buffer);
+  // if it resumes too early it just re-pauses, so an off estimate is harmless.
+  qwenAutoResume: true,
+  qwenQuotaCooldownHours: 8,
+
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
   perchanceStyle: 'No style',
