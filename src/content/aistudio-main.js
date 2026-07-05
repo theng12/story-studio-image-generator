@@ -38,9 +38,10 @@
     [...document.images].filter((i) => i.src.startsWith('data:image/') && i.naturalWidth >= 256).map((i) => i.src);
 
   function currentErrorText() {
-    // AI Studio surfaces failures as short model-turn messages.
-    return [...document.querySelectorAll('.turn-content, [class*="error"], [role="alert"], ms-chat-turn')]
-      .filter(vis)
+    // AI Studio surfaces failures in the model turn or an alert. Never scan the
+    // user turn: ordinary prompt text such as "safety" would look like an error.
+    return [...document.querySelectorAll('.chat-turn-container.model, [class*="error"], [role="alert"]')]
+      .filter((el) => vis(el) && !el.closest('.chat-turn-container.user'))
       .map((e) => norm(e.textContent))
       .join(' ');
   }
