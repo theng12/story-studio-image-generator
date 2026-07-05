@@ -85,6 +85,21 @@ header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .hidden { display: none !important; }
+.genstatus { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; margin: 6px 0; border-radius: 8px; border: 1px solid var(--line); background: var(--card); font-size: 13px; font-weight: 600; transition: box-shadow .2s, border-color .2s, background .2s; }
+.genstatus .gs-state { display: flex; align-items: center; gap: 7px; }
+.genstatus .gs-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.genstatus .gs-counts { display: flex; gap: 10px; font-size: 12px; font-weight: 500; }
+.genstatus .gs-done { color: #5fd08a; }
+.genstatus .gs-failed { color: #ff6b6b; }
+.genstatus .gs-left { color: var(--muted); }
+.genstatus.idle { opacity: 0.7; }
+.genstatus.running { border-color: #3ecf8e; background: rgba(62, 207, 142, 0.10); color: #7ff0bd; box-shadow: 0 0 10px rgba(62, 207, 142, 0.35); }
+.genstatus.running .gs-dot { background: #3ecf8e; box-shadow: 0 0 8px #3ecf8e; animation: gs-pulse 1.2s ease-in-out infinite; }
+.genstatus.paused { border-color: #f5a623; background: rgba(245, 166, 35, 0.14); color: #ffcf87; box-shadow: 0 0 10px rgba(245, 166, 35, 0.28); }
+.genstatus.paused .gs-dot { background: #f5a623; }
+.genstatus.done { border-color: #3ecf8e; color: #7ff0bd; }
+.genstatus.done .gs-dot { background: #3ecf8e; }
+@keyframes gs-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.65); } }
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .whats-new { position: relative; font-size: 12px; }
 .ndot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff6b6b; margin-left: 3px; vertical-align: top; }
