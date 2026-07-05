@@ -21,16 +21,72 @@ let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
 let liveStatus = null;
 
+const HUMAN_PACE_PRESETS = {
+  off: { label: 'Off', min: 0, max: 0 },
+  quick: { label: 'Quick', min: 5, max: 15 },
+  balanced: { label: 'Balanced', min: 15, max: 45 },
+  cautious: { label: 'Cautious', min: 30, max: 90 },
+  'very-cautious': { label: 'Very cautious', min: 60, max: 180 },
+};
+
 // The "Make:" selector encodes both the asset kind and media type.
 const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
 const isVideoSel = () => $('mediaType').value === 'scene-video';
 // Combined selection identity: 'scene' | 'video' | 'thumbnail'.
 const selKind = () => (isVideoSel() ? 'video' : currentKind());
-const humanDelayLabel = () => {
-  const min = Number(settings?.humanDelayMinSec) || 0;
-  const max = Number(settings?.humanDelayMaxSec) || 0;
-  return min === max ? `${min}s` : `${Math.min(min, max)}-${Math.max(min, max)}s`;
+const humanDelayValues = () => {
+  const first = Number(settings?.humanDelayMinSec) || 0;
+  const second = Number(settings?.humanDelayMaxSec) || 0;
+  return { min: Math.min(first, second), max: Math.max(first, second) };
 };
+const humanDelayLabel = () => {
+  const { min, max } = humanDelayValues();
+  return min === max ? `${min}s` : `${min}-${max}s`;
+};
+
+function humanPacePresetKey(min, max) {
+  return Object.entries(HUMAN_PACE_PRESETS).find(([, preset]) => preset.min === min && preset.max === max)?.[0] || 'custom';
+}
+
+function renderHumanPace() {
+  if (!$('humanPacePreset') || !settings) return;
+  const { min, max } = humanDelayValues();
+  const key = humanPacePresetKey(min, max);
+  const disabled = min === 0 && max === 0;
+  const mode = key === 'custom' ? 'Custom' : HUMAN_PACE_PRESETS[key].label;
+  const timing = disabled ? 'disabled' : min === max ? `${min}s fixed` : `${min}-${max}s random`;
+
+  $('humanPacePreset').value = key;
+  $('humanPaceCustom').classList.toggle('hidden', key !== 'custom');
+  $('humanPaceMin').value = String(min);
+  $('humanPaceMax').value = String(max);
+  $('humanPaceState').textContent = disabled ? 'Disabled' : `${mode} · ${timing}`;
+  $('humanPaceState').title = disabled ? 'Human pacing is off' : `Active human pace: ${mode}, ${timing}`;
+  $('humanPaceState').classList.toggle('off', disabled);
+}
+
+async function selectHumanPacePreset() {
+  const key = $('humanPacePreset').value;
+  if (key === 'custom') {
+    $('humanPaceCustom').classList.remove('hidden');
+    $('humanPaceMin').focus();
+    return;
+  }
+  const preset = HUMAN_PACE_PRESETS[key];
+  if (!preset) return;
+  settings = await saveSettings({ humanDelayMinSec: preset.min, humanDelayMaxSec: preset.max });
+  renderHumanPace();
+  flashSaved();
+}
+
+async function saveCustomHumanPace() {
+  settings = await saveSettings({
+    humanDelayMinSec: $('humanPaceMin').value,
+    humanDelayMaxSec: $('humanPaceMax').value,
+  });
+  renderHumanPace();
+  flashSaved();
+}
 
 async function init() {
   const manifest = chrome.runtime.getManifest();
@@ -42,6 +98,7 @@ async function init() {
   $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
+  renderHumanPace();
   await refreshFlowProject();
   await loadProjects();
   wire();
@@ -53,6 +110,9 @@ async function init() {
 
 function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
+  $('humanPacePreset').onchange = selectHumanPacePreset;
+  $('humanPaceMin').onchange = saveCustomHumanPace;
+  $('humanPaceMax').onchange = saveCustomHumanPace;
   $('project').onchange = onProjectChange;
   $('loadScenes').onclick = loadScenes;
   $('refreshScenes').onclick = loadScenes;
@@ -128,6 +188,13 @@ function wire() {
   $('testConn').onclick = testConnection;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
 }
+
+// Keep the indicator current when Settings is edited in another extension tab.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync' || !changes.settings?.newValue || !settings) return;
+  settings = { ...settings, ...changes.settings.newValue };
+  renderHumanPace();
+});
 
 // ── Flow project ──────────────────────────────────────────────────────────
 async function refreshFlowProject() {
