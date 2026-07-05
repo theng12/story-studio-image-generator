@@ -178,6 +178,7 @@ function wire() {
   $('pollModel').onchange = async () => (settings = await saveSettings({ pollinationsModel: $('pollModel').value.trim() || 'flux' }));
   $('pollSeed').onchange = async () => (settings = await saveSettings({ pollinationsSeed: $('pollSeed').value.replace(/[^0-9]/g, '') }));
   $('pollToken').onchange = async () => (settings = await saveSettings({ pollinationsToken: $('pollToken').value.trim() }));
+  $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -988,6 +989,10 @@ function pollinationsPopulate() {
   $('pollToken').value = settings.pollinationsToken || '';
 }
 
+function qwenPopulate() {
+  $('qwenAspect').value = settings.qwenAspectRatio || '16:9';
+}
+
 function perchancePopulate() {
   $('perchanceStyleInput').value = settings.perchanceStyle || 'No style';
   $('perchanceAspect').value = settings.aspectRatio || '16:9';
@@ -1016,6 +1021,7 @@ function onProviderChange() {
   if (provider === 'freegen') freegenPopulate();
   if (provider === 'perchance') perchancePopulate();
   if (provider === 'pollinations') pollinationsPopulate();
+  if (provider === 'qwen') qwenPopulate();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider === 'pollinations') setStatus('Pollinations runs in the background — no tab needed.', 'info');
@@ -1125,7 +1131,7 @@ function confirmQueue() {
   } else if (provider === 'qwen') {
     $('confirmTitle').textContent = `Queue these ${noun}s on Qwen Studio?`;
     $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via Qwen Studio → ` +
+      `${n} from ${currentEpisode.code} via Qwen Studio (${settings.qwenAspectRatio || '16:9'}) → ` +
       `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the Qwen tab open. ` +
       `Qwen uses one submission per scene, ratio is best-effort, and explicit usage limits pause the queue. ` +
       `${humanDelayLabel()} between each. Continue?`;

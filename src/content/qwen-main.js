@@ -28,6 +28,13 @@
 
   const sendButton = () => [...document.querySelectorAll('button.send-button')].find(visible);
   const assistantMessages = () => [...document.querySelectorAll('.qwen-chat-message-assistant')];
+  const RATIO_INSTRUCTIONS = {
+    '16:9': 'Create a 16:9 widescreen landscape image. Use a wide horizontal canvas',
+    '9:16': 'Create a 9:16 vertical portrait image. Use a tall vertical canvas',
+    '1:1': 'Create a 1:1 square image. Use an equal-width-and-height square canvas',
+    '4:3': 'Create a 4:3 standard landscape image. Use a classic horizontal canvas',
+    '3:4': 'Create a 3:4 vertical portrait image. Use a classic vertical canvas',
+  };
 
   function setTextarea(textarea, value) {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set.call(textarea, value);
@@ -125,7 +132,8 @@
     const beforeImages = new Set(imageUrls());
     const beforeMessageCount = assistantMessages().length;
     const ratio = String(params.aspectRatio || '16:9');
-    setTextarea(textarea, `Create an image in ${ratio} aspect ratio of: ${prompt}`);
+    const ratioInstruction = RATIO_INSTRUCTIONS[ratio] || `Create an image with an exact ${ratio} aspect ratio`;
+    setTextarea(textarea, `${ratioInstruction}. Compose all content inside that format. Image prompt: ${prompt}`);
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     const send = sendButton();

@@ -29,10 +29,11 @@ also restores the Leonardo page bridge after an extension update when an older
 tab reports that no message receiver exists.
 
 Qwen Studio uses the signed-in `chat.qwen.ai` conversation UI: the adapter sends
-one “Create an image…” instruction per scene, asks for the Story Studio ratio,
-and saves only a newly rendered `cdn.qwenlm.ai` image. Qwen may choose a
-different ratio, so shape is best-effort. Qwen publishes Studio as free to use
-but gives no numeric web image quota; explicit quota/rate-limit responses
+one “Create an image…” instruction per scene and saves only a newly rendered
+`cdn.qwenlm.ai` image. Its dedicated ratio setting maps 16:9, 9:16, 1:1, 4:3,
+and 3:4 to exact numeric plus widescreen/vertical/square canvas language. Qwen
+may still choose a different ratio, so shape is best-effort. Qwen publishes
+Studio as free to use but gives no numeric web image quota; explicit quota/rate-limit responses
 re-pend the current scene and persistently pause the queue until Resume. Qwen
 reference-photo automation is intentionally deferred until its editing-context
 behavior is verified.

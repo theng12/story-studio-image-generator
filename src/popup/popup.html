@@ -338,8 +338,20 @@
       </div>
       <div id="qwenCard" class="leo hidden">
         <div class="label">Qwen Studio options</div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Requested aspect ratio</span>
+            <select id="qwenAspect">
+              <option value="16:9">16:9 — widescreen landscape</option>
+              <option value="9:16">9:16 — vertical portrait</option>
+              <option value="1:1">1:1 — square</option>
+              <option value="4:3">4:3 — standard landscape</option>
+              <option value="3:4">3:4 — vertical portrait</option>
+            </select>
+          </label>
+        </div>
         <div class="hint">
-          Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. Aspect ratio is requested in the prompt but remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen uses one submission per scene; the Flow reCAPTCHA attempt setting does not apply. Explicit quota/rate-limit messages pause the queue until you press Resume.
+          Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen uses one submission per scene; the Flow reCAPTCHA attempt setting does not apply. Explicit quota/rate-limit messages pause the queue until you press Resume.
         </div>
         <div class="hint">
           Reference-photo attachment is not enabled yet: Qwen currently treats uploads as conversation/editing context, and that workflow still needs a safe consistency test.
