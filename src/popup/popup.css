@@ -65,6 +65,7 @@ header .settings-gear:focus-visible { outline: 2px solid var(--accent); outline-
 .row.between { justify-content: space-between; }
 .row.end { justify-content: flex-end; }
 .hgroup { display: flex; align-items: center; gap: 8px; }
+.charref-toggle { display: inline-flex; margin-bottom: 6px; }
 .leo { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
 .leo .mini { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
 .leo-grid { align-items: flex-end; gap: 12px; margin: 12px 0; }

@@ -53,6 +53,10 @@ const QUEUE_KEY = 'queue';
 const PAUSE_KEY = 'queuePaused';
 
 const isPaused = async () => !!(await chrome.storage.local.get(PAUSE_KEY))[PAUSE_KEY];
+
+// "(pos/total) label" of the item currently running — reused to show live
+// sub-phase progress (e.g. Qwen "uploading reference" → "generating").
+let runStatusPrefix = '';
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
@@ -941,7 +945,9 @@ async function processQueue() {
       const item = q[currentIdx];
       const provider = item.provider || 'flow';
       const pos = q.filter((i) => i.status === 'done' || i.status === 'failed').length + 1;
-      await writeStatus(`(${pos}/${q.length}) ${item.label}…`, 'running');
+      // Prefix reused by live sub-phase progress (e.g. Qwen upload → generate).
+      runStatusPrefix = `(${pos}/${q.length}) ${item.label}`;
+      await writeStatus(`${runStatusPrefix}…`, 'running');
       let providerAttempted = false;
       try {
         if (!TABLESS.has(provider) && !tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
@@ -1202,6 +1208,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'webGeneratorContext':
       reply(webGeneratorContext(msg.provider));
       return true;
+    case 'qwen:progress':
+      // Live sub-phase note from the Qwen content script (upload vs generate).
+      if (processing && runStatusPrefix) writeStatus(`${runStatusPrefix} — ${msg.phase}…`, 'running');
+      return false;
     case 'listLeonardoModels':
       reply(listLeonardoModels());
       return true;

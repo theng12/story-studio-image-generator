@@ -15,6 +15,8 @@
 
   const norm = (text) => String(text || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // Live sub-phase note surfaced in the panel status line (via the bridge).
+  const postProgress = (phase) => window.postMessage({ kind: 'STUDIO_QWEN_PROGRESS', phase }, '*');
   const visible = (element) => {
     if (!element) return false;
     const style = getComputedStyle(element);
@@ -190,7 +192,10 @@
     const textarea = promptInput();
     if (!textarea) throw new Error('Qwen Studio prompt box was not found. Open chat.qwen.ai and sign in.');
 
-    if (params.reference) await attachReference(params.reference);
+    if (params.reference) {
+      postProgress('uploading reference');
+      await attachReference(params.reference);
+    }
 
     const beforeImages = new Set(imageUrls());
     const beforeMessageCount = assistantMessages().length;
@@ -203,6 +208,7 @@
     if (!visible(send) || send.disabled || send.classList.contains('disabled'))
       throw new Error('Qwen Studio Send button is unavailable. Check the tab for a sign-in or verification prompt.');
     send.click();
+    postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);
     // Unblock the composer for the next scene if the A/B comparison appeared.
     await dismissPreference();
