@@ -88,10 +88,55 @@ async function saveCustomHumanPace() {
   flashSaved();
 }
 
+// ── What's new (changelog) ──────────────────────────────────────────────────
+// Renders CHANGELOG.md (packaged with the extension) in a modal, and shows a
+// red dot on the button until the current version's notes have been opened.
+function renderChangelog(md) {
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^#\s/.test(line)) return ''; // top-level title — skip (modal already titled)
+      if (/^##\s/.test(line)) return `<h3 class="cl-ver">${inline(line.replace(/^##\s+/, ''))}</h3>`;
+      if (/^\s*-\s/.test(line)) return `<div class="cl-item">• ${inline(line.replace(/^\s*-\s+/, ''))}</div>`;
+      if (/^\s*$/.test(line)) return '';
+      return `<p>${inline(line)}</p>`;
+    })
+    .join('');
+}
+
+async function openWhatsNew(version) {
+  const body = $('whatsNewBody');
+  if (!body.dataset.loaded) {
+    try {
+      const md = await (await fetch(chrome.runtime.getURL('CHANGELOG.md'))).text();
+      body.innerHTML = renderChangelog(md);
+      body.dataset.loaded = '1';
+    } catch {
+      body.textContent = "Couldn't load the changelog.";
+    }
+  }
+  $('whatsNewModal').classList.remove('hidden');
+  $('whatsNewDot').classList.add('hidden');
+  chrome.storage.local.set({ whatsNewSeen: version });
+}
+
+async function initWhatsNew(version) {
+  const { whatsNewSeen } = await chrome.storage.local.get('whatsNewSeen');
+  $('whatsNewDot').classList.toggle('hidden', whatsNewSeen === version);
+  $('whatsNew').onclick = () => openWhatsNew(version);
+  $('whatsNewClose').onclick = () => $('whatsNewModal').classList.add('hidden');
+  $('whatsNewModal').onclick = (e) => {
+    if (e.target === $('whatsNewModal')) $('whatsNewModal').classList.add('hidden');
+  };
+}
+
 async function init() {
   const manifest = chrome.runtime.getManifest();
   $('extensionVersion').textContent = `v${manifest.version}`;
   $('extensionVersion').title = `${manifest.name} v${manifest.version}`;
+  initWhatsNew(manifest.version);
   settings = await getSettings();
   client = new StudioClient(settings.studioBaseUrl);
   $('saveTarget').value = settings.saveTarget;

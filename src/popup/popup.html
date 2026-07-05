@@ -12,7 +12,10 @@
         <h1>Bulk Asset</h1>
         <span id="extensionVersion" class="version-badge" title="Installed extension version"></span>
       </div>
-      <button id="openOptions" class="link settings-gear" title="Open settings" aria-label="Open settings">⚙</button>
+      <div class="header-actions">
+        <button id="whatsNew" class="link small whats-new" title="What changed recently">✨ What's new<span id="whatsNewDot" class="ndot hidden"></span></button>
+        <button id="openOptions" class="link settings-gear" title="Open settings" aria-label="Open settings">⚙</button>
+      </div>
     </header>
 
     <section class="card" id="flowProjectCard">
@@ -383,6 +386,16 @@
           <button id="confirmCancel" class="btn">Cancel</button>
           <button id="confirmOk" class="btn primary">Queue</button>
         </div>
+      </div>
+    </div>
+
+    <div id="whatsNewModal" class="overlay hidden">
+      <div class="dialog wide">
+        <div class="row between">
+          <div class="label">What's new</div>
+          <button id="whatsNewClose" class="link" aria-label="Close">✕</button>
+        </div>
+        <div id="whatsNewBody" class="changelog"></div>
       </div>
     </div>
 
