@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
   "permissions": [
     "downloads",
