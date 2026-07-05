@@ -147,29 +147,38 @@
 
   // img2img: upload the character reference into the composer before generating.
   // Qwen consumes the image each generation, so this runs every scene. Setting
-  // the composer's file input directly attaches a preview thumbnail (verified
-  // live 2026-07-03).
+  // the composer's file input directly does NOT attach (Qwen clears it silently);
+  // a real drag-drop does. Verified live 2026-07-03: the attachment shows as a
+  // `.vision-item-container` chip with a `.close-button`.
+  const refChips = () => [...document.querySelectorAll('.vision-item-container')].filter(visible);
+
+  async function clearReferences() {
+    for (let guard = 0; guard < 8 && refChips().length; guard++) {
+      refChips()[0].querySelector('.close-button')?.click();
+      await sleep(400);
+    }
+  }
+
   async function attachReference(ref) {
     if (!ref || !ref.base64) return;
-    const input = document.querySelector('input[type="file"]');
-    if (!input) throw new Error('Qwen Studio upload input was not found. Open chat.qwen.ai and sign in.');
+    await clearReferences(); // don't let attachments stack across scenes
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const file = new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' });
-    const before = new Set([...document.querySelectorAll('img')].map((image) => image.src));
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    input.files = transfer.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    // Wait for the upload preview to register (a new small data:/blob: thumbnail).
+    const target = document.querySelector('.message-input-container-area') || promptInput();
+    if (!target) throw new Error('Qwen Studio composer was not found. Open chat.qwen.ai and sign in.');
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      const event = new DragEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: dt });
+      target.dispatchEvent(event);
+    }
     const started = Date.now();
     while (Date.now() - started < 20000) {
-      const attached = [...document.querySelectorAll('img')].some(
-        (image) => visible(image) && /^(data:|blob:)/.test(image.src || '') && !before.has(image.src) && image.getBoundingClientRect().width < 220
-      );
-      if (attached) {
-        await sleep(500);
+      if (refChips().length) {
+        await sleep(500); // let the upload settle before typing the prompt
         return;
       }
       await sleep(400);
