@@ -19,6 +19,7 @@ const FLOW_URL = 'https://labs.google/fx/tools/flow';
 const PROVIDER = {
   flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
   aistudio: { url: 'https://aistudio.google.com/prompts/new_chat', match: 'https://aistudio.google.com/*' },
+  qwen: { url: 'https://chat.qwen.ai/', match: 'https://chat.qwen.ai/*' },
   grok: { url: 'https://grok.com/imagine', match: 'https://grok.com/*' },
   perchance: { url: 'https://perchance.org/ai-text-to-image-generator', match: 'https://perchance.org/*' },
   freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
@@ -27,6 +28,7 @@ const PROVIDER = {
 const PROVIDER_NAME = {
   flow: 'Flow',
   aistudio: 'AI Studio',
+  qwen: 'Qwen Studio',
   grok: 'Grok',
   perchance: 'Perchance',
   freegen: 'FreeGen',
@@ -37,6 +39,10 @@ const PROVIDER_SCRIPTS = {
   leonardo: {
     main: 'src/content/leonardo-main.js',
     isolated: 'src/content/leonardo.js',
+  },
+  qwen: {
+    main: 'src/content/qwen-main.js',
+    isolated: 'src/content/qwen.js',
   },
 };
 // Providers that need no browser tab — generated directly from the worker.
@@ -82,11 +88,13 @@ async function ensureProviderTab(provider = 'flow') {
   const tabs = await chrome.tabs.query({ url: cfg.match });
   const ready = tabs.find((t) => t.status === 'complete');
   if (ready) {
-    if (provider === 'leonardo') await chrome.tabs.update(ready.id, { autoDiscardable: false }).catch(() => {});
+    if (provider === 'leonardo' || provider === 'qwen')
+      await chrome.tabs.update(ready.id, { autoDiscardable: false }).catch(() => {});
     return ready;
   }
   const tab = tabs[0] || (await chrome.tabs.create({ url: cfg.url, active: false }));
-  if (provider === 'leonardo') await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+  if (provider === 'leonardo' || provider === 'qwen')
+    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   await new Promise((resolve) => {
     const listener = (tabId, info) => {
       if (tabId === tab.id && info.status === 'complete') {
@@ -102,6 +110,7 @@ const ensureFlowTab = () => ensureProviderTab('flow');
 
 function providerForMessage(type) {
   if (String(type || '').startsWith('leonardo:')) return 'leonardo';
+  if (String(type || '').startsWith('qwen:')) return 'qwen';
   return null;
 }
 
@@ -198,6 +207,7 @@ async function send(tabId, message) {
     'leonardo:getContext',
     'leonardo:listModels',
     'leonardo:modelControls',
+    'qwen:getContext',
   ]).has(message?.type);
   const attempts = reloadSafe ? 4 : 1;
   const provider = providerForMessage(message?.type);
@@ -357,7 +367,9 @@ async function generateAndSave(item, settings, tab) {
           ? 'freegen:generateImage'
           : provider === 'aistudio'
             ? 'aistudio:generateImage'
-            : 'leonardo:generateImage';
+            : provider === 'qwen'
+              ? 'qwen:generateImage'
+              : 'leonardo:generateImage';
     const r = await send(tab.id, {
       type: messageType,
       params: {
@@ -954,9 +966,9 @@ async function processQueue() {
           alarmCreate();
           return;
         }
-        // A provider limit pauses the run instead of failing the whole
-        // batch. Re-pend this item, stop the loop, and don't auto-hammer — it
-        // resumes when the panel/worker next kicks the queue (e.g. tomorrow).
+        // A provider limit pauses the run instead of failing the whole batch.
+        // Re-pend this item and persist Pause so panel polling cannot hammer an
+        // account whose unknown quota reset time has not elapsed.
         if (e && e.limit) {
           q = await getQueue();
           const it = q.find((i) => i.id === item.id);
@@ -965,6 +977,7 @@ async function processQueue() {
             delete it.startedAt;
           }
           await setQueue(q);
+          await chrome.storage.local.set({ [PAUSE_KEY]: true });
           const name = PROVIDER_NAME[provider] || provider;
           const detail = e.message ? ` ${e.message}` : '';
           await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
@@ -1078,7 +1091,9 @@ async function webGeneratorContext(provider) {
         ? 'freegen:getContext'
         : provider === 'aistudio'
           ? 'aistudio:getContext'
-          : 'leonardo:getContext';
+          : provider === 'qwen'
+            ? 'qwen:getContext'
+            : 'leonardo:getContext';
   const r = await send(tab.id, { type: messageType });
   return { ok: true, ...r.result };
 }

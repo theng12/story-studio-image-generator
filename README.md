@@ -6,8 +6,8 @@ the **web credits from your Google AI subscription** (not the metered
 Vertex/Gemini Veo API) — and saves each asset back into the episode with the
 correct name.
 
-Image providers also include **Grok Imagine**, **Perchance**, **FreeGen**, and
-**Leonardo AI**. Perchance and FreeGen use their free browser generators;
+Image providers also include **Qwen Studio**, **Grok Imagine**, **Perchance**,
+**FreeGen**, and **Leonardo AI**. Perchance and FreeGen use their free browser generators;
 Leonardo uses the tokens available to the signed-in web account. These adapters
 operate the visible generator controls one job at a time and keep the provider
 tab open while the persistent queue runs. Only Google Flow supports video.
@@ -27,6 +27,15 @@ hidden gallery thumbnail to paint.
 If no Leonardo tab exists, the extension opens its generator automatically. It
 also restores the Leonardo page bridge after an extension update when an older
 tab reports that no message receiver exists.
+
+Qwen Studio uses the signed-in `chat.qwen.ai` conversation UI: the adapter sends
+one “Create an image…” instruction per scene, asks for the Story Studio ratio,
+and saves only a newly rendered `cdn.qwenlm.ai` image. Qwen may choose a
+different ratio, so shape is best-effort. Qwen publishes Studio as free to use
+but gives no numeric web image quota; explicit quota/rate-limit responses
+re-pend the current scene and persistently pause the queue until Resume. Qwen
+reference-photo automation is intentionally deferred until its editing-context
+behavior is verified.
 
 Sibling to `fish-tts-extension`; same proven architecture (side panel, persistent
 resumable queue, MAIN-world content script, Story Studio companion client).

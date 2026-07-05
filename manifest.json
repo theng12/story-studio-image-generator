@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.18.9",
-  "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
+  "version": "0.19.0",
+  "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
   "permissions": [
     "downloads",
     "storage",
@@ -16,6 +16,8 @@
     "http://127.0.0.1/*",
     "https://labs.google/*",
     "https://aistudio.google.com/*",
+    "https://chat.qwen.ai/*",
+    "https://cdn.qwenlm.ai/*",
     "https://aisandbox-pa.googleapis.com/*",
     "https://flow-content.google/*",
     "https://grok.com/*",
@@ -72,6 +74,25 @@
         "src/content/aistudio-main.js"
       ],
       "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.qwen.ai/*"
+      ],
+      "js": [
+        "src/content/qwen-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.qwen.ai/*"
+      ],
+      "js": [
+        "src/content/qwen.js"
+      ],
       "run_at": "document_idle"
     },
     {
