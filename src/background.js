@@ -497,9 +497,9 @@ async function generateVideoAndSave(item, settings, tab) {
 }
 
 // ── status (persisted so the panel survives close/reopen) ───────────────────
-async function writeStatus(text, kind = 'info') {
+async function writeStatus(text, kind = 'info', details = {}) {
   try {
-    await chrome.storage.local.set({ lastStatus: { text, kind, ts: Date.now() } });
+    await chrome.storage.local.set({ lastStatus: { text, kind, ts: Date.now(), ...details } });
   } catch {
     /* best-effort */
   }
@@ -525,7 +525,12 @@ async function waitForNextProviderRun(item) {
     const remaining = Number(nextRunAt) - Date.now();
     if (remaining <= 0) return;
     const seconds = Math.max(1, Math.ceil(remaining / 1000));
-    await writeStatus(`Waiting ${seconds}s before ${PROVIDER_NAME[item.provider] || 'provider'} request: ${item.label}`, 'info');
+    const provider = PROVIDER_NAME[item.provider] || 'provider';
+    await writeStatus(`Waiting ${seconds}s before ${provider} request: ${item.label}`, 'info', {
+      countdownUntil: Number(nextRunAt),
+      countdownProvider: provider,
+      countdownLabel: item.label,
+    });
     await sleep(Math.min(remaining, 10000));
   }
 }
