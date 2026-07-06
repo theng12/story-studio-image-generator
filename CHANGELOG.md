@@ -2,6 +2,27 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.28 — New provider: ChatGPT
+- **ChatGPT (chatgpt.com) added as an image provider (text-to-image).** Drives your signed-in chat like the AI Studio/Qwen providers: it sends "Create a &lt;ratio&gt; image of …" and reads back the generated image. **Keep the ChatGPT tab visible** while it runs.
+- **Pin which ChatGPT chat to drive:** open the chat you want and click **Use current tab** in the ChatGPT card — the queue navigates to that exact conversation before each generation (so it's not confused by your other open chats).
+- The free image quota is small; when it's hit the queue **pauses** (auto-resume off by default) so you can rotate to the next provider.
+- Character-reference (img2img via paste, like Qwen) is planned for a later update.
+- **Aspect-ratio control for the chat providers.** AI Studio and ChatGPT now have their own aspect-ratio dropdown (16:9 / 9:16 / 1:1 / 4:3 / 3:4), and all chat-driven providers (AI Studio, Qwen, ChatGPT) reinforce it in the prompt ("Create a &lt;ratio&gt; image of …") — AI Studio previously ignored the ratio.
+- ChatGPT and PicLumen tabs now **auto-recover their connection** if the tab was open from before the extension loaded (previously they'd loop "Provider tab interrupted"). Reloading the provider tab still works as before.
+- **QoL: "↗ Open <provider>" shortcut** under the provider selector — one click focuses that provider's generation tab (or opens it), and it updates as you switch providers. Hidden for Pollinations (no tab).
+
+## 0.27 — New provider: PicLumen
+- **PicLumen (piclumen.com) added as an image provider (text-to-image).** Uses your signed-in session and its API (model *PicLumen Art V1*); aspect ratios pass straight through. Free tier is ~10 **Lumens**/day (1 per image).
+- When the free daily quota runs out the queue **pauses** (auto-resume off by default) so you can rotate to the next provider — flip on auto-resume in the Provider cooldown card if you'd rather it retry after the daily reset.
+- Character-reference (img2img) support on PicLumen is planned for a later update.
+
+## 0.26 — Unified per-provider auto-resume, cooldown & retries
+- **One place to control what happens when a provider hits a limit.** A new **Provider cooldown** card (under Human Pace) replaces the scattered Flow (Options page) and Qwen (Qwen card) cooldown settings. It follows the selected provider, so each one — Flow, Qwen, AI Studio, Grok, Leonardo, FreeGen — gets its own setting.
+- **Auto-resume is now available for every provider that detects its limit** (previously only Flow & Qwen). It **defaults off** (the queue pauses and waits for Resume, as before). Turn it on and the extension suggests a recommended cooldown — **15m / 30m / 1h / 8h / 12h / 24h / Custom** — that you can change per provider.
+- **Retries on failure.** When a provider's auto-resume is on, you can also set how many times a failed generation is retried before it's marked failed.
+- **Live cooldown countdown** shows in the card and status line, and can always be overridden by pressing **Resume**.
+- Note: because auto-resume now defaults off, re-enable it per provider in the panel if you relied on Flow/Qwen auto-resuming before. Each provider starts from a recommended cooldown you can adjust.
+
 ## 0.25 — Panel reorder + per-provider cooldown
 - **The panel now follows how you actually work, top to bottom:** provider → what to make → save target → that provider's options (image model, aspect ratio, character reference) → human pace → Studio connection / project / episode → scenes → Queue selected. Picking the provider is now the first thing you do.
 - **A provider's quota cooldown no longer blocks the other providers.** A Qwen quota wait used to pause the *whole* queue, so switching to Google Flow still sat idle. Now a cooldown only holds items for the provider that hit the limit, and pressing **Resume** clears every provider's cooldown.

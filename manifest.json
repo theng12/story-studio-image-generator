@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.25.0",
-  "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, and Pollinations, then save each asset with the correct name.",
+  "version": "0.28.0",
+  "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, Pollinations, PicLumen, and ChatGPT, then save each asset with the correct name.",
   "permissions": [
     "downloads",
     "storage",
@@ -29,7 +29,12 @@
     "https://app.leonardo.ai/*",
     "https://*.leonardo.ai/*",
     "https://image.pollinations.ai/*",
-    "https://*.pollinations.ai/*"
+    "https://*.pollinations.ai/*",
+    "https://www.piclumen.com/*",
+    "https://api.piclumen.com/*",
+    "https://images.piclumen.com/*",
+    "https://chatgpt.com/*",
+    "https://*.oaiusercontent.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",
@@ -181,6 +186,44 @@
         "src/content/perchance.js"
       ],
       "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.piclumen.com/*"
+      ],
+      "js": [
+        "src/content/piclumen-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.piclumen.com/*"
+      ],
+      "js": [
+        "src/content/piclumen.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/content/chatgpt-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/content/chatgpt.js"
+      ],
       "run_at": "document_idle"
     }
   ],

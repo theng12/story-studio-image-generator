@@ -11,7 +11,15 @@
 (() => {
   const REQ = 'STUDIO_AISTUDIO_REQ';
   const RES = 'STUDIO_AISTUDIO_RES';
-  const PREFIX = 'Generate an image of ';
+  // Bare descriptions get refused; an explicit instruction triggers generation,
+  // and the ratio is reinforced in words (AI Studio has no ratio control here).
+  const RATIO_PHRASE = {
+    '16:9': '16:9 landscape',
+    '9:16': '9:16 vertical portrait',
+    '1:1': '1:1 square',
+    '4:3': '4:3 landscape',
+    '3:4': '3:4 vertical portrait',
+  };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
@@ -83,10 +91,11 @@
     const ta = promptInput();
     if (!ta) throw new Error('AI Studio prompt box not found — open aistudio.google.com in image mode.');
     const before = new Set(dataImages());
-    // Bare descriptions get refused; an instruction triggers generation. Don't
-    // double-prefix if the prompt already starts with a generate/create verb.
+    // Wrap as an explicit generate instruction with the ratio in words; don't
+    // double-wrap if the prompt already starts with a generate/create verb.
     const p = params.prompt.trim();
-    const text = /^(generate|create|make|draw|render)\b/i.test(p) ? p : PREFIX + p;
+    const phrase = RATIO_PHRASE[String(params.aspectRatio || '16:9')] || `${params.aspectRatio} aspect ratio`;
+    const text = /^(generate|create|make|draw|render|design)\b/i.test(p) ? p : `Create a ${phrase} image of ${p}`;
     setTextarea(ta, text);
     await sleep(250);
     const run = runButton();

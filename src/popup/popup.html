@@ -32,6 +32,8 @@
             <option value="freegen">FreeGen</option>
             <option value="leonardo">Leonardo AI</option>
             <option value="pollinations">Pollinations (no tab)</option>
+            <option value="piclumen">PicLumen</option>
+            <option value="chatgpt">ChatGPT</option>
           </select>
         </label>
         <label class="asset-setting">
@@ -49,6 +51,9 @@
             <option value="download">Downloads</option>
           </select>
         </label>
+      </div>
+      <div class="row open-provider-row">
+        <button id="openProviderPage" class="link small" title="Open this provider's generation page in a tab">↗ Open provider</button>
       </div>
       <div id="leonardoCard" class="leo hidden">
         <div class="row between leo-heading">
@@ -221,8 +226,51 @@
       </div>
       <div id="aistudioCard" class="leo hidden">
         <div class="label">Google AI Studio options</div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Requested aspect ratio</span>
+            <select id="aistudioAspect">
+              <option value="16:9">16:9 — widescreen landscape</option>
+              <option value="9:16">9:16 — vertical portrait</option>
+              <option value="1:1">1:1 — square</option>
+              <option value="4:3">4:3 — standard landscape</option>
+              <option value="3:4">3:4 — vertical portrait</option>
+            </select>
+          </label>
+        </div>
         <div class="hint">
-          Open <b>aistudio.google.com</b> in <b>image mode</b> (pick an image model, e.g. Nano Banana 2 Lite) and keep that tab visible. The extension types “Generate an image of …”, runs it, and reads the result. Model / aspect ratio / resolution are whatever you set in the AI Studio tab. Uses your <b>free daily image quota</b>; when it's exhausted the queue pauses until you press Resume after the reset.
+          Open <b>aistudio.google.com</b> in <b>image mode</b> (pick an image model, e.g. Nano Banana 2 Lite) and keep that tab visible. The extension sends “Create a &lt;ratio&gt; image of …”, runs it, and reads the result; ratio is best-effort via the prompt. Uses your <b>free daily image quota</b>; when it's exhausted the queue pauses until you press Resume after the reset.
+        </div>
+      </div>
+      <div id="chatgptCard" class="leo hidden">
+        <div class="label">ChatGPT options</div>
+        <div class="row between">
+          <div>
+            <div class="mini">Chat to use</div>
+            <div id="chatgptChatName" class="muted small">none selected</div>
+          </div>
+          <button id="useCurrentChatgpt" class="btn small" title="Open the chat you want to use, then click to pin it">Use current tab</button>
+        </div>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Requested aspect ratio</span>
+            <select id="chatgptAspect">
+              <option value="16:9">16:9 — widescreen landscape</option>
+              <option value="9:16">9:16 — vertical portrait</option>
+              <option value="1:1">1:1 — square</option>
+              <option value="4:3">4:3 — standard landscape</option>
+              <option value="3:4">3:4 — vertical portrait</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint">
+          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b>. Open the chat you want, click <b>Use current tab</b> to pin it, and the queue drives that conversation with "Create a &lt;ratio&gt; image of …". Free image quota is small; when it's hit the queue pauses so you can rotate providers. Character-reference (paste) img2img is coming later.
+        </div>
+      </div>
+      <div id="piclumenCard" class="leo hidden">
+        <div class="label">PicLumen options</div>
+        <div class="hint">
+          Uses your signed-in <b>piclumen.com</b> session (model <b>PicLumen Art V1</b>) through its API. Free tier is ~10 <b>Lumens</b>/day (1 per image); aspect ratio follows the scene setting. When the free quota runs out the queue pauses so you can rotate providers — enable auto-resume in the Provider cooldown card to retry after the daily reset instead. Character-reference img2img is coming later.
         </div>
       </div>
       <div id="qwenCard" class="leo hidden">
@@ -239,18 +287,8 @@
             </select>
           </label>
         </div>
-        <label class="checkbox small charref-toggle">
-          <input type="checkbox" id="qwenAutoResume" /> <span>Auto-resume after quota cooldown</span>
-        </label>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Cooldown hours (fallback)</span>
-            <input id="qwenCooldownHours" type="number" min="1" max="24" step="1" />
-          </label>
-        </div>
-        <div class="hint">Qwen limits ~30 images per window. On a limit the queue waits (Qwen's stated time if given, otherwise this many hours), then resumes on its own — re-pausing if it's still limited.</div>
         <div class="hint">
-          Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen uses one submission per scene; the Flow reCAPTCHA attempt setting does not apply. Explicit quota/rate-limit messages pause the queue until you press Resume.
+          Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen limits ~30 images per window; how a quota hit is handled (pause vs. auto-resume) is set in the <b>Provider cooldown</b> card above.
         </div>
         <div class="hint">
           Character reference (img2img) is supported: pick a character above and its sheet is dropped into the composer before each character scene. Qwen consumes it per generation, so it re-attaches every time.
@@ -313,6 +351,46 @@
         </label>
       </div>
       <div class="hint">The next queue gap uses this setting. A wait already in progress keeps its chosen time.</div>
+    </section>
+
+    <section class="card" id="cooldownCard">
+      <div class="row between pace-heading">
+        <div>
+          <div class="label">Provider cooldown</div>
+          <div class="muted small" id="cooldownProviderName">—</div>
+        </div>
+        <span id="cooldownState" class="pace-state" aria-live="polite"></span>
+      </div>
+      <label class="checkbox small">
+        <input type="checkbox" id="cooldownAutoResume" />
+        <span>Auto-resume this provider after a limit or failure</span>
+      </label>
+      <div id="cooldownOpts" class="hidden">
+        <label class="pace-preset">
+          <span class="mini">Cooldown before auto-resume</span>
+          <select id="cooldownPreset">
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="480">8 hours</option>
+            <option value="720">12 hours</option>
+            <option value="1440">24 hours</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <div id="cooldownCustom" class="row pace-custom hidden">
+          <label class="grow">
+            <span class="mini">Custom minutes</span>
+            <input id="cooldownMinutes" type="number" min="1" max="1440" step="1" />
+          </label>
+        </div>
+        <label class="pace-preset">
+          <span class="mini">Retries on failure before giving up</span>
+          <input id="cooldownRetries" type="number" min="0" max="10" step="1" />
+        </label>
+        <div class="hint">Off = the queue pauses on a limit and waits for you to press Resume (default). On = it waits the chosen time, then resumes on its own — press Resume any time to override. Qwen uses its own stated wait when it gives one.</div>
+      </div>
+      <div id="cooldownUnsupported" class="muted small hidden">This provider has no automatic limit detection — it just stops on error.</div>
     </section>
 
     <section class="card">

@@ -40,17 +40,18 @@ export const DEFAULTS = {
   pollinationsSeed: '',
   pollinationsToken: '',
 
+  // PicLumen (piclumen.com) — API-driven, ~10 free "Lumens"/day (1 per image).
+  // Default model is "PicLumen Art V1"; its id is sent to /api/gen/create.
+  piclumenModel: '23887bba-507e-4249-a0e3-6951e4027f2b',
+
   // Qwen has no reliable ratio control in its chat UI. Keep its preferred
   // shape separate and reinforce it with numeric + natural-language prompting.
   qwenAspectRatio: '16:9',
-
-  // Qwen has a rolling generation quota (~30 images per ~8h window, observed
-  // 2026-07-03; may change). On a quota hit the queue can auto-pause and resume
-  // itself after a cooldown instead of needing a manual resume. The wait is
-  // parsed from Qwen's message when present, else this many hours (+ a buffer);
-  // if it resumes too early it just re-pauses, so an off estimate is harmless.
-  qwenAutoResume: true,
-  qwenQuotaCooldownHours: 8,
+  // AI Studio and ChatGPT are chat-driven with no on-page ratio control, so the
+  // ratio is reinforced in the prompt ("Create a 16:9 landscape image of …").
+  // Each keeps its own preferred shape (same option set as Qwen).
+  aistudioAspectRatio: '16:9',
+  chatgptAspectRatio: '16:9',
 
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
@@ -77,12 +78,26 @@ export const DEFAULTS = {
   humanDelayMinSec: 5,
   humanDelayMaxSec: 60,
 
-  // Flow already remints a fresh reCAPTCHA token four times. If all attempts
-  // fail, preserve the current image job and cool the queue down before trying
-  // it again instead of cascading the same failure through the batch.
-  flowRecaptchaAutoPause: true,
+  // Flow remints a fresh reCAPTCHA token this many times within a single
+  // generation before giving up. Distinct from the per-provider auto-resume
+  // cooldown below (which governs the queue after a limit/failure).
   flowRecaptchaMaxAttempts: 4,
-  flowRecaptchaCooldownMin: 15,
+
+  // Per-provider auto-resume. Default OFF everywhere (manual Resume = prior
+  // behavior). `minutes` is the recommended cooldown shown when a toggle is
+  // switched on — editable by the user. `retries` = queue-level re-attempts on
+  // a non-limit failure before the item is marked failed (only while autoResume
+  // is on). Only providers with real limit detection are listed.
+  providerCooldowns: {
+    flow: { autoResume: false, minutes: 15, retries: 2 },
+    qwen: { autoResume: false, minutes: 480, retries: 2 },
+    aistudio: { autoResume: false, minutes: 720, retries: 2 },
+    grok: { autoResume: false, minutes: 720, retries: 2 },
+    leonardo: { autoResume: false, minutes: 720, retries: 2 },
+    freegen: { autoResume: false, minutes: 60, retries: 2 },
+    piclumen: { autoResume: false, minutes: 1440, retries: 2 },
+    chatgpt: { autoResume: false, minutes: 1440, retries: 2 },
+  },
 
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
@@ -147,23 +162,53 @@ function normalizeRecaptchaAttempts(value, fallback) {
   return Math.min(10, Math.max(1, Math.round(number)));
 }
 
+function normalizeRetries(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(10, Math.max(0, Math.round(number)));
+}
+
+// Per-provider auto-resume config. Ensures every covered provider exists and is
+// clamped. Auto-resume defaults off (manual-first) and the recommended minutes
+// come from DEFAULTS; the user tunes them per provider when they opt in.
+function normalizeProviderCooldowns(settings) {
+  const stored = settings.providerCooldowns || {};
+  const out = {};
+  for (const [provider, def] of Object.entries(DEFAULTS.providerCooldowns)) {
+    const cur = stored[provider] || {};
+    out[provider] = {
+      autoResume: cur.autoResume === true,
+      minutes: normalizeCooldownMinutes(cur.minutes, def.minutes),
+      retries: normalizeRetries(cur.retries, def.retries),
+    };
+  }
+  settings.providerCooldowns = out;
+  // Drop the retired flat keys so they don't linger in sync storage.
+  delete settings.flowRecaptchaAutoPause;
+  delete settings.flowRecaptchaCooldownMin;
+  delete settings.qwenAutoResume;
+  delete settings.qwenQuotaCooldownHours;
+}
+
 function normalizeSettings(settings) {
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
+  if (!QWEN_ASPECT_RATIOS.has(settings.aistudioAspectRatio)) settings.aistudioAspectRatio = DEFAULTS.aistudioAspectRatio;
+  if (!QWEN_ASPECT_RATIOS.has(settings.chatgptAspectRatio)) settings.chatgptAspectRatio = DEFAULTS.chatgptAspectRatio;
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
   const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
   settings.humanDelayMinSec = Math.min(first, second);
   settings.humanDelayMaxSec = Math.max(first, second);
-  settings.flowRecaptchaAutoPause = settings.flowRecaptchaAutoPause !== false;
   settings.flowRecaptchaMaxAttempts = normalizeRecaptchaAttempts(
     settings.flowRecaptchaMaxAttempts,
     DEFAULTS.flowRecaptchaMaxAttempts
   );
-  settings.flowRecaptchaCooldownMin = normalizeCooldownMinutes(
-    settings.flowRecaptchaCooldownMin,
-    DEFAULTS.flowRecaptchaCooldownMin
-  );
+  normalizeProviderCooldowns(settings);
   return settings;
+}
+
+export function providerCooldown(settings, provider) {
+  return settings?.providerCooldowns?.[provider] || { autoResume: false, minutes: 15, retries: 0 };
 }
 
 // Accept either the bare UUID or a copied Flow project URL. Keeping this at

@@ -21,7 +21,6 @@ const FIELDS = [
   'humanDelayMinSec',
   'humanDelayMaxSec',
   'flowRecaptchaMaxAttempts',
-  'flowRecaptchaCooldownMin',
   'imageModel',
   'videoModel',
   'videoSource',
@@ -30,7 +29,7 @@ const FIELDS = [
   'downloadSubdir',
   'filenameTemplate',
 ];
-const CHECKBOX_FIELDS = ['flowRecaptchaAutoPause'];
+const CHECKBOX_FIELDS = [];
 
 // Append any model ids not already in the <select>, keeping the curated static
 // options (and their friendlier labels) as-is. Returns how many were added.
@@ -58,7 +57,6 @@ async function load() {
   addModelOptions(await getLeonardoModels());
   for (const f of FIELDS) if ($(f)) $(f).value = s[f] ?? '';
   for (const f of CHECKBOX_FIELDS) if ($(f)) $(f).checked = !!s[f];
-  updateRecaptchaCooldownUI();
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
   refreshGrantStatus();
@@ -105,10 +103,6 @@ async function save() {
   for (const f of CHECKBOX_FIELDS) if ($(f)) patch[f] = $(f).checked;
   await saveSettings(patch);
   showSaved();
-}
-
-function updateRecaptchaCooldownUI() {
-  $('flowRecaptchaCooldownMin').disabled = !$('flowRecaptchaAutoPause').checked;
 }
 
 // Auto-save each field as you edit, so there's never a "did it save?" doubt.
@@ -221,9 +215,6 @@ for (const f of FIELDS) {
 for (const f of CHECKBOX_FIELDS) {
   const el = $(f);
   if (!el) continue;
-  el.addEventListener('change', () => {
-    updateRecaptchaCooldownUI();
-    autoSave();
-  });
+  el.addEventListener('change', autoSave);
 }
 load();
