@@ -1031,7 +1031,7 @@ function flowPopulate() {
   $('flowVideoSource').value = settings.videoSource || 'existing';
   $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
   // Character reference is an image-only feature.
-  $('flowCharRow').classList.toggle('hidden', isVideoSel());
+  $('charRefCard').classList.toggle('hidden', isVideoSel());
 }
 
 function freegenPopulate() {
@@ -1141,7 +1141,7 @@ async function onMediaTypeChange() {
   $('saveTarget').disabled = false;
   if ($('provider').value === 'flow') {
     $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
-    $('flowCharRow').classList.toggle('hidden', isVideoSel());
+    $('charRefCard').classList.toggle('hidden', isVideoSel());
   }
   if (currentEpisode && currentScenes.length && selKind() !== loadedKind) {
     await loadScenes();

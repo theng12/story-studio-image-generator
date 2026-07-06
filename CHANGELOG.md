@@ -2,8 +2,18 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.25 — Panel reorder + per-provider cooldown
+- **The panel now follows how you actually work, top to bottom:** provider → what to make → save target → that provider's options (image model, aspect ratio, character reference) → human pace → Studio connection / project / episode → scenes → Queue selected. Picking the provider is now the first thing you do.
+- **A provider's quota cooldown no longer blocks the other providers.** A Qwen quota wait used to pause the *whole* queue, so switching to Google Flow still sat idle. Now a cooldown only holds items for the provider that hit the limit, and pressing **Resume** clears every provider's cooldown.
+- Fixed the character-reference row not hiding in Flow video mode (it pointed at an element that no longer existed).
+
+## 0.24.5 — Qwen send reliability
+- **Waits for Qwen's Send button to be ready before clicking.** After typing a prompt, the extension now polls up to 8s for Send to be present/visible/enabled instead of a single quick check — so a slow post-attachment enable can't be mistaken for an unavailable button.
+
+## 0.24.4 — Qwen reference double-paste on large sheets
+- **No more double references on large character sheets.** The retry could fire a second paste while a big sheet was still uploading, leaving two references attached at generation time. Now it pastes once, waits up to 10s for the attachment chip, only clears + re-pastes if none landed, and trims to exactly one as a safety net.
+
 ## 0.24.3 — Fixes
-- Qwen reference no longer double-pastes: the aggressive retry could fire a second paste while a large sheet was still uploading, leaving two references. Now it retries only after a long wait (clearing first) and trims to exactly one.
 - Guarded content-script relays against "Extension context invalidated" after an extension reload.
 
 ## 0.24.2 — Qwen reference upload reliability

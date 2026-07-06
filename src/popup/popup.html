@@ -18,143 +18,37 @@
       </div>
     </header>
 
-    <section class="card" id="flowProjectCard">
-      <div class="row between">
-        <div>
-          <div class="label">Flow project</div>
-          <div id="flowProjectName" class="muted small">none selected</div>
-        </div>
-        <button id="useCurrentProject" class="btn small">Use current tab</button>
-      </div>
-      <div id="flowSignin" class="muted small hidden">Not signed in to Flow — open labs.google/fx and sign in.</div>
-    </section>
-
-    <section class="card pace-card">
-      <div class="row between pace-heading">
-        <div>
-          <div class="label">Human pace</div>
-          <div class="muted small">Delay between provider requests</div>
-        </div>
-        <span id="humanPaceState" class="pace-state" aria-live="polite"></span>
-      </div>
-      <label class="pace-preset">
-        <span class="mini">Suggested pace</span>
-        <select id="humanPacePreset">
-          <option value="off">Off (no delay)</option>
-          <option value="quick">Quick (5-15 seconds)</option>
-          <option value="balanced">Balanced (15-45 seconds) - recommended</option>
-          <option value="cautious">Cautious (30-90 seconds)</option>
-          <option value="very-cautious">Very cautious (60-180 seconds)</option>
-          <option value="custom">Custom</option>
-        </select>
-      </label>
-      <div id="humanPaceCustom" class="row pace-custom hidden">
-        <label class="grow">
-          <span class="mini">Minimum seconds</span>
-          <input id="humanPaceMin" type="number" min="0" max="3600" step="1" />
+    <!-- Start here: pick the provider, what to make, and where to save. -->
+    <section class="card" id="assetSettingsCard">
+      <div class="asset-settings">
+        <label class="asset-setting">
+          <span class="mini">Provider</span>
+          <select id="provider">
+            <option value="flow">Google Flow</option>
+            <option value="aistudio">Google AI Studio</option>
+            <option value="qwen">Qwen Studio</option>
+            <option value="grok">Grok Imagine</option>
+            <option value="perchance">Perchance</option>
+            <option value="freegen">FreeGen</option>
+            <option value="leonardo">Leonardo AI</option>
+            <option value="pollinations">Pollinations (no tab)</option>
+          </select>
         </label>
-        <label class="grow">
-          <span class="mini">Maximum seconds</span>
-          <input id="humanPaceMax" type="number" min="0" max="3600" step="1" />
+        <label class="asset-setting">
+          <span class="mini">Make</span>
+          <select id="mediaType">
+            <option value="scene-image">Scene images</option>
+            <option value="scene-video">Scene video — Veo (credits)</option>
+            <option value="thumbnail-image">Thumbnail images</option>
+          </select>
         </label>
-      </div>
-      <div class="hint">The next queue gap uses this setting. A wait already in progress keeps its chosen time.</div>
-    </section>
-
-    <section class="card">
-      <div class="row between">
-        <button id="testConn" class="btn small">Test Studio connection</button>
-        <span id="connStatus" class="muted small"></span>
-      </div>
-      <div class="row">
-        <label class="grow">
-          <span class="label">Project</span>
-          <select id="project"></select>
+        <label class="asset-setting">
+          <span class="mini">Save to</span>
+          <select id="saveTarget">
+            <option value="project">Story Studio folder</option>
+            <option value="download">Downloads</option>
+          </select>
         </label>
-      </div>
-      <div class="row">
-        <label class="grow">
-          <span class="label">Episode</span>
-          <select id="episode"></select>
-        </label>
-      </div>
-      <div class="row between">
-        <span class="label">Episodes</span>
-        <div class="segmented" id="episodeFilter">
-          <button type="button" class="seg" data-f="todo" title="Episodes that still need scene images">To do</button>
-          <button type="button" class="seg" data-f="done" title="Episodes whose scene images are all done">Done</button>
-          <button type="button" class="seg" data-f="all" title="Every episode with a scene plan">All</button>
-        </div>
-      </div>
-      <div class="row between">
-        <label class="checkbox small">
-          <input type="checkbox" id="includeExisting" />
-          <span>Include scenes that already have an image</span>
-        </label>
-      </div>
-      <div class="row">
-        <button id="loadScenes" class="btn">Load scenes</button>
-        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending…</button>
-      </div>
-    </section>
-
-    <section class="card" id="scenesCard">
-      <div class="row between">
-        <div class="label" id="scenesSummary">Scenes</div>
-        <div class="hgroup">
-          <button id="refreshScenes" class="btn small" title="Re-pull scenes from Story Studio — picks up whatever already saved, keeps you on this episode" disabled>⟳ Refresh</button>
-          <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
-        </div>
-      </div>
-      <div class="row batch" id="batchControls">
-        <span class="muted small">Select next:</span>
-        <button class="btn small batch-n" data-n="5">5</button>
-        <button class="btn small batch-n" data-n="10">10</button>
-        <button class="btn small batch-n" data-n="15">15</button>
-        <button class="btn small batch-n" data-n="20">20</button>
-        <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
-        <div class="batch-custom">
-          <input id="customBatchSize" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" aria-label="Custom selection quantity" />
-          <button class="btn small" id="selectCustomBatch" title="Select a custom number of missing scenes">Select</button>
-        </div>
-      </div>
-      <div class="row" id="sceneTools">
-        <input id="sceneSearch" class="grow" placeholder="Filter scenes… (number or text)" />
-        <button id="selectFailed" class="btn small hidden" title="Select the scenes that failed in the queue">Select failed</button>
-      </div>
-      <div id="scenes" class="scenes"></div>
-      <div class="asset-toolbar">
-        <div class="asset-settings">
-          <label class="asset-setting">
-            <span class="mini">Provider</span>
-            <select id="provider">
-              <option value="flow">Google Flow</option>
-              <option value="aistudio">Google AI Studio</option>
-              <option value="qwen">Qwen Studio</option>
-              <option value="grok">Grok Imagine</option>
-              <option value="perchance">Perchance</option>
-              <option value="freegen">FreeGen</option>
-              <option value="leonardo">Leonardo AI</option>
-              <option value="pollinations">Pollinations (no tab)</option>
-            </select>
-          </label>
-          <label class="asset-setting">
-            <span class="mini">Make</span>
-            <select id="mediaType">
-              <option value="scene-image">Scene images</option>
-              <option value="scene-video">Scene video — Veo (credits)</option>
-              <option value="thumbnail-image">Thumbnail images</option>
-            </select>
-          </label>
-          <label class="asset-setting">
-            <span class="mini">Save to</span>
-            <select id="saveTarget">
-              <option value="project">Story Studio folder</option>
-              <option value="download">Downloads</option>
-            </select>
-          </label>
-        </div>
-        <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
       </div>
       <div id="leonardoCard" class="leo hidden">
         <div class="row between leo-heading">
@@ -234,20 +128,6 @@
             </select>
           </label>
         </div>
-      </div>
-      <div id="charRefCard" class="leo hidden">
-        <label class="checkbox small charref-toggle">
-          <input type="checkbox" id="charRefEnabled" /> <span>Use character reference this run</span>
-        </label>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Character reference (character scenes only)</span>
-            <select id="flowCharacterRef">
-              <option value="">None</option>
-            </select>
-          </label>
-        </div>
-        <div class="hint" id="charRefHint"></div>
       </div>
       <div id="freegenCard" class="leo hidden">
         <div class="label">FreeGen options</div>
@@ -376,6 +256,128 @@
           Character reference (img2img) is supported: pick a character above and its sheet is dropped into the composer before each character scene. Qwen consumes it per generation, so it re-attaches every time.
         </div>
       </div>
+      <div id="charRefCard" class="leo hidden">
+        <label class="checkbox small charref-toggle">
+          <input type="checkbox" id="charRefEnabled" /> <span>Use character reference this run</span>
+        </label>
+        <div class="row leo-grid">
+          <label class="grow">
+            <span class="mini">Character reference (character scenes only)</span>
+            <select id="flowCharacterRef">
+              <option value="">None</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint" id="charRefHint"></div>
+      </div>
+    </section>
+
+    <section class="card" id="flowProjectCard">
+      <div class="row between">
+        <div>
+          <div class="label">Flow project</div>
+          <div id="flowProjectName" class="muted small">none selected</div>
+        </div>
+        <button id="useCurrentProject" class="btn small">Use current tab</button>
+      </div>
+      <div id="flowSignin" class="muted small hidden">Not signed in to Flow — open labs.google/fx and sign in.</div>
+    </section>
+
+    <section class="card pace-card">
+      <div class="row between pace-heading">
+        <div>
+          <div class="label">Human pace</div>
+          <div class="muted small">Delay between provider requests</div>
+        </div>
+        <span id="humanPaceState" class="pace-state" aria-live="polite"></span>
+      </div>
+      <label class="pace-preset">
+        <span class="mini">Suggested pace</span>
+        <select id="humanPacePreset">
+          <option value="off">Off (no delay)</option>
+          <option value="quick">Quick (5-15 seconds)</option>
+          <option value="balanced">Balanced (15-45 seconds) - recommended</option>
+          <option value="cautious">Cautious (30-90 seconds)</option>
+          <option value="very-cautious">Very cautious (60-180 seconds)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <div id="humanPaceCustom" class="row pace-custom hidden">
+        <label class="grow">
+          <span class="mini">Minimum seconds</span>
+          <input id="humanPaceMin" type="number" min="0" max="3600" step="1" />
+        </label>
+        <label class="grow">
+          <span class="mini">Maximum seconds</span>
+          <input id="humanPaceMax" type="number" min="0" max="3600" step="1" />
+        </label>
+      </div>
+      <div class="hint">The next queue gap uses this setting. A wait already in progress keeps its chosen time.</div>
+    </section>
+
+    <section class="card">
+      <div class="row between">
+        <button id="testConn" class="btn small">Test Studio connection</button>
+        <span id="connStatus" class="muted small"></span>
+      </div>
+      <div class="row">
+        <label class="grow">
+          <span class="label">Project</span>
+          <select id="project"></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">
+          <span class="label">Episode</span>
+          <select id="episode"></select>
+        </label>
+      </div>
+      <div class="row between">
+        <span class="label">Episodes</span>
+        <div class="segmented" id="episodeFilter">
+          <button type="button" class="seg" data-f="todo" title="Episodes that still need scene images">To do</button>
+          <button type="button" class="seg" data-f="done" title="Episodes whose scene images are all done">Done</button>
+          <button type="button" class="seg" data-f="all" title="Every episode with a scene plan">All</button>
+        </div>
+      </div>
+      <div class="row between">
+        <label class="checkbox small">
+          <input type="checkbox" id="includeExisting" />
+          <span>Include scenes that already have an image</span>
+        </label>
+      </div>
+      <div class="row">
+        <button id="loadScenes" class="btn">Load scenes</button>
+        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending…</button>
+      </div>
+    </section>
+
+    <section class="card" id="scenesCard">
+      <div class="row between">
+        <div class="label" id="scenesSummary">Scenes</div>
+        <div class="hgroup">
+          <button id="refreshScenes" class="btn small" title="Re-pull scenes from Story Studio — picks up whatever already saved, keeps you on this episode" disabled>⟳ Refresh</button>
+          <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
+        </div>
+      </div>
+      <div class="row batch" id="batchControls">
+        <span class="muted small">Select next:</span>
+        <button class="btn small batch-n" data-n="5">5</button>
+        <button class="btn small batch-n" data-n="10">10</button>
+        <button class="btn small batch-n" data-n="15">15</button>
+        <button class="btn small batch-n" data-n="20">20</button>
+        <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
+        <div class="batch-custom">
+          <input id="customBatchSize" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" aria-label="Custom selection quantity" />
+          <button class="btn small" id="selectCustomBatch" title="Select a custom number of missing scenes">Select</button>
+        </div>
+      </div>
+      <div class="row" id="sceneTools">
+        <input id="sceneSearch" class="grow" placeholder="Filter scenes… (number or text)" />
+        <button id="selectFailed" class="btn small hidden" title="Select the scenes that failed in the queue">Select failed</button>
+      </div>
+      <div id="scenes" class="scenes"></div>
+      <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
     </section>
 
     <div id="genStatusBar" class="genstatus idle">

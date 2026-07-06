@@ -124,13 +124,6 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 }
 select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 
-.asset-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: end;
-  margin: 14px 0 4px;
-}
 .asset-settings {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -139,12 +132,11 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .asset-setting { display: block; min-width: 0; }
 .asset-setting .mini { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 .asset-setting select { width: 100%; padding: 9px 10px; }
-.asset-toolbar #queueSelected { min-height: 58px; min-width: 132px; }
+#queueSelected { width: 100%; min-height: 46px; margin-top: 12px; }
 
 @media (max-width: 540px) {
-  .asset-toolbar { grid-template-columns: 1fr; }
   .asset-settings { grid-template-columns: 1fr; }
-  .asset-toolbar #queueSelected { width: 100%; min-height: 42px; }
+  #queueSelected { min-height: 42px; }
   .leo-grid { flex-wrap: wrap; }
   .leo-grid .grow { flex-basis: 140px; }
 }
