@@ -41,21 +41,34 @@
   const sendButton = () =>
     document.querySelector('button[data-testid="send-button"]') ||
     [...document.querySelectorAll('button')].find((b) => visible(b) && /send/i.test(b.getAttribute('aria-label') || ''));
+  // Only the generation stop button — NOT the voice/dictation "stop" control,
+  // which would otherwise look like "still streaming" forever.
   const stopButton = () =>
-    document.querySelector('button[data-testid="stop-button"]') ||
-    [...document.querySelectorAll('button')].find((b) => /stop (?:generating|streaming)|stop\b/i.test(b.getAttribute('aria-label') || ''));
+    document.querySelector('button[data-testid="stop-button"], button[data-testid="composer-stop-button"]') ||
+    [...document.querySelectorAll('button')].find((b) => /stop generating|stop streaming/i.test(b.getAttribute('aria-label') || ''));
   const assistantTurns = () => [...document.querySelectorAll('[data-message-author-role="assistant"]')];
 
-  // A generated image lives in an assistant turn and is hosted on OpenAI's
-  // content hosts (or a blob:/data: URL). Exclude tiny UI icons/avatars.
+  // A generated image is hosted on OpenAI's content hosts (or a blob:/data: URL).
+  // Prefer images inside assistant turns, but fall back to scanning the page
+  // (excluding the user turn) in case the assistant-turn markup shifts. Exclude
+  // tiny UI icons/avatars.
+  function candidateImage(img) {
+    const src = img.currentSrc || img.src || '';
+    if (!src || /oaistatic|avatar|icon|emoji/i.test(src)) return '';
+    const big = (img.naturalWidth || 0) >= 256 || (img.width || 0) >= 256;
+    const looksGenerated = /oaiusercontent|\/backend-api\/|\/files\/|blob:|^data:image/i.test(src);
+    return big || looksGenerated ? src : '';
+  }
+
   function assistantImageSrcs() {
+    const turns = assistantTurns();
+    const scope = turns.length ? turns : [document.body];
     const out = [];
-    for (const turn of assistantTurns()) {
+    for (const turn of scope) {
       for (const img of turn.querySelectorAll('img')) {
-        const src = img.currentSrc || img.src || '';
-        if (!src || /oaistatic|avatar|icon|emoji/i.test(src)) continue;
-        const big = (img.naturalWidth || 0) >= 256 || (img.width || 0) >= 256;
-        if (big || /oaiusercontent|\/backend-api\/|files|blob:|^data:image/i.test(src)) out.push(src);
+        if (turn === document.body && img.closest('[data-message-author-role="user"]')) continue;
+        const src = candidateImage(img);
+        if (src) out.push(src);
       }
     }
     return out;
@@ -155,16 +168,26 @@
         clearTimeout(deadline);
         fn(v);
       };
+      let lastSrc = '';
+      let stableSince = 0;
       const check = async () => {
         const fresh = assistantImageSrcs().find((s) => !beforeImages.has(s));
-        // Only accept once streaming has stopped, so we grab the final image.
-        if (fresh && !stopButton()) {
-          try {
-            finish(resolve, await toPayload(fresh));
-          } catch (e) {
-            finish(reject, e);
+        if (fresh) {
+          if (fresh !== lastSrc) {
+            lastSrc = fresh;
+            stableSince = Date.now();
           }
-          return;
+          // Accept when the generation stop button is gone (final image), OR as
+          // a fallback when the src has been stable ~4s (covers a stop-button we
+          // can't detect). Don't wait on the loose voice/dictation control.
+          if (!stopButton() || Date.now() - stableSince > 4000) {
+            try {
+              finish(resolve, await toPayload(fresh));
+            } catch (e) {
+              finish(reject, e);
+            }
+            return;
+          }
         }
         const text = newAssistantText(beforeCount);
         const err = classifyText(text);
