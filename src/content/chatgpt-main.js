@@ -171,16 +171,22 @@
       let lastSrc = '';
       let stableSince = 0;
       const check = async () => {
+        // While ChatGPT is actively generating, its stop button is present — do
+        // NOT accept anything yet. This is what keeps the queue from firing the
+        // next prompt before this image is finished and saved.
+        const streaming = !!stopButton();
         const fresh = assistantImageSrcs().find((s) => !beforeImages.has(s));
         if (fresh) {
           if (fresh !== lastSrc) {
             lastSrc = fresh;
             stableSince = Date.now();
           }
-          // Accept when the generation stop button is gone (final image), OR as
-          // a fallback when the src has been stable ~4s (covers a stop-button we
-          // can't detect). Don't wait on the loose voice/dictation control.
-          if (!stopButton() || Date.now() - stableSince > 4000) {
+          const stableMs = Date.now() - stableSince;
+          // Normal path: streaming has stopped and the final image URL settled.
+          // Safety net: if the stop button can't be detected, accept only once
+          // the URL has been rock-stable for a long window (a still-generating
+          // image keeps changing, so it won't look stable that long).
+          if ((!streaming && stableMs >= 2500) || stableMs >= 12000) {
             try {
               finish(resolve, await toPayload(fresh));
             } catch (e) {
@@ -189,9 +195,11 @@
             return;
           }
         }
-        const text = newAssistantText(beforeCount);
-        const err = classifyText(text);
-        if (err) return finish(reject, err);
+        // Ignore any limit/refusal text while still streaming (partial text).
+        if (!streaming) {
+          const err = classifyText(newAssistantText(beforeCount));
+          if (err) return finish(reject, err);
+        }
       };
       const observer = new MutationObserver(check);
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
