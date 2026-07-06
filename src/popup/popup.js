@@ -6,7 +6,7 @@
 // persistent queue. A confirmation step guards every batch so an accidental
 // click can't burn work/credits.
 
-import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels } from '../lib/config.js';
+import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels, providerCooldown } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -88,6 +88,109 @@ async function saveCustomHumanPace() {
   flashSaved();
 }
 
+// ── Provider cooldown / auto-resume ─────────────────────────────────────────
+// Mirrors the Human Pace card but scoped to the currently-selected provider.
+// Auto-resume defaults off (manual Resume); when on, a recommended-but-editable
+// cooldown + retries apply for that provider only.
+const COOLDOWN_PRESETS = [15, 30, 60, 480, 720, 1440];
+const COOLDOWN_SUPPORTED = new Set(['flow', 'qwen', 'aistudio', 'grok', 'leonardo', 'freegen', 'piclumen', 'chatgpt']);
+
+const cooldownProviderKey = () => ($('provider') ? $('provider').value : 'flow');
+
+function cooldownMinutesLabel(minutes) {
+  if (minutes % 60 === 0) return `${minutes / 60} hr`;
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function renderCooldownCard() {
+  if (!$('cooldownCard') || !settings) return;
+  const provider = cooldownProviderKey();
+  const name = PROVIDER_LABEL[provider] || provider;
+  const supported = COOLDOWN_SUPPORTED.has(provider);
+  $('cooldownProviderName').textContent = name;
+  $('cooldownAutoResume').closest('label').classList.toggle('hidden', !supported);
+  $('cooldownUnsupported').classList.toggle('hidden', supported);
+  if (!supported) {
+    $('cooldownOpts').classList.add('hidden');
+    $('cooldownState').textContent = '';
+    return;
+  }
+  const cd = providerCooldown(settings, provider);
+  $('cooldownAutoResume').checked = !!cd.autoResume;
+  $('cooldownOpts').classList.toggle('hidden', !cd.autoResume);
+  const isPreset = COOLDOWN_PRESETS.includes(cd.minutes);
+  $('cooldownPreset').value = isPreset ? String(cd.minutes) : 'custom';
+  $('cooldownCustom').classList.toggle('hidden', isPreset);
+  $('cooldownMinutes').value = String(cd.minutes);
+  $('cooldownRetries').value = String(cd.retries);
+  renderCooldownState();
+}
+
+// The state chip: live countdown when THIS provider is cooling down, else the
+// configured mode. Split out so the 250ms status tick can refresh just this.
+function renderCooldownState() {
+  if (!$('cooldownCard') || !settings) return;
+  const provider = cooldownProviderKey();
+  const el = $('cooldownState');
+  if (!COOLDOWN_SUPPORTED.has(provider)) return;
+  const cd = providerCooldown(settings, provider);
+  if (!cd.autoResume) {
+    el.textContent = 'Manual';
+    el.classList.add('off');
+    return;
+  }
+  el.classList.remove('off');
+  const cooling =
+    liveStatus &&
+    liveStatus.countdownReason === 'cooldown' &&
+    liveStatus.countdownProvider === provider &&
+    Number.isFinite(liveStatus.countdownUntil) &&
+    liveStatus.countdownUntil > Date.now();
+  el.textContent = cooling
+    ? `On cooldown · ${formatDuration(liveStatus.countdownUntil - Date.now())}`
+    : `Auto-resume · ${cooldownMinutesLabel(cd.minutes)}`;
+}
+
+function saveProviderCooldown(patch) {
+  const provider = cooldownProviderKey();
+  const current = providerCooldown(settings, provider);
+  const next = { ...settings.providerCooldowns, [provider]: { ...current, ...patch } };
+  return saveSettings({ providerCooldowns: next });
+}
+
+async function onCooldownToggle() {
+  settings = await saveProviderCooldown({ autoResume: $('cooldownAutoResume').checked });
+  renderCooldownCard();
+  flashSaved();
+}
+
+async function onCooldownPreset() {
+  const val = $('cooldownPreset').value;
+  if (val === 'custom') {
+    $('cooldownCustom').classList.remove('hidden');
+    $('cooldownMinutes').focus();
+    return;
+  }
+  settings = await saveProviderCooldown({ minutes: Number(val) });
+  renderCooldownCard();
+  flashSaved();
+}
+
+async function saveCooldownCustom() {
+  const minutes = Math.max(1, Math.min(1440, Number($('cooldownMinutes').value) || 15));
+  settings = await saveProviderCooldown({ minutes });
+  renderCooldownCard();
+  flashSaved();
+}
+
+async function saveCooldownRetries() {
+  const retries = Math.max(0, Math.min(10, Number($('cooldownRetries').value) || 0));
+  settings = await saveProviderCooldown({ retries });
+  renderCooldownCard();
+  flashSaved();
+}
+
 // ── What's new (changelog) ──────────────────────────────────────────────────
 // Renders CHANGELOG.md (packaged with the extension) in a modal, and shows a
 // red dot on the button until the current version's notes have been opened.
@@ -146,6 +249,7 @@ async function init() {
   $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
   renderHumanPace();
+  renderCooldownCard();
   await refreshFlowProject();
   await loadProjects();
   wire();
@@ -160,6 +264,10 @@ function wire() {
   $('humanPacePreset').onchange = selectHumanPacePreset;
   $('humanPaceMin').onchange = saveCustomHumanPace;
   $('humanPaceMax').onchange = saveCustomHumanPace;
+  $('cooldownAutoResume').onchange = onCooldownToggle;
+  $('cooldownPreset').onchange = onCooldownPreset;
+  $('cooldownMinutes').onchange = saveCooldownCustom;
+  $('cooldownRetries').onchange = saveCooldownRetries;
   $('project').onchange = onProjectChange;
   $('loadScenes').onclick = loadScenes;
   $('refreshScenes').onclick = loadScenes;
@@ -204,6 +312,7 @@ function wire() {
   };
   $('mediaType').onchange = onMediaTypeChange;
   $('provider').onchange = onProviderChange;
+  $('openProviderPage').onclick = () => chrome.runtime.sendMessage({ type: 'openProviderPage', provider: $('provider').value });
   $('leoSync').onclick = leoSyncAll;
   $('leoModel').onchange = async () => {
     settings = await saveSettings({ leonardoModel: $('leoModel').value });
@@ -230,9 +339,9 @@ function wire() {
   $('pollSeed').onchange = async () => (settings = await saveSettings({ pollinationsSeed: $('pollSeed').value.replace(/[^0-9]/g, '') }));
   $('pollToken').onchange = async () => (settings = await saveSettings({ pollinationsToken: $('pollToken').value.trim() }));
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
-  $('qwenAutoResume').onchange = async () => (settings = await saveSettings({ qwenAutoResume: $('qwenAutoResume').checked }));
-  $('qwenCooldownHours').onchange = async () =>
-    (settings = await saveSettings({ qwenQuotaCooldownHours: Math.max(1, Math.min(24, Number($('qwenCooldownHours').value) || 8)) }));
+  $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
+  $('chatgptAspect').onchange = async () => (settings = await saveSettings({ chatgptAspectRatio: $('chatgptAspect').value }));
+  $('useCurrentChatgpt').onclick = useCurrentChatgpt;
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -255,6 +364,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'sync' || !changes.settings?.newValue || !settings) return;
   settings = { ...settings, ...changes.settings.newValue };
   renderHumanPace();
+  renderCooldownCard();
 });
 
 // ── Flow project ──────────────────────────────────────────────────────────
@@ -720,6 +830,8 @@ const PROVIDER_LABEL = {
   freegen: 'FreeGen',
   leonardo: 'Leonardo',
   pollinations: 'Pollinations',
+  piclumen: 'PicLumen',
+  chatgpt: 'ChatGPT',
 };
 
 // Double-click a prompt to edit it in place; the edit is used when queued.
@@ -1046,14 +1158,50 @@ function pollinationsPopulate() {
 
 function qwenPopulate() {
   $('qwenAspect').value = settings.qwenAspectRatio || '16:9';
-  $('qwenAutoResume').checked = settings.qwenAutoResume !== false;
-  $('qwenCooldownHours').value = settings.qwenQuotaCooldownHours || 8;
 }
 
 function perchancePopulate() {
   $('perchanceStyleInput').value = settings.perchanceStyle || 'No style';
   $('perchanceAspect').value = settings.aspectRatio || '16:9';
   $('perchanceCount').value = String(settings.perchanceCount || 1);
+}
+
+function aistudioPopulate() {
+  $('aistudioAspect').value = settings.aistudioAspectRatio || '16:9';
+}
+
+function chatgptPopulate() {
+  $('chatgptAspect').value = settings.chatgptAspectRatio || '16:9';
+  refreshChatgptChat();
+}
+
+function refreshChatgptChat() {
+  const el = $('chatgptChatName');
+  if (!el) return;
+  const id = settings.chatgptConversationId;
+  el.textContent = id ? `chat ${id.slice(0, 8)}…` : 'none selected — open a chat, then click →';
+}
+
+// Pin the ChatGPT conversation to drive (the active tab's chatgpt.com/c/<id>),
+// mirroring Flow's "Use current tab". The worker then navigates its ChatGPT tab
+// to this conversation before generating, so it always drives the right chat.
+async function useCurrentChatgpt() {
+  $('useCurrentChatgpt').disabled = true;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const m = tab && /^https:\/\/chatgpt\.com\/c\/([0-9a-f-]+)/i.exec(tab.url || '');
+    if (!m) {
+      setStatus('Open the ChatGPT chat you want (a chatgpt.com/c/… URL) as the active tab, then click again.', 'err');
+      return;
+    }
+    settings = await saveSettings({ chatgptConversationId: m[1] });
+    refreshChatgptChat();
+    setStatus('ChatGPT chat pinned.', 'done');
+  } catch (e) {
+    setStatus(String(e.message || e), 'err');
+  } finally {
+    $('useCurrentChatgpt').disabled = false;
+  }
 }
 
 // Only Flow supports video; all other providers use their image-generator UI.
@@ -1073,6 +1221,13 @@ function onProviderChange() {
   $('qwenCard').classList.toggle('hidden', provider !== 'qwen');
   $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
+  $('piclumenCard').classList.toggle('hidden', provider !== 'piclumen');
+  $('chatgptCard').classList.toggle('hidden', provider !== 'chatgpt');
+  // "↗ Open provider" shortcut — hidden for tabless providers (no page).
+  const openBtn = $('openProviderPage');
+  const hasPage = provider !== 'pollinations';
+  openBtn.classList.toggle('hidden', !hasPage);
+  openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
   const wantsChar = provider === 'flow' || provider === 'qwen';
   $('charRefCard').classList.toggle('hidden', !wantsChar);
   if (wantsChar)
@@ -1086,6 +1241,9 @@ function onProviderChange() {
   if (provider === 'perchance') perchancePopulate();
   if (provider === 'pollinations') pollinationsPopulate();
   if (provider === 'qwen') qwenPopulate();
+  if (provider === 'aistudio') aistudioPopulate();
+  if (provider === 'chatgpt') chatgptPopulate();
+  renderCooldownCard();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider === 'pollinations') setStatus('Pollinations runs in the background — no tab needed.', 'info');
@@ -1108,7 +1266,7 @@ async function checkGrok() {
 }
 
 async function checkWebGenerator(provider) {
-  const names = { aistudio: 'AI Studio', qwen: 'Qwen Studio', perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
+  const names = { aistudio: 'AI Studio', qwen: 'Qwen Studio', perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI', piclumen: 'PicLumen', chatgpt: 'ChatGPT' };
   const name = names[provider] || provider;
   setStatus(`Checking ${name}…`, 'running');
   try {
@@ -1209,13 +1367,23 @@ function confirmQueue() {
       `${settings.pollinationsToken ? '' : ' (free tier is watermarked and rate-limited ~1 image/15s)'}.`;
     $('confirmOk').textContent = 'Queue on Pollinations';
   } else {
-    const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI' };
+    const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI', piclumen: 'PicLumen', chatgpt: 'ChatGPT' };
     const name = names[provider] || provider;
+    const ratioNote =
+      provider === 'aistudio'
+        ? ` Ratio ${settings.aistudioAspectRatio || '16:9'} (via the prompt).`
+        : provider === 'chatgpt'
+          ? ` Ratio ${settings.chatgptAspectRatio || '16:9'} (via the prompt).`
+          : '';
+    const chatNote =
+      provider === 'chatgpt' && !settings.chatgptConversationId
+        ? ' ⚠ No chat pinned yet — open a chat and click "Use current tab" in the ChatGPT card first.'
+        : '';
     $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via the ${name} website → ` +
       `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
-      `Keep the generator tab open; jobs run one at a time with a ${humanDelayLabel()} gap.`;
+      `Keep the generator tab open; jobs run one at a time with a ${humanDelayLabel()} gap.${ratioNote}${chatNote}`;
     $('confirmOk').textContent = `Queue on ${name}`;
   }
   const dlg = $('confirm');
@@ -1443,19 +1611,14 @@ function flashSaved() {
 }
 
 function renderLiveStatus() {
+  renderCooldownState(); // keep the provider-cooldown chip ticking
   if (!liveStatus || !Number.isFinite(liveStatus.countdownUntil)) return;
   const seconds = Math.max(0, Math.ceil((liveStatus.countdownUntil - Date.now()) / 1000));
-  if (liveStatus.countdownReason === 'recaptcha') {
+  if (liveStatus.countdownReason === 'cooldown') {
+    const name = PROVIDER_LABEL[liveStatus.countdownProvider] || liveStatus.countdownProvider || 'Provider';
     const text = seconds > 0
-      ? `Flow reCAPTCHA cooldown — resuming automatically in ${formatDuration(seconds * 1000)}.`
-      : 'Flow reCAPTCHA cooldown finished — resuming now.';
-    setStatus(text, liveStatus.kind);
-    return;
-  }
-  if (liveStatus.countdownReason === 'qwen-quota') {
-    const text = seconds > 0
-      ? `Qwen quota cooldown — resuming automatically in ${formatDuration(seconds * 1000)}.`
-      : 'Qwen quota cooldown finished — resuming now.';
+      ? `${name} cooldown — resuming automatically in ${formatDuration(seconds * 1000)}, or press Resume to override.`
+      : `${name} cooldown finished — resuming now.`;
     setStatus(text, liveStatus.kind);
     return;
   }

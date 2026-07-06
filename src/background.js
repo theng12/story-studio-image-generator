@@ -11,7 +11,7 @@
 // never flooded no matter how much you queue. Veo video (phase 2) is async and
 // slow; the queue's resumability is what makes that safe.
 
-import { getSettings, normalizeFlowProjectId } from './lib/config.js';
+import { getSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
@@ -24,6 +24,8 @@ const PROVIDER = {
   perchance: { url: 'https://perchance.org/ai-text-to-image-generator', match: 'https://perchance.org/*' },
   freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
   leonardo: { url: 'https://app.leonardo.ai/generate', match: 'https://app.leonardo.ai/*' },
+  piclumen: { url: 'https://www.piclumen.com/ai-image/', match: 'https://www.piclumen.com/*' },
+  chatgpt: { url: 'https://chatgpt.com/', match: 'https://chatgpt.com/*' },
 };
 const PROVIDER_NAME = {
   flow: 'Flow',
@@ -34,6 +36,8 @@ const PROVIDER_NAME = {
   freegen: 'FreeGen',
   leonardo: 'Leonardo AI',
   pollinations: 'Pollinations',
+  piclumen: 'PicLumen',
+  chatgpt: 'ChatGPT',
 };
 const PROVIDER_SCRIPTS = {
   leonardo: {
@@ -43,6 +47,14 @@ const PROVIDER_SCRIPTS = {
   qwen: {
     main: 'src/content/qwen-main.js',
     isolated: 'src/content/qwen.js',
+  },
+  piclumen: {
+    main: 'src/content/piclumen-main.js',
+    isolated: 'src/content/piclumen.js',
+  },
+  chatgpt: {
+    main: 'src/content/chatgpt-main.js',
+    isolated: 'src/content/chatgpt.js',
   },
 };
 // Providers that need no browser tab — generated directly from the worker.
@@ -60,8 +72,17 @@ let runStatusPrefix = '';
 const ALARM = 'queueTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
-const FLOW_RECAPTCHA_RESUME_KEY = 'flowRecaptchaResumeAt';
-const QWEN_QUOTA_RESUME_KEY = 'qwenQuotaResumeAt';
+// Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
+// cooldown is scoped to the provider that hit its limit and never blocks others.
+const COOLDOWN_KEY = 'cooldownUntil';
+
+const getCooldowns = async () => (await chrome.storage.local.get(COOLDOWN_KEY))[COOLDOWN_KEY] || {};
+async function setCooldownUntil(provider, resumeAt) {
+  const map = await getCooldowns();
+  map[provider] = resumeAt;
+  await chrome.storage.local.set({ [COOLDOWN_KEY]: map });
+}
+const clearCooldowns = () => chrome.storage.local.remove(COOLDOWN_KEY);
 
 // Small guards so a missing/disabled API can never break top-level evaluation
 // (which would stop the message listener from registering).
@@ -113,10 +134,28 @@ async function ensureProviderTab(provider = 'flow') {
 }
 const ensureFlowTab = () => ensureProviderTab('flow');
 
+// Panel "↗ Open provider" click: focus an existing tab for the provider's
+// generation page, or open a new active one. Tabless providers have no page.
+async function openProviderPage(provider) {
+  const cfg = PROVIDER[provider];
+  if (!cfg) return { ok: false, error: 'This provider has no page to open.' };
+  const tabs = await chrome.tabs.query({ url: cfg.match });
+  if (tabs[0]) {
+    await chrome.tabs.update(tabs[0].id, { active: true });
+    await chrome.windows.update(tabs[0].windowId, { focused: true }).catch(() => {});
+    return { ok: true };
+  }
+  await chrome.tabs.create({ url: cfg.url, active: true });
+  return { ok: true };
+}
+
+// Which provider a message targets, but only for providers we can re-inject
+// (a MAIN+isolated pair in PROVIDER_SCRIPTS). Used to auto-heal a tab whose
+// content script is missing/stale — e.g. a provider tab open from before the
+// extension loaded. Prefix of "<provider>:generateImage" etc. is the provider.
 function providerForMessage(type) {
-  if (String(type || '').startsWith('leonardo:')) return 'leonardo';
-  if (String(type || '').startsWith('qwen:')) return 'qwen';
-  return null;
+  const provider = String(type || '').split(':')[0];
+  return PROVIDER_SCRIPTS[provider] ? provider : null;
 }
 
 function isMissingReceiverError(error) {
@@ -170,6 +209,22 @@ async function ensureAiStudioReady(tab) {
   return await chrome.tabs.get(current.id);
 }
 
+// ChatGPT has many chats; drive the one the user pinned (via "Use current tab").
+// If a conversation is pinned and the tab isn't already on it, navigate there so
+// generation always targets the same chat. No pin → use the tab's current chat.
+async function ensureChatgptReady(tab, settings) {
+  const id = settings.chatgptConversationId;
+  if (!id) return tab;
+  let current = await chrome.tabs.get(tab.id).catch(() => null);
+  if (!current) throw new Error('The ChatGPT tab was closed. Reopen it to resume the queue.');
+  if (!new RegExp(`/c/${id}(?:[/?#]|$)`, 'i').test(current.url || '')) {
+    current = await chrome.tabs.update(current.id, { url: `https://chatgpt.com/c/${id}` });
+    await waitForTabReady(current.id);
+    await sleep(1200); // let the chat + composer hydrate
+  }
+  return await chrome.tabs.get(current.id);
+}
+
 function isTabReloadError(error) {
   return /message port closed|receiving end does not exist|could not establish connection|frame (?:was )?removed|tab (?:was )?closed|context invalidated|no tab with id|asynchronous response|provider tab (?:was closed|reload timed out)/i.test(
     String(error?.message || error || '')
@@ -209,6 +264,8 @@ async function send(tabId, message) {
     'flow:checkVideo',
     'flow:getContext',
     'freegen:getContext',
+    'piclumen:getContext',
+    'chatgpt:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
     'leonardo:modelControls',
@@ -363,6 +420,23 @@ async function generateAndSave(item, settings, tab) {
     });
     base64 = r.base64;
     mime = r.mime;
+  } else if (provider === 'piclumen') {
+    const r = await send(tab.id, {
+      type: 'piclumen:generateImage',
+      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio, model: settings.piclumenModel },
+    });
+    base64 = r.base64;
+    mime = r.mime;
+  } else if (provider === 'chatgpt') {
+    const r = await send(tab.id, {
+      type: 'chatgpt:generateImage',
+      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio },
+    });
+    // The adapter returns in-page PNG bytes when it can, else a URL for the
+    // worker to fetch (oaiusercontent can be CORS-locked in the page).
+    const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);
+    base64 = payload.base64;
+    mime = payload.mime;
   } else if (provider === 'flow') {
     const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
@@ -621,34 +695,27 @@ function parseWaitMs(message) {
   return (h ? parseFloat(h[1]) * 3600000 : 0) + (m ? parseInt(m[1], 10) * 60000 : 0);
 }
 
-// Qwen quota cooldown (mirror of the Flow reCAPTCHA cooldown): hold the queue
-// until qwenQuotaResumeAt, then clear and proceed. Self-corrects — if Qwen is
-// still limited after resuming, the next attempt re-arms this.
-async function holdForQwenCooldown(settings) {
-  const stored = await chrome.storage.local.get(QWEN_QUOTA_RESUME_KEY);
-  const resumeAt = Number(stored[QWEN_QUOTA_RESUME_KEY]) || 0;
-  if (!settings.qwenAutoResume || resumeAt <= Date.now()) {
-    if (resumeAt) await chrome.storage.local.remove(QWEN_QUOTA_RESUME_KEY);
+// Per-provider auto-resume cooldown: hold the queue until this provider's
+// resume time, then clear and proceed. Scoped to the given provider so another
+// provider's cooldown never blocks it. Self-corrects — if the provider is still
+// limited after resuming, the next attempt re-arms this. Only holds while the
+// provider's auto-resume toggle is on; otherwise the entry is dropped (a manual
+// pause, if any, keeps the queue stopped instead).
+async function holdForCooldown(provider, settings) {
+  const map = await getCooldowns();
+  const resumeAt = Number(map[provider]) || 0;
+  if (!providerCooldown(settings, provider).autoResume || resumeAt <= Date.now()) {
+    if (resumeAt) {
+      delete map[provider];
+      await chrome.storage.local.set({ [COOLDOWN_KEY]: map });
+    }
     return false;
   }
-  await writeStatus('Qwen quota cooldown — the queue will resume automatically.', 'info', {
+  const name = PROVIDER_NAME[provider] || provider;
+  await writeStatus(`${name} cooldown — the queue will resume automatically.`, 'info', {
     countdownUntil: resumeAt,
-    countdownReason: 'qwen-quota',
-  });
-  alarmCreate();
-  return true;
-}
-
-async function holdForFlowRecaptchaCooldown(settings) {
-  const stored = await chrome.storage.local.get(FLOW_RECAPTCHA_RESUME_KEY);
-  const resumeAt = Number(stored[FLOW_RECAPTCHA_RESUME_KEY]) || 0;
-  if (!settings.flowRecaptchaAutoPause || resumeAt <= Date.now()) {
-    if (resumeAt) await chrome.storage.local.remove(FLOW_RECAPTCHA_RESUME_KEY);
-    return false;
-  }
-  await writeStatus('Flow reCAPTCHA cooldown — the queue will resume automatically.', 'info', {
-    countdownUntil: resumeAt,
-    countdownReason: 'recaptcha',
+    countdownReason: 'cooldown',
+    countdownProvider: provider,
   });
   alarmCreate();
   return true;
@@ -913,7 +980,14 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       target: effTarget,
       projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
       model: isVideo ? settings.videoModel : settings.imageModel,
-      aspectRatio: prov === 'qwen' ? settings.qwenAspectRatio || '16:9' : settings.aspectRatio,
+      aspectRatio:
+        prov === 'qwen'
+          ? settings.qwenAspectRatio || '16:9'
+          : prov === 'aistudio'
+            ? settings.aistudioAspectRatio || '16:9'
+            : prov === 'chatgpt'
+              ? settings.chatgptAspectRatio || '16:9'
+              : settings.aspectRatio,
       applyRef: appliesRef(s.key),
       characterRef: appliesRef(s.key) ? characterRef : undefined,
       label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || akind + ' ' + s.key}`,
@@ -954,10 +1028,9 @@ async function processQueue() {
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
       // Only a cooldown for the *next item's* provider should hold the queue —
-      // a Qwen quota cooldown must not block a pending Flow item, and vice-versa.
+      // one provider's cooldown must never block a pending item for another.
       const nextProvider = q[idx].provider || 'flow';
-      if (nextProvider === 'flow' && (await holdForFlowRecaptchaCooldown(settings))) return;
-      if (nextProvider === 'qwen' && (await holdForQwenCooldown(settings))) return;
+      if (await holdForCooldown(nextProvider, settings)) return;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
       // Re-check after the human-pace delay (it can be up to a minute long).
@@ -984,6 +1057,7 @@ async function processQueue() {
       try {
         if (!TABLESS.has(provider) && !tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
+        if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
         await setNextProviderRun(settings);
         providerAttempted = true;
         const r =
@@ -996,13 +1070,21 @@ async function processQueue() {
           it.status = 'done';
           delete it.error;
           delete it.failure;
+          delete it.attempts;
           it.savedAs = r.savedAs;
           it.finishedAt = Date.now();
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
         await setQueue(q);
       } catch (e) {
-        if (settings.flowRecaptchaAutoPause && isFlowRecaptchaFailure(e, item)) {
+        const cd = providerCooldown(settings, provider);
+        // A provider limit (or Flow giving up on reCAPTCHA) doesn't fail the
+        // batch: re-pend the item. With this provider's auto-resume on, schedule
+        // a per-provider cooldown — the provider's own stated wait when it gives
+        // one (Qwen), else the configured minutes — and let the queue resume
+        // itself, re-arming if it's still limited. With auto-resume off, hard-
+        // pause until the user presses Resume (the prior default behavior).
+        if ((e && e.limit) || isFlowRecaptchaFailure(e, item)) {
           q = await getQueue();
           const it = q.find((i) => i.id === item.id);
           if (it) {
@@ -1014,59 +1096,24 @@ async function processQueue() {
             delete it.durationMs;
           }
           await setQueue(q);
-          const cooldownMinutes = Math.max(1, Number(settings.flowRecaptchaCooldownMin) || 15);
-          const resumeAt = Date.now() + cooldownMinutes * 60000;
-          await chrome.storage.local.set({ [FLOW_RECAPTCHA_RESUME_KEY]: resumeAt });
-          const attempts = Math.max(1, Number(settings.flowRecaptchaMaxAttempts) || 4);
-          await writeStatus(
-            `Flow reCAPTCHA rejected ${attempts} fresh token${attempts === 1 ? '' : 's'} — cooling down for ${cooldownMinutes} minutes.`,
-            'info',
-            { countdownUntil: resumeAt, countdownReason: 'recaptcha' }
-          );
-          alarmCreate();
-          return;
-        }
-        // A provider limit pauses the run instead of failing the whole batch.
-        // Re-pend this item and persist Pause so panel polling cannot hammer an
-        // account whose unknown quota reset time has not elapsed.
-        // Qwen quota hit with auto-resume on: re-pend and schedule a cooldown
-        // (parsed from the message when possible, else the configured hours + a
-        // 20-min buffer) instead of a hard pause. Resumes itself; re-arms if
-        // still limited.
-        if (e && e.limit && provider === 'qwen' && settings.qwenAutoResume) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) {
-            it.status = 'pending';
-            delete it.startedAt;
-          }
-          await setQueue(q);
-          const parsed = parseWaitMs(e.message);
-          const hours = Math.max(0.25, Number(settings.qwenQuotaCooldownHours) || 8);
-          const waitMs = parsed ? parsed + 20 * 60000 : hours * 3600000;
-          const resumeAt = Date.now() + waitMs;
-          await chrome.storage.local.set({ [QWEN_QUOTA_RESUME_KEY]: resumeAt });
-          await writeStatus(
-            `Qwen quota reached — auto-resuming in ~${(waitMs / 3600000).toFixed(1)}h.`,
-            'info',
-            { countdownUntil: resumeAt, countdownReason: 'qwen-quota' }
-          );
-          alarmCreate();
-          return;
-        }
-        if (e && e.limit) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) {
-            it.status = 'pending';
-            delete it.startedAt;
-          }
-          await setQueue(q);
-          await chrome.storage.local.set({ [PAUSE_KEY]: true });
           const name = PROVIDER_NAME[provider] || provider;
-          const detail = e.message ? ` ${e.message}` : '';
-          await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
-          alarmClear();
+          if (cd.autoResume) {
+            const parsed = parseWaitMs(e && e.message);
+            const waitMs = parsed ? parsed + 20 * 60000 : cd.minutes * 60000;
+            const resumeAt = Date.now() + waitMs;
+            await setCooldownUntil(provider, resumeAt);
+            await writeStatus(`${name} limit reached — auto-resuming automatically.`, 'info', {
+              countdownUntil: resumeAt,
+              countdownReason: 'cooldown',
+              countdownProvider: provider,
+            });
+            alarmCreate();
+          } else {
+            await chrome.storage.local.set({ [PAUSE_KEY]: true });
+            const detail = e && e.message ? ` ${e.message}` : '';
+            await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
+            alarmClear();
+          }
           return;
         }
         // A page reload is a transport interruption, not a generation result.
@@ -1082,6 +1129,27 @@ async function processQueue() {
           }
           await setQueue(q);
           await writeStatus('Provider tab interrupted — current job will retry automatically…', 'running');
+          alarmCreate();
+          return;
+        }
+        // Auto-retry a normal failure up to the provider's configured count —
+        // only while its auto-resume toggle is on, so "off" keeps prior behavior
+        // (fail immediately, retry manually with the Retry-failed button).
+        if (cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) {
+            it.attempts = (it.attempts || 0) + 1;
+            it.status = 'pending';
+            delete it.error;
+            delete it.failure;
+            delete it.startedAt;
+            delete it.finishedAt;
+            delete it.durationMs;
+          }
+          await setQueue(q);
+          const name = PROVIDER_NAME[provider] || provider;
+          await writeStatus(`${runStatusPrefix} failed — retry ${(item.attempts || 0) + 1}/${cd.retries} (${name})…`, 'running');
           alarmCreate();
           return;
         }
@@ -1117,7 +1185,7 @@ async function processQueue() {
 async function clearQueue() {
   const q = (await getQueue()).filter((i) => i.status === 'running');
   await setQueue(q);
-  if (!q.length) await chrome.storage.local.remove(FLOW_RECAPTCHA_RESUME_KEY);
+  if (!q.length) await clearCooldowns();
   await writeStatus('Queue cleared.', 'info');
   return { ok: true };
 }
@@ -1178,7 +1246,11 @@ async function webGeneratorContext(provider) {
           ? 'aistudio:getContext'
           : provider === 'qwen'
             ? 'qwen:getContext'
-            : 'leonardo:getContext';
+            : provider === 'piclumen'
+              ? 'piclumen:getContext'
+              : provider === 'chatgpt'
+                ? 'chatgpt:getContext'
+                : 'leonardo:getContext';
   const r = await send(tab.id, { type: messageType });
   return { ok: true, ...r.result };
 }
@@ -1202,7 +1274,7 @@ async function leonardoModelControls(model) {
 // Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
 async function resumeQueue() {
   // Manual resume overrides any provider's cooldown — clear them all.
-  await chrome.storage.local.remove([PAUSE_KEY, FLOW_RECAPTCHA_RESUME_KEY, QWEN_QUOTA_RESUME_KEY]);
+  await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY]);
   alarmCreate();
   processQueue();
   return { ok: true };
@@ -1240,18 +1312,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // explicit user pause.
       reply(
         (async () => {
-          const [queue, paused, local] = await Promise.all([
+          const [queue, paused, cooldowns] = await Promise.all([
             getQueue(),
             isPaused(),
-            chrome.storage.local.get([FLOW_RECAPTCHA_RESUME_KEY, QWEN_QUOTA_RESUME_KEY]),
+            getCooldowns(),
           ]);
           // A cooldown only counts as "cooling down" when it blocks the next
-          // pending item's provider — not just because some key lingers.
+          // pending item's provider — not just because some entry lingers.
           const headProvider = queue.find((i) => i.status === 'pending')?.provider || null;
-          const flowCooling = Number(local[FLOW_RECAPTCHA_RESUME_KEY]) > Date.now();
-          const qwenCooling = Number(local[QWEN_QUOTA_RESUME_KEY]) > Date.now();
-          const coolingDown =
-            (headProvider === 'flow' && flowCooling) || (headProvider === 'qwen' && qwenCooling);
+          const coolingDown = !!headProvider && Number(cooldowns[headProvider]) > Date.now();
           if (!paused && queue.some((i) => i.status === 'pending') && !processing) {
             alarmCreate();
             processQueue();
@@ -1268,6 +1337,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'grokContext':
       reply(grokContext());
+      return true;
+    case 'openProviderPage':
+      reply(openProviderPage(msg.provider));
       return true;
     case 'webGeneratorContext':
       reply(webGeneratorContext(msg.provider));

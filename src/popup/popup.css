@@ -133,6 +133,7 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .asset-setting .mini { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 .asset-setting select { width: 100%; padding: 9px 10px; }
 #queueSelected { width: 100%; min-height: 46px; margin-top: 12px; }
+.open-provider-row { justify-content: flex-end; margin: 4px 0 0; }
 
 @media (max-width: 540px) {
   .asset-settings { grid-template-columns: 1fr; }

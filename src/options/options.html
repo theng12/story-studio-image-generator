@@ -51,25 +51,11 @@
 
     <section class="card">
       <div class="label">Flow reCAPTCHA recovery</div>
-      <label class="checkbox field">
-        <input type="checkbox" id="flowRecaptchaAutoPause" />
-        <span>Automatically pause and retry after repeated reCAPTCHA failures</span>
-      </label>
       <div class="field">
-        <span class="label">Fresh-token attempts before cooldown</span>
+        <span class="label">Fresh-token attempts per generation</span>
         <input type="number" id="flowRecaptchaMaxAttempts" min="1" max="10" step="1" />
       </div>
-      <div class="field">
-        <span class="label">Cooldown before automatic resume</span>
-        <select id="flowRecaptchaCooldownMin">
-          <option value="5">5 minutes</option>
-          <option value="10">10 minutes</option>
-          <option value="15">15 minutes — recommended</option>
-          <option value="30">30 minutes</option>
-          <option value="60">60 minutes</option>
-        </select>
-      </div>
-      <div class="hint">This is the total number of freshly minted tokens Flow tries, from 1–10 (default 4). If every attempt is rejected, the current image stays pending, the whole queue cools down, and it resumes itself after this interval. The side-panel Resume button can retry sooner.</div>
+      <div class="hint">Flow mints this many fresh reCAPTCHA tokens within a single image generation (1–10, default 4) before giving up on that image. What happens after it gives up — pause vs. auto-resume, and after how long — is set per provider in the side panel's <b>Provider cooldown</b> card.</div>
     </section>
 
     <section class="card">
