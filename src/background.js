@@ -953,8 +953,11 @@ async function processQueue() {
       let q = await getQueue();
       const idx = q.findIndex((i) => i.status === 'pending');
       if (idx < 0) break;
-      if (await holdForFlowRecaptchaCooldown(settings)) return;
-      if (await holdForQwenCooldown(settings)) return;
+      // Only a cooldown for the *next item's* provider should hold the queue —
+      // a Qwen quota cooldown must not block a pending Flow item, and vice-versa.
+      const nextProvider = q[idx].provider || 'flow';
+      if (nextProvider === 'flow' && (await holdForFlowRecaptchaCooldown(settings))) return;
+      if (nextProvider === 'qwen' && (await holdForQwenCooldown(settings))) return;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
       // Re-check after the human-pace delay (it can be up to a minute long).
@@ -1198,7 +1201,8 @@ async function leonardoModelControls(model) {
 
 // Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
 async function resumeQueue() {
-  await chrome.storage.local.remove([PAUSE_KEY, FLOW_RECAPTCHA_RESUME_KEY]);
+  // Manual resume overrides any provider's cooldown — clear them all.
+  await chrome.storage.local.remove([PAUSE_KEY, FLOW_RECAPTCHA_RESUME_KEY, QWEN_QUOTA_RESUME_KEY]);
   alarmCreate();
   processQueue();
   return { ok: true };
@@ -1236,12 +1240,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // explicit user pause.
       reply(
         (async () => {
-          const [queue, paused, cooldown] = await Promise.all([
+          const [queue, paused, local] = await Promise.all([
             getQueue(),
             isPaused(),
-            chrome.storage.local.get(FLOW_RECAPTCHA_RESUME_KEY),
+            chrome.storage.local.get([FLOW_RECAPTCHA_RESUME_KEY, QWEN_QUOTA_RESUME_KEY]),
           ]);
-          const coolingDown = Number(cooldown[FLOW_RECAPTCHA_RESUME_KEY]) > Date.now();
+          // A cooldown only counts as "cooling down" when it blocks the next
+          // pending item's provider — not just because some key lingers.
+          const headProvider = queue.find((i) => i.status === 'pending')?.provider || null;
+          const flowCooling = Number(local[FLOW_RECAPTCHA_RESUME_KEY]) > Date.now();
+          const qwenCooling = Number(local[QWEN_QUOTA_RESUME_KEY]) > Date.now();
+          const coolingDown =
+            (headProvider === 'flow' && flowCooling) || (headProvider === 'qwen' && qwenCooling);
           if (!paused && queue.some((i) => i.status === 'pending') && !processing) {
             alarmCreate();
             processQueue();
