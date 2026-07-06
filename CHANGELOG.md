@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.28.3 — Completion-wait safety net across providers
+- Made "finish + save before the next prompt" a uniform guarantee. The queue already saved each image before starting the next item for **every** provider; this hardens **AI Studio** — the one image adapter that accepted the first frame it saw — to wait for the image to settle before returning, matching Qwen / FreeGen / Leonardo / Perchance / ChatGPT, which already wait for their generator to finish.
+
 ## 0.28.2 — ChatGPT waits for generation to finish
 - ChatGPT now **waits until the image has fully finished generating** (its stop button clears) before it saves and moves on — so the queue never fires the next prompt while the previous image is still cooking. Send → wait → receive → save → *then* the human-pace gap → next. (A stability safety-net still applies if the stop button can't be detected.)
 

@@ -55,9 +55,21 @@
 
   async function waitForImage(before, timeoutMs = 180000) {
     const started = Date.now();
+    let lastSrc = '';
+    let stableSince = 0;
     while (Date.now() - started < timeoutMs) {
       const fresh = dataImages().find((s) => !before.has(s));
-      if (fresh) return fresh;
+      // Don't accept the instant an image appears — wait for it to stop changing
+      // (~2s stable) so a mid-generation frame isn't mistaken for the final image
+      // and the next queue item isn't started early.
+      if (fresh) {
+        if (fresh !== lastSrc) {
+          lastSrc = fresh;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= 2000) {
+          return fresh;
+        }
+      }
       const err = currentErrorText();
       if (/quota|exceeded|resource[_ ]?exhausted|rate limit|too many requests|limit reached/i.test(err)) {
         const e = new Error('AI Studio free quota reached.');
