@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.28.1 — ChatGPT image-capture fix
+- Fixed ChatGPT jobs getting stuck on **"running"** after the image had already generated: the "still generating?" check was fooled by the composer's voice/dictation button, so the finished image was never accepted and saved. Now it keys off the real generation stop button plus a stabilization fallback (accept once the image URL is stable for a few seconds), and detects the image more robustly. **Reload the ChatGPT tab** after updating so the new adapter loads.
+
 ## 0.28 — New provider: ChatGPT
 - **ChatGPT (chatgpt.com) added as an image provider (text-to-image).** Drives your signed-in chat like the AI Studio/Qwen providers: it sends "Create a &lt;ratio&gt; image of …" and reads back the generated image. **Keep the ChatGPT tab visible** while it runs.
 - **Pin which ChatGPT chat to drive:** open the chat you want and click **Use current tab** in the ChatGPT card — the queue navigates to that exact conversation before each generation (so it's not confused by your other open chats).
