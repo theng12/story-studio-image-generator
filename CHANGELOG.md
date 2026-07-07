@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.28.4 — Qwen reference double-upload fix + pacing
+- Fixed Qwen attaching the character reference **twice** (then stalling after 2–3 scenes). A slow upload of a large character sheet timed out the old 10s wait and fired a second paste, leaving two references. Now it waits up to 25s before any retry, waits for the chip count to **settle and trims to exactly one**, and **paces the steps** — upload → settle → type prompt → settle → (verify one chip) → send — with generous leeway so nothing races.
+
 ## 0.28.3 — Completion-wait safety net across providers
 - Made "finish + save before the next prompt" a uniform guarantee. The queue already saved each image before starting the next item for **every** provider; this hardens **AI Studio** — the one image adapter that accepted the first frame it saw — to wait for the image to settle before returning, matching Qwen / FreeGen / Leonardo / Perchance / ChatGPT, which already wait for their generator to finish.
 
