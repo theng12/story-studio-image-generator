@@ -153,10 +153,33 @@
   const refChips = () => [...document.querySelectorAll('.vision-item-container')].filter(visible);
 
   async function clearReferences() {
-    for (let guard = 0; guard < 8 && refChips().length; guard++) {
+    for (let guard = 0; guard < 12 && refChips().length; guard++) {
       refChips()[0].querySelector('.close-button')?.click();
       await sleep(400);
     }
+  }
+
+  // Wait for the reference chip count to stop changing (a slow upload can add its
+  // chip late, or a stray second one can appear), then trim to exactly one.
+  async function settleToOneChip(timeoutMs = 8000) {
+    let last = -1;
+    let stableSince = Date.now();
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const n = refChips().length;
+      if (n !== last) {
+        last = n;
+        stableSince = Date.now();
+      } else if (Date.now() - stableSince > 2000) {
+        break; // count held steady for 2s
+      }
+      await sleep(300);
+    }
+    for (let guard = 0; guard < 8 && refChips().length > 1; guard++) {
+      refChips()[refChips().length - 1].querySelector('.close-button')?.click();
+      await sleep(400);
+    }
+    return refChips().length;
   }
 
   async function attachReference(ref) {
@@ -187,24 +210,27 @@
       }
       return false;
     };
-    // One paste, then wait GENEROUSLY (a large sheet can take several seconds to
-    // register). Only retry after a full 10s of no chip — retrying sooner would
-    // fire a second paste while a slow-but-successful first paste is still in
-    // flight, ending up with TWO references. Clear before the retry so it starts
-    // clean, and trim to exactly one at the end as a safety net.
+    // One paste, then wait GENEROUSLY — a large sheet can take a long time to
+    // register, and retrying too soon fires a SECOND paste while the first is
+    // still in flight, ending up with two references (which stalls the job).
+    // So wait up to 25s before any retry, then let the count settle and trim to
+    // exactly one.
+    await clearReferences();
+    await sleep(500);
     pasteFile();
-    let attached = await waitForChip(10000);
+    let attached = await waitForChip(25000);
     if (!attached) {
       await clearReferences();
+      await sleep(600);
       pasteFile();
-      attached = await waitForChip(10000);
+      attached = await waitForChip(25000);
     }
-    if (!attached) throw new Error('Qwen Studio did not accept the reference image upload within 20s.');
-    await sleep(700);
-    while (refChips().length > 1) {
-      refChips()[refChips().length - 1].querySelector('.close-button')?.click();
-      await sleep(300);
-    }
+    if (!attached) throw new Error('Qwen Studio did not accept the reference image upload.');
+    // Let the upload finish + any stray second chip appear, then trim to one.
+    await sleep(1500);
+    const count = await settleToOneChip();
+    if (count < 1) throw new Error('Qwen Studio reference upload did not stick — retry this scene.');
+    await sleep(600);
   }
 
   function getContext() {
@@ -227,6 +253,7 @@
     if (params.reference) {
       postProgress('uploading reference');
       await attachReference(params.reference);
+      await sleep(1200); // leeway: let the upload fully settle before typing
     }
 
     const beforeImages = new Set(imageUrls());
@@ -234,11 +261,21 @@
     const ratio = String(params.aspectRatio || '16:9');
     const ratioInstruction = RATIO_INSTRUCTIONS[ratio] || `Create an image with an exact ${ratio} aspect ratio`;
     setTextarea(textarea, `${ratioInstruction}. Compose all content inside that format. Image prompt: ${prompt}`);
+    await sleep(800); // leeway: let the prompt register before sending
+
+    // Last-line guard: a stray second reference chip can appear late — trim to
+    // exactly one right before sending so Qwen never generates with a double.
+    if (params.reference) {
+      for (let guard = 0; guard < 6 && refChips().length > 1; guard++) {
+        refChips()[refChips().length - 1].querySelector('.close-button')?.click();
+        await sleep(400);
+      }
+    }
 
     // Wait for Send to actually be ready (present, visible, enabled) rather than
     // a one-shot check — after an attachment it can take a beat to enable.
     let send = null;
-    const sendDeadline = Date.now() + 8000;
+    const sendDeadline = Date.now() + 12000;
     while (Date.now() < sendDeadline) {
       const button = sendButton();
       if (button && visible(button) && !button.disabled && !button.classList.contains('disabled')) {
@@ -248,6 +285,7 @@
       await sleep(300);
     }
     if (!send) throw new Error('Qwen Studio Send button did not become available. Check the tab for a sign-in or verification prompt.');
+    await sleep(400); // small settle so the click lands after the composer is stable
     send.click();
     postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);
