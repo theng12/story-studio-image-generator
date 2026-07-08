@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.31 — Fleet Hub picker support
+- **Pick projects and episodes in the hub instead of typing codes.** The hub can't reach your Story Studio directly (it's behind login), so when you open the Distribute picker an online machine fetches the project/episode list for it on demand and reports it back. No more copy-pasting slugs and episode codes — choose from dropdowns, with a ✓ marking episodes that already have images.
+
 ## 0.30 — Fleet dispatch (scene-level fan-out)
 - **The Fleet Hub can split one episode across all your machines.** Pick a project + episode + provider in the hub and it hands each online machine (on that provider) small batches of the episode's missing scenes, topping them up as they finish — so one episode completes ~Nx faster instead of each machine taking a whole episode. Scenes from a machine that goes offline or into cooldown are reclaimed and reassigned, and failures retry elsewhere. Requires all machines to share one Story Studio.
 

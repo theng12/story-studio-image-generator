@@ -1232,6 +1232,7 @@ chrome.alarms?.onAlarm?.addListener((a) => {
 // the 30s queue alarm also fires a heartbeat so idle machines still report.
 let fleetAckedIds = [];
 let fleetEnumeration = null; // { jobId, scenes:[{id,prompt,label}] } to report next beat
+let fleetCatalog = null; // { kind:'projects'|'episodes', slug?, items } to report next beat
 
 async function fleetHeartbeat() {
   const settings = await getSettings();
@@ -1279,7 +1280,7 @@ async function fleetHeartbeat() {
     status: stored.lastStatus?.text || '',
     cooldownUntil,
     ackedCommandIds: fleetAckedIds,
-    fleet: { pending: fleetPending, report, enumeration: fleetEnumeration },
+    fleet: { pending: fleetPending, report, enumeration: fleetEnumeration, catalog: fleetCatalog },
   };
   try {
     const r = await fetch(`${hub}/api/agents/heartbeat`, {
@@ -1291,6 +1292,7 @@ async function fleetHeartbeat() {
     const data = await r.json().catch(() => ({}));
     fleetAckedIds = [];
     fleetEnumeration = null; // sent
+    fleetCatalog = null; // sent
     // Drop the fleet scenes we just reported so they don't pile up or re-report.
     if (report.length) {
       const reported = new Set(report.map((x) => `${x.jobId}|${x.sceneId}`));
@@ -1320,6 +1322,25 @@ async function executeFleetCommand(cmd, settings) {
       case 'clear':
         await clearQueue();
         break;
+      case 'fetchCatalog': {
+        // The hub can't reach the shared Story Studio (auth) — we can, so list
+        // projects/episodes for the hub's Distribute picker.
+        const client = new StudioClient(settings.studioBaseUrl);
+        if (cmd.kind === 'episodes' && cmd.slug) {
+          const rows = await client.listEpisodes(cmd.slug);
+          const eps = (Array.isArray(rows) ? rows : rows.episodes || [])
+            .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', done: !!e.status?.images }))
+            .filter((e) => e.code);
+          fleetCatalog = { kind: 'episodes', slug: cmd.slug, items: eps };
+        } else {
+          const rows = await client.listProjects();
+          const projects = (Array.isArray(rows) ? rows : rows.projects || [])
+            .map((p) => ({ slug: p.slug, name: p.name || p.slug }))
+            .filter((p) => p.slug);
+          fleetCatalog = { kind: 'projects', items: projects };
+        }
+        break;
+      }
       case 'enumerateEpisode': {
         // Report this episode's missing scenes so the hub can build the pool.
         const data = await new StudioClient(settings.studioBaseUrl).sceneReview(cmd.slug, cmd.episodeCode);
