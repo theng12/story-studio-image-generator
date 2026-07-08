@@ -930,7 +930,7 @@ async function retryFailed(id = null) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, assetType, provider, characterRef }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, assetType, provider, characterRef, fleetJobId }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || 'flow';
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
@@ -990,6 +990,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
               : settings.aspectRatio,
       applyRef: appliesRef(s.key),
       characterRef: appliesRef(s.key) ? characterRef : undefined,
+      fleetJobId: fleetJobId || undefined, // tag scenes dispatched by the Fleet Hub
       label: `${episodeCode} ${isVideo ? 'video · ' : ''}${s.label || akind + ' ' + s.key}`,
       // tokens for Downloads naming:
       project: projectName || episodeTitle || slug,
@@ -1230,6 +1231,7 @@ chrome.alarms?.onAlarm?.addListener((a) => {
 // runs while the worker is alive (i.e. during active batches, when it matters);
 // the 30s queue alarm also fires a heartbeat so idle machines still report.
 let fleetAckedIds = [];
+let fleetEnumeration = null; // { jobId, scenes:[{id,prompt,label}] } to report next beat
 
 async function fleetHeartbeat() {
   const settings = await getSettings();
@@ -1257,6 +1259,14 @@ async function fleetHeartbeat() {
   else if (cooldownUntil && cooldownUntil > Date.now()) state = 'cooldown';
   else if (left > 0) state = counts.running ? 'generating' : 'queued';
 
+  // Dispatch bookkeeping: report done/failed for hub-assigned scenes and how many
+  // are still in flight so the hub knows our capacity.
+  const fleetItems = queue.filter((i) => i.fleetJobId);
+  const report = fleetItems
+    .filter((i) => i.status === 'done' || i.status === 'failed')
+    .map((i) => ({ jobId: i.fleetJobId, sceneId: i.sceneKey, status: i.status }));
+  const fleetPending = fleetItems.filter((i) => i.status === 'pending' || i.status === 'running').length;
+
   const body = {
     agentId: name,
     name,
@@ -1269,6 +1279,7 @@ async function fleetHeartbeat() {
     status: stored.lastStatus?.text || '',
     cooldownUntil,
     ackedCommandIds: fleetAckedIds,
+    fleet: { pending: fleetPending, report, enumeration: fleetEnumeration },
   };
   try {
     const r = await fetch(`${hub}/api/agents/heartbeat`, {
@@ -1276,16 +1287,25 @@ async function fleetHeartbeat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!r.ok) return; // keep acks pending; retry next tick
+    if (!r.ok) return; // keep acks/report pending; retry next tick
     const data = await r.json().catch(() => ({}));
-    fleetAckedIds = []; // hub has processed our acks
-    for (const cmd of data.commands || []) await executeFleetCommand(cmd);
+    fleetAckedIds = [];
+    fleetEnumeration = null; // sent
+    // Drop the fleet scenes we just reported so they don't pile up or re-report.
+    if (report.length) {
+      const reported = new Set(report.map((x) => `${x.jobId}|${x.sceneId}`));
+      const q = await getQueue();
+      await setQueue(
+        q.filter((i) => !(i.fleetJobId && (i.status === 'done' || i.status === 'failed') && reported.has(`${i.fleetJobId}|${i.sceneKey}`)))
+      );
+    }
+    for (const cmd of data.commands || []) await executeFleetCommand(cmd, settings);
   } catch {
     /* hub unreachable — try again next tick */
   }
 }
 
-async function executeFleetCommand(cmd) {
+async function executeFleetCommand(cmd, settings) {
   try {
     switch (cmd.type) {
       case 'pause':
@@ -1300,11 +1320,29 @@ async function executeFleetCommand(cmd) {
       case 'clear':
         await clearQueue();
         break;
-      case 'queueAllPending':
-      case 'queueEpisode':
-        // Dispatch from the hub is not wired into the worker yet (the queueing
-        // logic still lives in the panel). Ack it so it doesn't pile up.
-        await writeStatus('Fleet dispatch isn’t supported by this version yet.', 'info');
+      case 'enumerateEpisode': {
+        // Report this episode's missing scenes so the hub can build the pool.
+        const data = await new StudioClient(settings.studioBaseUrl).sceneReview(cmd.slug, cmd.episodeCode);
+        const scenes = (data?.scenes || [])
+          .filter((s) => !s.image_filename && (s.visual_prompt || '').trim())
+          .map((s) => ({ id: s.id, prompt: s.visual_prompt, label: `Scene ${s.scene_index}` }));
+        fleetEnumeration = { jobId: cmd.jobId, scenes };
+        break;
+      }
+      case 'generateScenes':
+        // Queue exactly the scenes the hub leased to us (dedupe guards double work).
+        await enqueueScenes({
+          slug: cmd.slug,
+          episodeCode: cmd.episodeCode,
+          provider: cmd.provider,
+          target: cmd.target,
+          source: 'plan',
+          kind: 'scene',
+          assetType: 'image',
+          projectName: cmd.slug,
+          fleetJobId: cmd.jobId,
+          scenes: (cmd.scenes || []).map((x) => ({ source: 'plan', kind: 'scene', key: x.id, prompt: x.prompt, label: x.label, hasImage: false })),
+        });
         break;
       default:
         break;
