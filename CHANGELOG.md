@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.32 — Fleet Hub: episode status, multi-episode queue, character reference
+- **The hub picker now shows which episodes already have their scenes** and lets you **queue several episodes at once** — the agent reports each episode's scene-plan/done status and the project's characters alongside the episode list.
+- **Character reference works through the fleet.** Pick a character in the hub and its reference sheet is attached to character scenes exactly as it is for a single machine (Flow/Qwen only) — the `generateScenes` command now carries the reference and this extension applies it.
+
 ## 0.31 — Fleet Hub picker support
 - **Pick projects and episodes in the hub instead of typing codes.** The hub can't reach your Story Studio directly (it's behind login), so when you open the Distribute picker an online machine fetches the project/episode list for it on demand and reports it back. No more copy-pasting slugs and episode codes — choose from dropdowns, with a ✓ marking episodes that already have images.
 
