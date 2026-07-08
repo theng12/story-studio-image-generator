@@ -1250,18 +1250,33 @@ async function fleetHeartbeat() {
   const name = String(settings.fleetAgentName || '').trim();
   if (!settings.fleetAgentEnabled || !hub || !name) return;
 
-  const [queue, paused, stored] = await Promise.all([
+  const [rawQueue, paused, stored] = await Promise.all([
     getQueue(),
     isPaused(),
     chrome.storage.local.get([COOLDOWN_KEY, 'lastStatus']),
   ]);
+  const cooldownUntil = Number(stored[COOLDOWN_KEY]) || null;
+
+  // If we can't generate right now (paused or cooling down), hand our
+  // not-yet-started fleet scenes back to the pool: drop them from our queue so
+  // the hub redistributes them to a free machine AND so we don't double-generate
+  // them when we resume. Running / done / failed items stay put.
+  let queue = rawQueue;
+  const cantGenerate = paused || (cooldownUntil && cooldownUntil > Date.now());
+  if (cantGenerate) {
+    const trimmed = queue.filter((i) => !(i.fleetJobId && i.status === 'pending'));
+    if (trimmed.length !== queue.length) {
+      await setQueue(trimmed);
+      queue = trimmed;
+    }
+  }
+
   const counts = {
     done: queue.filter((i) => i.status === 'done').length,
     failed: queue.filter((i) => i.status === 'failed').length,
     pending: queue.filter((i) => i.status === 'pending').length,
     running: queue.filter((i) => i.status === 'running').length,
   };
-  const cooldownUntil = Number(stored[COOLDOWN_KEY]) || null;
   const left = counts.pending + counts.running;
   let state = 'idle';
   if (paused) state = 'paused';
