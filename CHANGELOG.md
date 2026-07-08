@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.37 — Fix: fleet now actually sees provider cooldowns
+- **The cooldown release from 0.36 never fired for a real provider cooldown** — the fleet heartbeat read the per-provider cooldown store (`{ flow: …, qwen: … }`) as if it were a single number, so it always came back empty. A machine in (say) Flow cooldown reported itself as merely "queued", kept its leased scenes, and the hub couldn't reclaim them — so they sat hostage while the machine waited out the cooldown. Fixed: it now reads **this machine's provider** from the map, reports the real cooldown (with resume time) to the hub, releases its unstarted scenes, and the hub redistributes them to a free machine.
+
 ## 0.36 — Cooldown no longer holds the fleet hostage
 - **A machine in cooldown (or paused) hands its unstarted scenes back to the hub** instead of sitting on them. Previously a cooled-down machine kept its leased scenes until a 12-minute lease expired — delaying the episode — and could then **double-generate** them when it woke up (since the hub had already reassigned them). Now: the moment it can't generate, it releases its not-yet-started fleet scenes, the hub reclaims and redistributes them to a free machine, and the hub stops handing the idle machine new work. When it resumes it picks up fresh work. No hostage, no double spend. (Pairs with the matching Fleet Hub update.)
 

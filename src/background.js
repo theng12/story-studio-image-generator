@@ -1255,7 +1255,12 @@ async function fleetHeartbeat() {
     isPaused(),
     chrome.storage.local.get([COOLDOWN_KEY, 'lastStatus']),
   ]);
-  const cooldownUntil = Number(stored[COOLDOWN_KEY]) || null;
+  // COOLDOWN_KEY holds a PER-PROVIDER map ({ flow: resumeAt, qwen: resumeAt, … }),
+  // so read this machine's provider — not the map itself. (Reading it as a bare
+  // number always gave NaN→null, so the fleet never noticed a provider cooldown
+  // and never released its scenes; the hub then held them hostage.)
+  const cooldowns = stored[COOLDOWN_KEY] || {};
+  const cooldownUntil = Number(cooldowns[settings.provider]) || null;
 
   // If we can't generate right now (paused or cooling down), hand our
   // not-yet-started fleet scenes back to the pool: drop them from our queue so
