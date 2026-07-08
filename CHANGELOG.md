@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.36 — Cooldown no longer holds the fleet hostage
+- **A machine in cooldown (or paused) hands its unstarted scenes back to the hub** instead of sitting on them. Previously a cooled-down machine kept its leased scenes until a 12-minute lease expired — delaying the episode — and could then **double-generate** them when it woke up (since the hub had already reassigned them). Now: the moment it can't generate, it releases its not-yet-started fleet scenes, the hub reclaims and redistributes them to a free machine, and the hub stops handing the idle machine new work. When it resumes it picks up fresh work. No hostage, no double spend. (Pairs with the matching Fleet Hub update.)
+
 ## 0.35 — Keep failed jobs on the machine (a fresh batch no longer wipes them)
 - **Your failures stay put.** Starting a new batch used to reset the queue, clearing all done *and failed* entries — so errors vanished before you could read them. Now a fresh batch clears only the *completed* jobs and **keeps the failed ones** (most recent 100) so you can still see and identify what went wrong on that machine. The per-heartbeat report to the Fleet Hub likewise keeps failed items visible locally instead of dropping them. A retry (local or from the hub) supersedes the old failed entry.
 
