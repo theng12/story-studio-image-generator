@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.34 — Fleet Hub: report why a scene failed
+- **Failed fleet scenes now report their reason** (e.g. "Qwen quota reached", "sign-in expired") back to the hub, so you can see and identify failures per episode instead of just a count — and retry them.
+
 ## 0.33 — Fleet Hub: push pacing + cooldown to every machine
 - **Set human pacing and per-provider cooldown/auto-resume for the whole fleet from the hub.** The extension now reports its current pacing + cooldown to the hub and obeys an `applySettings` command, so you can dial in "5–60s pacing, Qwen auto-resume after 480 min" once and push it to every machine instead of editing each one's Settings. (Per-provider cooldowns deep-merge, so pushing one provider's cooldown doesn't disturb the others.)
 
