@@ -865,9 +865,16 @@ function itemKey(it) {
 async function enqueue(items) {
   if (!items?.length) return { ok: true, added: 0, skipped: 0 };
   let q = await getQueue();
-  // If the previous run is fully finished, start a fresh queue so old
-  // done/failed entries don't pile up.
-  if (!q.some((i) => i.status === 'pending' || i.status === 'running')) q = [];
+  // Starting a fresh run: clear the COMPLETED entries so they don't pile up, but
+  // KEEP failed ones (capped) so you can still see what went wrong on this
+  // machine — a fresh batch no longer wipes your failures.
+  if (!q.some((i) => i.status === 'pending' || i.status === 'running')) {
+    q = q.filter((i) => i.status === 'failed').slice(-100);
+  }
+  // A fresh attempt for a scene supersedes its prior failed entry (e.g. a hub
+  // "retry"), so the panel shows the retry, not a stale failure beside it.
+  const incoming = new Set(items.map(itemKey).filter(Boolean));
+  if (incoming.size) q = q.filter((i) => !(i.status === 'failed' && incoming.has(itemKey(i))));
   const active = new Set(
     q.filter((i) => i.status === 'pending' || i.status === 'running').map(itemKey).filter(Boolean)
   );
@@ -914,6 +921,7 @@ async function retryFailed(id = null) {
     item.status = 'pending';
     delete item.error;
     delete item.failure;
+    delete item.fleetReported; // report this attempt's outcome to the hub again
     delete item.startedAt;
     delete item.finishedAt;
     delete item.durationMs;
@@ -1264,7 +1272,7 @@ async function fleetHeartbeat() {
   // are still in flight so the hub knows our capacity.
   const fleetItems = queue.filter((i) => i.fleetJobId);
   const report = fleetItems
-    .filter((i) => i.status === 'done' || i.status === 'failed')
+    .filter((i) => (i.status === 'done' || i.status === 'failed') && !i.fleetReported)
     .map((i) => ({
       jobId: i.fleetJobId,
       sceneId: i.sceneKey,
@@ -1306,12 +1314,17 @@ async function fleetHeartbeat() {
     fleetAckedIds = [];
     fleetEnumeration = null; // sent
     fleetCatalog = null; // sent
-    // Drop the fleet scenes we just reported so they don't pile up or re-report.
+    // After reporting: drop the SUCCESSFUL scenes so they don't pile up, but KEEP
+    // the failed ones on this machine so their error stays visible — just flag
+    // them reported so we don't re-send them every heartbeat.
     if (report.length) {
       const reported = new Set(report.map((x) => `${x.jobId}|${x.sceneId}`));
+      const isReported = (i) => i.fleetJobId && reported.has(`${i.fleetJobId}|${i.sceneKey}`);
       const q = await getQueue();
       await setQueue(
-        q.filter((i) => !(i.fleetJobId && (i.status === 'done' || i.status === 'failed') && reported.has(`${i.fleetJobId}|${i.sceneKey}`)))
+        q
+          .filter((i) => !(i.status === 'done' && isReported(i)))
+          .map((i) => (i.status === 'failed' && isReported(i) ? { ...i, fleetReported: true } : i))
       );
     }
     for (const cmd of data.commands || []) await executeFleetCommand(cmd, settings);
