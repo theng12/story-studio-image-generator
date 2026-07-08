@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.30 — Fleet dispatch (scene-level fan-out)
+- **The Fleet Hub can split one episode across all your machines.** Pick a project + episode + provider in the hub and it hands each online machine (on that provider) small batches of the episode's missing scenes, topping them up as they finish — so one episode completes ~Nx faster instead of each machine taking a whole episode. Scenes from a machine that goes offline or into cooldown are reclaimed and reassigned, and failures retry elsewhere. Requires all machines to share one Story Studio.
+
 ## 0.29 — Fleet Hub agent
 - **Report to a Fleet Hub**: with a hub URL + machine name in Settings, the extension reports this machine's queue status (progress, state, cooldown) to a central dashboard and obeys pause/resume/retry/clear commands — so you can watch and control several Minis from one computer. See the separate story-studio-fleet-hub app.
 
