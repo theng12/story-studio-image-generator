@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.38 — Stay visible to the Fleet Hub even when idle
+- **An idle machine no longer drops offline in the hub.** Check-ins were driven by the queue's 30s alarm, which is cleared when the queue empties — so a machine with nothing to do stopped reporting and showed as offline. Added a dedicated always-on 30s heartbeat alarm so an enabled machine keeps reporting its status regardless. (Pairs with the hub widening its offline window to 45s.)
+
 ## 0.37 — Fix: fleet now actually sees provider cooldowns
 - **The cooldown release from 0.36 never fired for a real provider cooldown** — the fleet heartbeat read the per-provider cooldown store (`{ flow: …, qwen: … }`) as if it were a single number, so it always came back empty. A machine in (say) Flow cooldown reported itself as merely "queued", kept its leased scenes, and the hub couldn't reclaim them — so they sat hostage while the machine waited out the cooldown. Fixed: it now reads **this machine's provider** from the map, reports the real cooldown (with resume time) to the hub, releases its unstarted scenes, and the hub redistributes them to a free machine.
 

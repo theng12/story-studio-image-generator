@@ -70,6 +70,10 @@ const isPaused = async () => !!(await chrome.storage.local.get(PAUSE_KEY))[PAUSE
 // sub-phase progress (e.g. Qwen "uploading reference" → "generating").
 let runStatusPrefix = '';
 const ALARM = 'queueTick';
+// Dedicated fleet heartbeat alarm (30s). The queueTick alarm is cleared when the
+// queue drains, so an idle machine would stop reporting and drop offline; this
+// one stays scheduled while the agent is enabled, waking the worker to check in.
+const FLEET_ALARM = 'fleetTick';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 // Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
@@ -1229,6 +1233,8 @@ chrome.alarms?.onAlarm?.addListener((a) => {
   if (a.name === ALARM) {
     processQueue();
     fleetHeartbeat();
+  } else if (a.name === FLEET_ALARM) {
+    fleetHeartbeat();
   }
 });
 
@@ -1447,6 +1453,13 @@ async function executeFleetCommand(cmd, settings) {
 
 setInterval(() => fleetHeartbeat(), 5000);
 fleetHeartbeat();
+// Keep an always-on 30s alarm so an idle (but enabled) machine still checks in
+// and shows as online — the worker sleeps between beats otherwise.
+try {
+  chrome.alarms?.create(FLEET_ALARM, { periodInMinutes: 0.5 });
+} catch {
+  /* alarms unavailable — the 5s interval still beats while the worker is alive */
+}
 
 // Probe the active Flow tab for its current project id / sign-in state.
 async function flowContext() {
