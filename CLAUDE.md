@@ -1,9 +1,9 @@
-# Story Studio Bulk Asset (`google-flow-extension`)
+# Story Studio Bulk Asset (`story-studio-bulk-asset`)
 
 MV3 extension: generates scene images (and, later, video) on **Google Flow** from
 a Story Studio KH scene plan, using your **web-subscription credits** (not the
 metered Vertex/Gemini Veo API), and saves each asset back into the episode. Also
-generates images on **Grok Imagine**. Sibling to `fish-tts-extension` — same
+generates images on **Grok Imagine**. Sibling to `story-studio-tts` — same
 architecture (see parent `../CLAUDE.md`). Full writeup in `README.md`.
 
 ## Flow automation — how it actually works (verified live 2026-06-27)
