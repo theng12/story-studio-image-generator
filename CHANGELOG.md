@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.34.1 — Qwen generation performance
+- Reduced Qwen tab jank/freezing while waiting for generated images by throttling the page watcher and avoiding expensive full-layout text reads during generation. This keeps the completion detection behavior but prevents busy Qwen chat pages from being scanned too aggressively.
+
 ## 0.34 — Fleet Hub: report why a scene failed
 - **Failed fleet scenes now report their reason** (e.g. "Qwen quota reached", "sign-in expired") back to the hub, so you can see and identify failures per episode instead of just a count — and retry them.
 
