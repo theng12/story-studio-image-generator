@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.33 — Fleet Hub: push pacing + cooldown to every machine
+- **Set human pacing and per-provider cooldown/auto-resume for the whole fleet from the hub.** The extension now reports its current pacing + cooldown to the hub and obeys an `applySettings` command, so you can dial in "5–60s pacing, Qwen auto-resume after 480 min" once and push it to every machine instead of editing each one's Settings. (Per-provider cooldowns deep-merge, so pushing one provider's cooldown doesn't disturb the others.)
+
 ## 0.32 — Fleet Hub: episode status, multi-episode queue, character reference
 - **The hub picker now shows which episodes already have their scenes** and lets you **queue several episodes at once** — the agent reports each episode's scene-plan/done status and the project's characters alongside the episode list.
 - **Character reference works through the fleet.** Pick a character in the hub and its reference sheet is attached to character scenes exactly as it is for a single machine (Flow/Qwen only) — the `generateScenes` command now carries the reference and this extension applies it.
