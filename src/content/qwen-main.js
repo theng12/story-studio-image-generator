@@ -65,7 +65,7 @@
   function newAssistantText(beforeMessageCount) {
     return assistantMessages()
       .slice(beforeMessageCount)
-      .map((message) => norm(message.innerText || message.textContent))
+      .map((message) => norm(message.textContent))
       .filter(Boolean)
       .join(' ');
   }
@@ -87,6 +87,7 @@
   function waitForImage(beforeImages, beforeMessageCount) {
     return new Promise((resolve, reject) => {
       let settled = false;
+      let checkQueued = false;
       const started = Date.now();
       const finish = (fn, value) => {
         if (settled) return;
@@ -108,8 +109,16 @@
         if (text && !running && Date.now() - started > 2000)
           return finish(reject, new Error(`Qwen Studio returned text instead of a new image: ${text.slice(0, 180)}`));
       };
-      const observer = new MutationObserver(check);
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'class'] });
+      const queueCheck = () => {
+        if (settled || checkQueued) return;
+        checkQueued = true;
+        setTimeout(() => {
+          checkQueued = false;
+          check();
+        }, 250);
+      };
+      const observer = new MutationObserver(queueCheck);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
       const poll = setInterval(check, 1000);
       const deadline = setTimeout(
         () => finish(reject, new Error('Qwen Studio did not return a new image before the timeout. Check the tab for a limit or verification message.')),
