@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.29 — Fleet Hub agent
+- **Report to a Fleet Hub**: with a hub URL + machine name in Settings, the extension reports this machine's queue status (progress, state, cooldown) to a central dashboard and obeys pause/resume/retry/clear commands — so you can watch and control several Minis from one computer. See the separate story-studio-fleet-hub app.
+
 ## 0.28.4 — Qwen reference double-upload fix + pacing
 - Fixed Qwen attaching the character reference **twice** (then stalling after 2–3 scenes). A slow upload of a large character sheet timed out the old 10s wait and fired a second paste, leaving two references. Now it waits up to 25s before any retry, waits for the chip count to **settle and trims to exactly one**, and **paces the steps** — upload → settle → type prompt → settle → (verify one chip) → send — with generous leeway so nothing races.
 

@@ -139,6 +139,13 @@ export const DEFAULTS = {
   // Last-used selections, restored when the panel reopens.
   lastProject: '',
   lastEpisode: '',
+
+  // Fleet Hub agent: when enabled, the background worker reports this machine's
+  // queue status to the hub and obeys commands it returns (pause/resume/retry/
+  // clear). agentName must be unique per machine — it's the fleet identity.
+  fleetAgentEnabled: false,
+  fleetHubUrl: '',
+  fleetAgentName: '',
 };
 
 const STORAGE_KEY = 'settings';

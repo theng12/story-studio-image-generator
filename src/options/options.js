@@ -28,8 +28,10 @@ const FIELDS = [
   'saveTarget',
   'downloadSubdir',
   'filenameTemplate',
+  'fleetHubUrl',
+  'fleetAgentName',
 ];
-const CHECKBOX_FIELDS = [];
+const CHECKBOX_FIELDS = ['fleetAgentEnabled'];
 
 // Append any model ids not already in the <select>, keeping the curated static
 // options (and their friendlier labels) as-is. Returns how many were added.
@@ -60,6 +62,7 @@ async function load() {
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
   refreshGrantStatus();
+  refreshFleetGrant();
 }
 
 async function refreshLeonardoModels() {
@@ -201,9 +204,49 @@ async function grantAccess() {
   }
 }
 
+async function refreshFleetGrant() {
+  const el = $('fleetGrantStatus');
+  const url = $('fleetHubUrl').value.trim();
+  const pat = originPattern(url);
+  if (!pat) {
+    el.textContent = '';
+    return;
+  }
+  if (isLocalUrl(url)) {
+    el.textContent = 'Local — no grant needed.';
+    el.style.color = 'var(--muted)';
+    return;
+  }
+  const granted = await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
+  el.textContent = granted ? '✓ Access granted' : 'Not granted — click to grant.';
+  el.style.color = granted ? 'var(--ok)' : 'var(--warn)';
+}
+
+async function grantFleet() {
+  const url = $('fleetHubUrl').value.trim();
+  const pat = originPattern(url);
+  const el = $('fleetGrantStatus');
+  if (!pat) {
+    el.textContent = 'Enter a valid Hub URL first.';
+    el.style.color = 'var(--err)';
+    return;
+  }
+  if (isLocalUrl(url)) return refreshFleetGrant();
+  try {
+    const granted = await chrome.permissions.request({ origins: [pat] });
+    el.textContent = granted ? '✓ Access granted.' : 'Permission declined.';
+    el.style.color = granted ? 'var(--ok)' : 'var(--err)';
+  } catch (e) {
+    el.textContent = `Grant failed: ${e.message}`;
+    el.style.color = 'var(--err)';
+  }
+}
+
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
+$('grantFleet').onclick = grantFleet;
+$('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('refreshLeonardoModels').onclick = refreshLeonardoModels;
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 // Wire auto-save: text fields on input, selects on change.

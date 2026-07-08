@@ -249,6 +249,29 @@
       </div>
     </section>
 
+    <section class="card">
+      <div class="label">Fleet Hub (remote monitoring)</div>
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" id="fleetAgentEnabled" />
+          <span>Report this machine to a Fleet Hub</span>
+        </label>
+        <div class="hint">Sends this machine's queue status to the hub and obeys its pause/resume/retry/clear commands. Runs in the background.</div>
+      </div>
+      <div class="field">
+        <span class="label">Hub URL</span>
+        <input type="text" id="fleetHubUrl" placeholder="http://your-main-mac.tailXXXX.ts.net:8799" />
+        <div class="row">
+          <button id="grantFleet" class="btn small">Grant access to this hub</button>
+          <span id="fleetGrantStatus" class="muted small"></span>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Machine name (unique per machine)</span>
+        <input type="text" id="fleetAgentName" placeholder="Mac Mini A" />
+      </div>
+    </section>
+
     <div class="row end">
       <span id="saved" class="muted small"></span>
       <button id="save" class="btn primary">Save</button>

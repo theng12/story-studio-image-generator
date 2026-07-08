@@ -1217,8 +1217,107 @@ async function clearQueue() {
 })();
 
 chrome.alarms?.onAlarm?.addListener((a) => {
-  if (a.name === ALARM) processQueue();
+  if (a.name === ALARM) {
+    processQueue();
+    fleetHeartbeat();
+  }
 });
+
+// ── Fleet Hub agent ───────────────────────────────────────────────────────────
+// When enabled, report this machine's queue status to the hub every few seconds
+// and run any commands it returns. All outbound — Chrome extensions can't accept
+// inbound connections, so control rides the heartbeat response. The 5s interval
+// runs while the worker is alive (i.e. during active batches, when it matters);
+// the 30s queue alarm also fires a heartbeat so idle machines still report.
+let fleetAckedIds = [];
+
+async function fleetHeartbeat() {
+  const settings = await getSettings();
+  const hub = String(settings.fleetHubUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
+  const name = String(settings.fleetAgentName || '').trim();
+  if (!settings.fleetAgentEnabled || !hub || !name) return;
+
+  const [queue, paused, stored] = await Promise.all([
+    getQueue(),
+    isPaused(),
+    chrome.storage.local.get([COOLDOWN_KEY, 'lastStatus']),
+  ]);
+  const counts = {
+    done: queue.filter((i) => i.status === 'done').length,
+    failed: queue.filter((i) => i.status === 'failed').length,
+    pending: queue.filter((i) => i.status === 'pending').length,
+    running: queue.filter((i) => i.status === 'running').length,
+  };
+  const cooldownUntil = Number(stored[COOLDOWN_KEY]) || null;
+  const left = counts.pending + counts.running;
+  let state = 'idle';
+  if (paused) state = 'paused';
+  else if (cooldownUntil && cooldownUntil > Date.now()) state = 'cooldown';
+  else if (left > 0) state = counts.running ? 'generating' : 'queued';
+
+  const body = {
+    agentId: name,
+    name,
+    version: chrome.runtime.getManifest().version,
+    provider: settings.provider,
+    studioUrl: settings.studioBaseUrl,
+    state,
+    counts,
+    current: queue.find((i) => i.status === 'running')?.label || '',
+    status: stored.lastStatus?.text || '',
+    cooldownUntil,
+    ackedCommandIds: fleetAckedIds,
+  };
+  try {
+    const r = await fetch(`${hub}/api/agents/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return; // keep acks pending; retry next tick
+    const data = await r.json().catch(() => ({}));
+    fleetAckedIds = []; // hub has processed our acks
+    for (const cmd of data.commands || []) await executeFleetCommand(cmd);
+  } catch {
+    /* hub unreachable — try again next tick */
+  }
+}
+
+async function executeFleetCommand(cmd) {
+  try {
+    switch (cmd.type) {
+      case 'pause':
+        await pauseQueue();
+        break;
+      case 'resume':
+        await resumeQueue();
+        break;
+      case 'retryFailed':
+        await retryFailed(null);
+        break;
+      case 'clear':
+        await clearQueue();
+        break;
+      case 'queueAllPending':
+      case 'queueEpisode':
+        // Dispatch from the hub is not wired into the worker yet (the queueing
+        // logic still lives in the panel). Ack it so it doesn't pile up.
+        await writeStatus('Fleet dispatch isn’t supported by this version yet.', 'info');
+        break;
+      default:
+        break;
+    }
+  } catch {
+    /* command failed — acked anyway so it doesn't loop forever */
+  } finally {
+    fleetAckedIds.push(cmd.id);
+  }
+}
+
+setInterval(() => fleetHeartbeat(), 5000);
+fleetHeartbeat();
 
 // Probe the active Flow tab for its current project id / sign-in state.
 async function flowContext() {
