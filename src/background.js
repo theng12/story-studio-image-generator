@@ -1265,7 +1265,13 @@ async function fleetHeartbeat() {
   const fleetItems = queue.filter((i) => i.fleetJobId);
   const report = fleetItems
     .filter((i) => i.status === 'done' || i.status === 'failed')
-    .map((i) => ({ jobId: i.fleetJobId, sceneId: i.sceneKey, status: i.status }));
+    .map((i) => ({
+      jobId: i.fleetJobId,
+      sceneId: i.sceneKey,
+      status: i.status,
+      // Send a concise reason so the hub can show WHY a scene failed.
+      ...(i.status === 'failed' ? { error: (i.failure && i.failure.title) || String(i.error || 'Generation failed').slice(0, 300) } : {}),
+    }));
   const fleetPending = fleetItems.filter((i) => i.status === 'pending' || i.status === 'running').length;
 
   const body = {
