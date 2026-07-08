@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.35 — Keep failed jobs on the machine (a fresh batch no longer wipes them)
+- **Your failures stay put.** Starting a new batch used to reset the queue, clearing all done *and failed* entries — so errors vanished before you could read them. Now a fresh batch clears only the *completed* jobs and **keeps the failed ones** (most recent 100) so you can still see and identify what went wrong on that machine. The per-heartbeat report to the Fleet Hub likewise keeps failed items visible locally instead of dropping them. A retry (local or from the hub) supersedes the old failed entry.
+
 ## 0.34.1 — Qwen generation performance
 - Reduced Qwen tab jank/freezing while waiting for generated images by throttling the page watcher and avoiding expensive full-layout text reads during generation. This keeps the completion detection behavior but prevents busy Qwen chat pages from being scanned too aggressively.
 
