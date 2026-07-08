@@ -11,7 +11,7 @@
 // never flooded no matter how much you queue. Veo video (phase 2) is async and
 // slow; the queue's resumability is what makes that safe.
 
-import { getSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
+import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
@@ -1281,6 +1281,13 @@ async function fleetHeartbeat() {
     cooldownUntil,
     ackedCommandIds: fleetAckedIds,
     fleet: { pending: fleetPending, report, enumeration: fleetEnumeration, catalog: fleetCatalog },
+    // Current pacing + this provider's cooldown so the hub can show and push
+    // fleet-wide settings without guessing.
+    config: {
+      humanDelayMinSec: settings.humanDelayMinSec,
+      humanDelayMaxSec: settings.humanDelayMaxSec,
+      cooldown: providerCooldown(settings, settings.provider),
+    },
   };
   try {
     const r = await fetch(`${hub}/api/agents/heartbeat`, {
@@ -1356,6 +1363,19 @@ async function executeFleetCommand(cmd, settings) {
           .filter((s) => !s.image_filename && (s.visual_prompt || '').trim())
           .map((s) => ({ id: s.id, prompt: s.visual_prompt, label: `Scene ${s.scene_index}` }));
         fleetEnumeration = { jobId: cmd.jobId, scenes };
+        break;
+      }
+      case 'applySettings': {
+        // Fleet-wide settings push from the hub (pacing, per-provider cooldown).
+        // providerCooldowns must DEEP-merge or we'd wipe providers we didn't set.
+        const patch = { ...(cmd.settings || {}) };
+        if (patch.providerCooldowns) {
+          const cur = (await getSettings()).providerCooldowns || {};
+          const merged = { ...cur };
+          for (const [prov, val] of Object.entries(patch.providerCooldowns)) merged[prov] = { ...(cur[prov] || {}), ...val };
+          patch.providerCooldowns = merged;
+        }
+        await saveSettings(patch);
         break;
       }
       case 'generateScenes':
