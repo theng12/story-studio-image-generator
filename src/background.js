@@ -1327,11 +1327,19 @@ async function executeFleetCommand(cmd, settings) {
         // projects/episodes for the hub's Distribute picker.
         const client = new StudioClient(settings.studioBaseUrl);
         if (cmd.kind === 'episodes' && cmd.slug) {
-          const rows = await client.listEpisodes(cmd.slug);
+          // Episodes + characters in one shot (both per-project) for the picker.
+          const [rows, chars] = await Promise.all([client.listEpisodes(cmd.slug), client.listCharacters(cmd.slug).catch(() => [])]);
           const eps = (Array.isArray(rows) ? rows : rows.episodes || [])
-            .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', done: !!e.status?.images }))
+            .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', done: !!e.status?.images, hasPlan: !!e.status?.scene_plan }))
             .filter((e) => e.code);
-          fleetCatalog = { kind: 'episodes', slug: cmd.slug, items: eps };
+          const characters = [];
+          for (const c of Array.isArray(chars) ? chars : chars.characters || []) {
+            const imgs = (c.references && c.references.images) || c.reference_images || [];
+            const first = imgs[0];
+            const filename = typeof first === 'string' ? first : first && (first.filename || first.name);
+            if (filename) characters.push({ id: c.id, name: c.name || c.id, filename });
+          }
+          fleetCatalog = { kind: 'episodes', slug: cmd.slug, items: eps, characters };
         } else {
           const rows = await client.listProjects();
           const projects = (Array.isArray(rows) ? rows : rows.projects || [])
@@ -1362,6 +1370,9 @@ async function executeFleetCommand(cmd, settings) {
           assetType: 'image',
           projectName: cmd.slug,
           fleetJobId: cmd.jobId,
+          // Character reference for character scenes — enqueueScenes gates it to
+          // Flow/Qwen and to scene_type === 'character', so it's safe to pass through.
+          characterRef: cmd.characterRef || undefined,
           scenes: (cmd.scenes || []).map((x) => ({ source: 'plan', kind: 'scene', key: x.id, prompt: x.prompt, label: x.label, hasImage: false })),
         });
         break;
