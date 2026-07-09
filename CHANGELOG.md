@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.41 — Fix: new Flow project now actually creates one
+- **Auto-rotate (0.39) didn't work** — it just navigated the tab to a fresh project UUID, but Flow won't create a project that way (it shows "Something went wrong"). Fixed: the extension now **creates a real project** via Flow's own create API before switching to it, then points the tab there and generates into it. Verified end-to-end live (create → navigate → generate returns an image). Both the **New project** button and the auto-every-N-images rollover now work; if creating a project ever fails it keeps the current one so generation is never interrupted.
+
 ## 0.40 — See which pacing/cooldown is applied (and who set it)
 - **A new line under the status bar shows what's actually applied right now** — your human pacing range and the current provider's cooldown — with a little **Fleet Hub** or **local** tag so you can tell whether the setting came from this machine or was pushed by the Fleet Hub. (When the hub pushes a setting it overwrites the local one, so this makes the "who's in control" clear at a glance.)
 - **Ready for hub control of Flow auto-new-project.** The machine now reports its `flowAutoNewProject` / `flowNewProjectEvery` to the hub and accepts a hub push of them, plus a `newFlowProject` command to roll over on demand — so a future Fleet Hub control can manage project rotation across the whole fleet.

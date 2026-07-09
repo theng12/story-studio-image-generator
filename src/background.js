@@ -141,45 +141,54 @@ async function ensureProviderTab(provider = 'flow') {
 const ensureFlowTab = () => ensureProviderTab('flow');
 
 // Roll over to a fresh Flow project. A project accumulates every generated image
-// and its page gets heavy over time; a new one keeps the tab light. Flow projects
-// are just client-chosen UUIDs and generation is API-keyed by projectId, so we
-// mint a new id, point the Flow tab at it (mimicking landing on a new project so
-// Flow initialises it), make it the active project, and move any remaining
-// pending Flow scenes onto it so the rest of the batch lands there too.
+// and its page gets heavy over time; a new one keeps the tab light. We CREATE a
+// real project via Flow's own tRPC endpoint first (navigating to an un-created
+// UUID just shows "Something went wrong" — verified live 2026-07-09), then point
+// the tab at it, make it the active project, and move any remaining pending Flow
+// scenes onto it so the rest of the batch lands there too. On any failure we keep
+// the current project so generation is never broken.
 async function startNewFlowProject(reason) {
-  const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tab = await ensureFlowTab();
+  let projectId, title;
   try {
-    const [tab] = await chrome.tabs.query({ url: PROVIDER.flow.match });
-    if (tab) {
-      await chrome.tabs.update(tab.id, { url: `${FLOW_URL}/project/${uuid}`, autoDiscardable: false });
-      await new Promise((resolve) => {
-        const done = () => {
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve();
-        };
-        const listener = (tabId, info) => {
-          if (tabId === tab.id && info.status === 'complete') setTimeout(done, 1500); // let content scripts + grecaptcha init
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-        setTimeout(done, 20000); // safety: never hang the queue on navigation
-      });
-    }
+    const r = await send(tab.id, { type: 'flow:createProject', params: {} });
+    if (!r || !r.ok || !r.projectId) throw new Error((r && r.error) || 'no projectId returned');
+    projectId = r.projectId;
+    title = r.title || '';
+  } catch (e) {
+    await writeStatus(`Couldn't start a new Flow project: ${String(e.message || e)}`, 'err');
+    return null; // keep the current project — don't break generation
+  }
+  // Point the tab at the new (real) project so it's active + light.
+  try {
+    await chrome.tabs.update(tab.id, { url: `${FLOW_URL}/project/${projectId}`, autoDiscardable: false });
+    await new Promise((resolve) => {
+      const done = () => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      };
+      const listener = (tabId, info) => {
+        if (tabId === tab.id && info.status === 'complete') setTimeout(done, 1500); // let content scripts + grecaptcha init
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      setTimeout(done, 20000); // safety: never hang the queue on navigation
+    });
   } catch {
     /* navigation is best-effort — generation is keyed by projectId regardless */
   }
-  await saveSettings({ flowProjectId: uuid, flowProjectName: '' });
+  await saveSettings({ flowProjectId: projectId, flowProjectName: title });
   await chrome.storage.local.set({ [FLOW_COUNT_KEY]: 0 });
   // Send the rest of this batch to the new project too.
   const q = await getQueue();
   let moved = false;
   for (const it of q)
     if (it.provider === 'flow' && it.status === 'pending') {
-      it.projectId = uuid;
+      it.projectId = projectId;
       moved = true;
     }
   if (moved) await setQueue(q);
   await writeStatus(`Started a new Flow project (${reason}).`, 'info');
-  return uuid;
+  return projectId;
 }
 
 // Panel "↗ Open provider" click: focus an existing tab for the provider's
