@@ -1384,12 +1384,14 @@ async function fleetHeartbeat() {
     cooldownUntil,
     ackedCommandIds: fleetAckedIds,
     fleet: { pending: fleetPending, report, enumeration: fleetEnumeration, catalog: fleetCatalog },
-    // Current pacing + this provider's cooldown so the hub can show and push
-    // fleet-wide settings without guessing.
+    // Current pacing + this provider's cooldown + Flow auto-new-project so the hub
+    // can show and push fleet-wide settings without guessing.
     config: {
       humanDelayMinSec: settings.humanDelayMinSec,
       humanDelayMaxSec: settings.humanDelayMaxSec,
       cooldown: providerCooldown(settings, settings.provider),
+      flowAutoNewProject: settings.flowAutoNewProject === true,
+      flowNewProjectEvery: Number(settings.flowNewProjectEvery) || 300,
     },
   };
   try {
@@ -1474,8 +1476,9 @@ async function executeFleetCommand(cmd, settings) {
         break;
       }
       case 'applySettings': {
-        // Fleet-wide settings push from the hub (pacing, per-provider cooldown).
-        // providerCooldowns must DEEP-merge or we'd wipe providers we didn't set.
+        // Fleet-wide settings push from the hub (pacing, per-provider cooldown,
+        // Flow auto-new-project). providerCooldowns must DEEP-merge or we'd wipe
+        // providers we didn't set.
         const patch = { ...(cmd.settings || {}) };
         if (patch.providerCooldowns) {
           const cur = (await getSettings()).providerCooldowns || {};
@@ -1484,8 +1487,20 @@ async function executeFleetCommand(cmd, settings) {
           patch.providerCooldowns = merged;
         }
         await saveSettings(patch);
+        // Record that the HUB set these, so the panel can show who's in control.
+        const src = {};
+        if ('humanDelayMinSec' in patch || 'humanDelayMaxSec' in patch) src.pace = { by: 'hub', at: Date.now() };
+        if (patch.providerCooldowns) src.cooldown = { by: 'hub', at: Date.now() };
+        if (Object.keys(src).length) {
+          const cur = (await chrome.storage.local.get('settingsSource')).settingsSource || {};
+          await chrome.storage.local.set({ settingsSource: { ...cur, ...src } });
+        }
         break;
       }
+      case 'newFlowProject':
+        // Fleet Hub asked this machine to roll over to a fresh Flow project.
+        await startNewFlowProject('Fleet Hub');
+        break;
       case 'generateScenes':
         // Queue exactly the scenes the hub leased to us (dedupe guards double work).
         await enqueueScenes({

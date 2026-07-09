@@ -75,7 +75,9 @@ async function selectHumanPacePreset() {
   const preset = HUMAN_PACE_PRESETS[key];
   if (!preset) return;
   settings = await saveSettings({ humanDelayMinSec: preset.min, humanDelayMaxSec: preset.max });
+  await markSource('pace');
   renderHumanPace();
+  renderAppliedSettings();
   flashSaved();
 }
 
@@ -84,7 +86,9 @@ async function saveCustomHumanPace() {
     humanDelayMinSec: $('humanPaceMin').value,
     humanDelayMaxSec: $('humanPaceMax').value,
   });
+  await markSource('pace');
   renderHumanPace();
+  renderAppliedSettings();
   flashSaved();
 }
 
@@ -156,6 +160,7 @@ function saveProviderCooldown(patch) {
   const provider = cooldownProviderKey();
   const current = providerCooldown(settings, provider);
   const next = { ...settings.providerCooldowns, [provider]: { ...current, ...patch } };
+  markSource('cooldown').then(renderAppliedSettings);
   return saveSettings({ providerCooldowns: next });
 }
 
@@ -248,8 +253,10 @@ async function init() {
   $('charRefEnabled').checked = settings.characterRefEnabled !== false;
   $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
+  settingsSource = (await chrome.storage.local.get('settingsSource')).settingsSource || {};
   renderHumanPace();
   renderCooldownCard();
+  renderAppliedSettings();
   await refreshFlowProject();
   await loadProjects();
   wire();
@@ -369,12 +376,45 @@ function wire() {
 }
 
 // Keep the indicator current when Settings is edited in another extension tab.
+// Who last set pacing / cooldown — this machine (local) or the Fleet Hub.
+let settingsSource = {};
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'sync' || !changes.settings?.newValue || !settings) return;
-  settings = { ...settings, ...changes.settings.newValue };
-  renderHumanPace();
-  renderCooldownCard();
+  if (areaName === 'sync' && changes.settings?.newValue && settings) {
+    // A change here can come from a Fleet Hub push (applySettings) — reflect it.
+    settings = { ...settings, ...changes.settings.newValue };
+    renderHumanPace();
+    renderCooldownCard();
+    renderAppliedSettings();
+  }
+  if (areaName === 'local' && changes.settingsSource) {
+    settingsSource = changes.settingsSource.newValue || {};
+    renderAppliedSettings();
+  }
 });
+
+// Compact "what's actually applied right now, and who set it" line under the
+// status bar — so you can tell your local settings from a Fleet Hub push.
+function renderAppliedSettings() {
+  const el = $('appliedSettings');
+  if (!el || !settings) return;
+  const min = Number(settings.humanDelayMinSec) || 0;
+  const max = Number(settings.humanDelayMaxSec) || 0;
+  const cd = providerCooldown(settings, settings.provider);
+  const prov = PROVIDER_LABEL[settings.provider] || settings.provider || 'provider';
+  const cdText = cd.autoResume ? `auto-resume ${cooldownMinutesLabel(cd.minutes)}` : 'stops on limit';
+  const tag = (grp) => {
+    const by = settingsSource[grp]?.by;
+    return by ? ` <span class="src ${by === 'hub' ? 'hub' : 'local'}">${by === 'hub' ? 'Fleet Hub' : 'local'}</span>` : '';
+  };
+  el.innerHTML = `<span>⚙ Pacing ${min}–${max}s${tag('pace')}</span><span>${prov} cooldown: ${cdText}${tag('cooldown')}</span>`;
+}
+
+// Note that THIS machine (not the hub) last set a settings group.
+async function markSource(group) {
+  settingsSource = { ...settingsSource, [group]: { by: 'local', at: Date.now() } };
+  await chrome.storage.local.set({ settingsSource });
+}
 
 // ── Flow project ──────────────────────────────────────────────────────────
 async function refreshFlowProject() {
@@ -1274,6 +1314,7 @@ function onProviderChange() {
   if (provider === 'aistudio') aistudioPopulate();
   if (provider === 'chatgpt') chatgptPopulate();
   renderCooldownCard();
+  renderAppliedSettings();
   onMediaTypeChange();
   if (provider === 'grok') checkGrok();
   else if (provider === 'pollinations') setStatus('Pollinations runs in the background — no tab needed.', 'info');
