@@ -442,7 +442,31 @@
     return { mediaId, workflowId: j?.workflows?.[0]?.name || null, remainingCredits: j?.remainingCredits };
   }
 
-  const handlers = { generateImage, submitVideo, checkVideo, uploadImage, submitVideoStartImage, getContext };
+  // ── create a fresh Flow project (for auto-rollover) ────────────────────────
+  // Navigating to an un-created project UUID shows "Something went wrong" — Flow
+  // won't lazily create one. The real create is this same-origin Next.js tRPC
+  // call (cookie auth; no aisandbox token / reCAPTCHA). Verified live 2026-07-09.
+  //   POST /fx/api/trpc/project.createProject
+  //     { json: { projectTitle, toolName: 'PINHOLE' } }
+  //   -> result.data.json.result.projectId
+  async function createProject(p) {
+    const title =
+      (p && p.title) ||
+      new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const r = await fetch('/fx/api/trpc/project.createProject', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ json: { projectTitle: title, toolName: 'PINHOLE' } }),
+    });
+    if (!r.ok) throw new Error(`Flow createProject failed (${r.status}).`);
+    const j = await r.json();
+    const projectId = j?.result?.data?.json?.result?.projectId;
+    if (!projectId) throw new Error('Flow createProject returned no projectId.');
+    return { projectId, title };
+  }
+
+  const handlers = { generateImage, submitVideo, checkVideo, uploadImage, submitVideoStartImage, getContext, createProject };
 
   window.addEventListener('message', async (ev) => {
     if (ev.source !== window) return;

@@ -20,6 +20,13 @@ Fully API-driven from a logged-in `labs.google/fx` tab:
   `flow-main.js` MAIN-world script exists. Don't break this path.
 - Generation goes through `flowMedia:batch…`; assets come back as a `fifeUrl` CDN
   link, fetched same-origin.
+- **Creating a project** (for auto-rollover) is a *different* API — a same-origin
+  Next.js tRPC call on labs.google, cookie-auth, no aisandbox token / reCAPTCHA
+  (verified live 2026-07-09): `POST /fx/api/trpc/project.createProject`
+  `{ json: { projectTitle, toolName: 'PINHOLE' } }` →
+  `result.data.json.result.projectId`. Navigating to an *un-created* `/project/<uuid>`
+  just shows "Something went wrong" — you must create it first. `flow-main.js`
+  `createProject` op; `background.startNewFlowProject` calls it, then navigates.
 
 ## Scene plan & save-back (companion mode)
 

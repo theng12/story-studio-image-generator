@@ -56,6 +56,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     'flow:uploadImage': () => callMain('uploadImage', msg.params, 60000),
     'flow:checkVideo': () => callMain('checkVideo', msg.params, 30000),
     'flow:getContext': () => callMain('getContext', {}),
+    'flow:createProject': () => callMain('createProject', msg.params, 30000),
   };
   const run = ops[msg?.type];
   if (!run) return false;
