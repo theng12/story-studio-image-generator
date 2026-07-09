@@ -16,6 +16,8 @@ import { StudioClient } from './lib/story-studio.js';
 import { buildDownloadPath } from './lib/naming.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
+// How many images have gone into the CURRENT Flow project — drives auto rollover.
+const FLOW_COUNT_KEY = 'flowProjectImageCount';
 const PROVIDER = {
   flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
   aistudio: { url: 'https://aistudio.google.com/prompts/new_chat', match: 'https://aistudio.google.com/*' },
@@ -137,6 +139,48 @@ async function ensureProviderTab(provider = 'flow') {
   return tab;
 }
 const ensureFlowTab = () => ensureProviderTab('flow');
+
+// Roll over to a fresh Flow project. A project accumulates every generated image
+// and its page gets heavy over time; a new one keeps the tab light. Flow projects
+// are just client-chosen UUIDs and generation is API-keyed by projectId, so we
+// mint a new id, point the Flow tab at it (mimicking landing on a new project so
+// Flow initialises it), make it the active project, and move any remaining
+// pending Flow scenes onto it so the rest of the batch lands there too.
+async function startNewFlowProject(reason) {
+  const uuid = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    const [tab] = await chrome.tabs.query({ url: PROVIDER.flow.match });
+    if (tab) {
+      await chrome.tabs.update(tab.id, { url: `${FLOW_URL}/project/${uuid}`, autoDiscardable: false });
+      await new Promise((resolve) => {
+        const done = () => {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        };
+        const listener = (tabId, info) => {
+          if (tabId === tab.id && info.status === 'complete') setTimeout(done, 1500); // let content scripts + grecaptcha init
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+        setTimeout(done, 20000); // safety: never hang the queue on navigation
+      });
+    }
+  } catch {
+    /* navigation is best-effort — generation is keyed by projectId regardless */
+  }
+  await saveSettings({ flowProjectId: uuid, flowProjectName: '' });
+  await chrome.storage.local.set({ [FLOW_COUNT_KEY]: 0 });
+  // Send the rest of this batch to the new project too.
+  const q = await getQueue();
+  let moved = false;
+  for (const it of q)
+    if (it.provider === 'flow' && it.status === 'pending') {
+      it.projectId = uuid;
+      moved = true;
+    }
+  if (moved) await setQueue(q);
+  await writeStatus(`Started a new Flow project (${reason}).`, 'info');
+  return uuid;
+}
 
 // Panel "↗ Open provider" click: focus an existing tab for the provider's
 // generation page, or open a new active one. Tabless providers have no page.
@@ -1089,6 +1133,25 @@ async function processQueue() {
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
         await setQueue(q);
+
+        // Count images into the current Flow project; roll over to a fresh one
+        // once it fills up so the tab/project stays light. Between-items, so the
+        // Flow tab is idle — safe to navigate. Guarded so a rollover hiccup can
+        // never fail the image that just succeeded.
+        if (provider === 'flow' && item.assetType !== 'video') {
+          try {
+            const stored = await chrome.storage.local.get(FLOW_COUNT_KEY);
+            const n = (Number(stored[FLOW_COUNT_KEY]) || 0) + 1;
+            await chrome.storage.local.set({ [FLOW_COUNT_KEY]: n });
+            const every = Math.max(1, Number(settings.flowNewProjectEvery) || 300);
+            if (settings.flowAutoNewProject && n >= every) {
+              await startNewFlowProject(`auto — every ${every} images`);
+              tabs.flow = null; // the tab was navigated — re-check readiness next item
+            }
+          } catch {
+            /* counting/rollover is best-effort — never disturb a saved image */
+          }
+        }
       } catch (e) {
         const cd = providerCooldown(settings, provider);
         // A provider limit (or Flow giving up on reCAPTCHA) doesn't fail the
@@ -1536,6 +1599,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // A Flow project tab announced its id; remember it for the panel.
       chrome.storage.local.set({ [SEEN_PROJECT_KEY]: msg.projectId });
       return false; // no async response needed
+    case 'flow:newProject':
+      // Manual "New project" button — roll over to a fresh Flow project now.
+      reply(startNewFlowProject('manual').then((id) => ({ ok: true, projectId: id })));
+      return true;
     case 'enqueueScenes':
       reply(enqueueScenes(msg.payload));
       return true;
