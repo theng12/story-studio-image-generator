@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.40 — See which pacing/cooldown is applied (and who set it)
+- **A new line under the status bar shows what's actually applied right now** — your human pacing range and the current provider's cooldown — with a little **Fleet Hub** or **local** tag so you can tell whether the setting came from this machine or was pushed by the Fleet Hub. (When the hub pushes a setting it overwrites the local one, so this makes the "who's in control" clear at a glance.)
+- **Ready for hub control of Flow auto-new-project.** The machine now reports its `flowAutoNewProject` / `flowNewProjectEvery` to the hub and accepts a hub push of them, plus a `newFlowProject` command to roll over on demand — so a future Fleet Hub control can manage project rotation across the whole fleet.
+
 ## 0.39 — Auto-rotate Flow projects so they don't pile up
 - **The extension can start a fresh Flow project on its own.** A Flow project accumulates every image it generates and its page gets heavy over time. In the Flow card you can now set **"Auto-start a new project every N images"** — when the current project fills up, the machine mints a new project, points its Flow tab at it, and keeps generating there (the rest of the batch follows). No more going to each machine to make a project + click "Use current tab". There's also a manual **New project** button for an on-demand rollover. Each machine rotates independently based on its own count; your saved scene images (in Story Studio) are unaffected — this only changes which Flow project holds the working copies.
 
