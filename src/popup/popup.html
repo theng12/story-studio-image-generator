@@ -316,9 +316,19 @@
           <div class="label">Flow project</div>
           <div id="flowProjectName" class="muted small">none selected</div>
         </div>
-        <button id="useCurrentProject" class="btn small">Use current tab</button>
+        <div class="row" style="gap:6px">
+          <button id="newFlowProject" class="btn small" title="Start a fresh Flow project now (keeps the tab light)">New project</button>
+          <button id="useCurrentProject" class="btn small">Use current tab</button>
+        </div>
       </div>
       <div id="flowSignin" class="muted small hidden">Not signed in to Flow — open labs.google/fx and sign in.</div>
+      <label class="row" style="gap:6px; margin-top:8px; align-items:center">
+        <input type="checkbox" id="flowAutoNewProject" />
+        <span class="small">Auto-start a new project every</span>
+        <input type="number" id="flowNewProjectEvery" min="1" step="50" class="num-sm" style="width:64px" />
+        <span class="small">images</span>
+        <span id="flowProjectCount" class="muted small"></span>
+      </label>
     </section>
 
     <section class="card pace-card">

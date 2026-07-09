@@ -355,6 +355,15 @@ function wire() {
     };
   });
   $('useCurrentProject').onclick = useCurrentFlowProject;
+  $('newFlowProject').onclick = newFlowProject;
+  $('flowAutoNewProject').onchange = async () => {
+    settings = await saveSettings({ flowAutoNewProject: $('flowAutoNewProject').checked });
+  };
+  $('flowNewProjectEvery').onchange = async () => {
+    const v = Math.max(1, Math.round(Number($('flowNewProjectEvery').value) || 300));
+    $('flowNewProjectEvery').value = v;
+    settings = await saveSettings({ flowNewProjectEvery: v });
+  };
   $('testConn').onclick = testConnection;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
 }
@@ -374,6 +383,27 @@ async function refreshFlowProject() {
       settings.flowProjectName || settings.flowProjectId.slice(0, 8) + '…';
   } else {
     $('flowProjectName').textContent = 'none selected';
+  }
+  $('flowAutoNewProject').checked = settings.flowAutoNewProject === true;
+  $('flowNewProjectEvery').value = settings.flowNewProjectEvery || 300;
+  const stored = await chrome.storage.local.get('flowProjectImageCount');
+  const n = Number(stored.flowProjectImageCount) || 0;
+  $('flowProjectCount').textContent = n ? `· ${n} so far` : '';
+}
+
+async function newFlowProject() {
+  $('newFlowProject').disabled = true;
+  setStatus('Starting a new Flow project…', 'info');
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'flow:newProject' });
+    if (!r?.ok) throw new Error(r?.error || 'Could not start a new project.');
+    settings = await getSettings();
+    await refreshFlowProject();
+    setStatus('New Flow project started.', 'done');
+  } catch (e) {
+    setStatus(String(e.message || e), 'err');
+  } finally {
+    $('newFlowProject').disabled = false;
   }
 }
 

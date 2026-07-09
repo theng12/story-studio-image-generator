@@ -18,6 +18,12 @@ export const DEFAULTS = {
   flowProjectId: '',
   flowProjectName: '',
 
+  // A Flow project accumulates every generated image and gets heavy over time, so
+  // roll over to a fresh project automatically after this many images (0 or the
+  // toggle off = never; the panel also has a manual "New project" button).
+  flowAutoNewProject: false,
+  flowNewProjectEvery: 300,
+
   // Selected character whose reference sheet is attached to Flow character-scene
   // image generations (imageInputs REFERENCE). '' = none. Per project.
   characterRefId: '',

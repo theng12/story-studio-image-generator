@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.39 — Auto-rotate Flow projects so they don't pile up
+- **The extension can start a fresh Flow project on its own.** A Flow project accumulates every image it generates and its page gets heavy over time. In the Flow card you can now set **"Auto-start a new project every N images"** — when the current project fills up, the machine mints a new project, points its Flow tab at it, and keeps generating there (the rest of the batch follows). No more going to each machine to make a project + click "Use current tab". There's also a manual **New project** button for an on-demand rollover. Each machine rotates independently based on its own count; your saved scene images (in Story Studio) are unaffected — this only changes which Flow project holds the working copies.
+
 ## 0.38 — Stay visible to the Fleet Hub even when idle
 - **An idle machine no longer drops offline in the hub.** Check-ins were driven by the queue's 30s alarm, which is cleared when the queue empties — so a machine with nothing to do stopped reporting and showed as offline. Added a dedicated always-on 30s heartbeat alarm so an enabled machine keeps reporting its status regardless. (Pairs with the hub widening its offline window to 45s.)
 
