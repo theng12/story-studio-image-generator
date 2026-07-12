@@ -27,7 +27,7 @@ const PROVIDER = {
   freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
   leonardo: { url: 'https://app.leonardo.ai/generate', match: 'https://app.leonardo.ai/*' },
   piclumen: { url: 'https://www.piclumen.com/ai-image/', match: 'https://www.piclumen.com/*' },
-  chatgpt: { url: 'https://chatgpt.com/', match: 'https://chatgpt.com/*' },
+  chatgpt: { url: 'https://chatgpt.com/images', match: 'https://chatgpt.com/*' },
 };
 const PROVIDER_NAME = {
   flow: 'Flow',
@@ -266,18 +266,24 @@ async function ensureAiStudioReady(tab) {
   return await chrome.tabs.get(current.id);
 }
 
-// ChatGPT has many chats; drive the one the user pinned (via "Use current tab").
-// If a conversation is pinned and the tab isn't already on it, navigate there so
-// generation always targets the same chat. No pin → use the tab's current chat.
+// Generate on the dedicated image generator (chatgpt.com/images). Each send there
+// spins up its own new chat, so we return to /images before every scene: it gives
+// a fresh composer AND keeps unrelated scenes in separate chats (no cross-scene
+// context bleed). After a scene the tab sits on the resulting /c/<id>; navigating
+// back to /images is a full reload, which also clears any prior attachment.
 async function ensureChatgptReady(tab, settings) {
-  const id = settings.chatgptConversationId;
-  if (!id) return tab;
   let current = await chrome.tabs.get(tab.id).catch(() => null);
   if (!current) throw new Error('The ChatGPT tab was closed. Reopen it to resume the queue.');
-  if (!new RegExp(`/c/${id}(?:[/?#]|$)`, 'i').test(current.url || '')) {
-    current = await chrome.tabs.update(current.id, { url: `https://chatgpt.com/c/${id}` });
+  let path = '';
+  try {
+    path = new URL(current.url || '').pathname.replace(/\/+$/, '');
+  } catch {
+    /* leave blank → navigate */
+  }
+  if (path !== '/images') {
+    current = await chrome.tabs.update(current.id, { url: 'https://chatgpt.com/images' });
     await waitForTabReady(current.id);
-    await sleep(1200); // let the chat + composer hydrate
+    await sleep(1200); // let the /images composer hydrate
   }
   return await chrome.tabs.get(current.id);
 }
@@ -485,9 +491,13 @@ async function generateAndSave(item, settings, tab) {
     base64 = r.base64;
     mime = r.mime;
   } else if (provider === 'chatgpt') {
+    // Character reference (img2img): fetch the sheet bytes so the content script
+    // can paste it into the composer before generating (character scenes only).
+    const reference =
+      item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
     const r = await send(tab.id, {
       type: 'chatgpt:generateImage',
-      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio },
+      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio, reference },
     });
     // The adapter returns in-page PNG bytes when it can, else a URL for the
     // worker to fetch (oaiusercontent can be CORS-locked in the page).
@@ -1005,12 +1015,16 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   const isVideo = assetType === 'video' && prov === 'flow' && akind === 'scene';
   const effTarget = target || settings.saveTarget;
 
-  // Character reference (Flow images only). Gate by scene_type so the sheet only
-  // lands on character scenes — read the raw scene plan (scene-review doesn't
-  // expose scene_type). Untagged scenes count as character (matches SS's
+  // Character reference (Flow / Qwen / ChatGPT images). Gate by scene_type so the
+  // sheet only lands on character scenes — read the raw scene plan (scene-review
+  // doesn't expose scene_type). Untagged scenes count as character (matches SS's
   // renderer). Non-plan sources have no scene_type, so the reference applies to
   // all of them.
-  const wantRef = (prov === 'flow' || prov === 'qwen') && !isVideo && akind === 'scene' && !!(characterRef && characterRef.characterId && characterRef.filename);
+  const wantRef =
+    (prov === 'flow' || prov === 'qwen' || prov === 'chatgpt') &&
+    !isVideo &&
+    akind === 'scene' &&
+    !!(characterRef && characterRef.characterId && characterRef.filename);
   let sceneTypeById = null;
   if (wantRef && src === 'plan') {
     try {
@@ -1678,6 +1692,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'qwen:progress':
       // Live sub-phase note from the Qwen content script (upload vs generate).
+      if (processing && runStatusPrefix) writeStatus(`${runStatusPrefix} — ${msg.phase}…`, 'running');
+      return false;
+    case 'chatgpt:progress':
+      // Live sub-phase note from the ChatGPT content script (upload vs generate).
       if (processing && runStatusPrefix) writeStatus(`${runStatusPrefix} — ${msg.phase}…`, 'running');
       return false;
     case 'listLeonardoModels':
