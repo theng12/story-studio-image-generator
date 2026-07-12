@@ -15,8 +15,11 @@
 (() => {
   const REQ = 'STUDIO_CHATGPT_REQ';
   const RES = 'STUDIO_CHATGPT_RES';
+  const PROGRESS = 'STUDIO_CHATGPT_PROGRESS';
   const TIMEOUT_MS = 240000;
 
+  // Live sub-phase note surfaced in the panel status line (via the bridge).
+  const postProgress = (phase) => window.postMessage({ kind: PROGRESS, phase }, '*');
   const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const visible = (el) => {
@@ -242,6 +245,65 @@
     });
   }
 
+  // Character reference (img2img). A pasted File attaches to the composer as a
+  // preview with a "Remove file N: <name>" button — that button is how we detect
+  // and clear attachments. Verified live on chatgpt.com/images 2026-07-12: a
+  // synthetic paste with the File in clipboardData attaches every time (~1–2s),
+  // whereas setting a file input is ignored. ChatGPT then treats the attached
+  // image as a reference for the "Create an image of …" instruction.
+  const refChips = () => [...document.querySelectorAll('button')].filter((b) => /^Remove file\b/i.test(b.getAttribute('aria-label') || ''));
+
+  async function clearReferences() {
+    for (let guard = 0; guard < 12 && refChips().length; guard++) {
+      refChips()[0].click();
+      await sleep(350);
+    }
+  }
+
+  async function attachReference(ref) {
+    if (!ref || !ref.base64) return;
+    await clearReferences(); // never let attachments stack across scenes
+    await sleep(300);
+    const bin = atob(ref.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pasteFile = () => {
+      const el = composer();
+      if (!el) return;
+      el.focus();
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' }));
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: dt });
+      el.dispatchEvent(event);
+    };
+    const waitForChip = async (ms) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        if (refChips().length) return true;
+        await sleep(300);
+      }
+      return false;
+    };
+    // One paste, then wait generously — a large sheet can take a while to upload,
+    // and re-pasting too soon stacks a second attachment. Retry once if nothing
+    // registered, then trim to exactly one.
+    pasteFile();
+    let attached = await waitForChip(25000);
+    if (!attached) {
+      await clearReferences();
+      await sleep(500);
+      pasteFile();
+      attached = await waitForChip(25000);
+    }
+    if (!attached) throw new Error('ChatGPT did not accept the reference image (attachment never appeared).');
+    await sleep(1200); // let the upload finish + any stray second chip appear
+    for (let guard = 0; guard < 8 && refChips().length > 1; guard++) {
+      refChips()[refChips().length - 1].click();
+      await sleep(350);
+    }
+  }
+
   function getContext() {
     const el = composer();
     const bodyText = norm(document.body.innerText).slice(0, 300);
@@ -258,20 +320,34 @@
   async function generateImage(params) {
     const prompt = String(params.prompt || '').trim();
     if (!prompt) throw new Error('Empty image prompt.');
-    const el = composer();
-    if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com, sign in, and start a chat.');
+    let el = composer();
+    if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com/images, sign in, and wait for the prompt box.');
+
+    // Character reference (img2img): attach the sheet BEFORE typing so ChatGPT
+    // uses it. When present, phrase the instruction to key off the attachment.
+    if (params.reference) {
+      postProgress('uploading reference');
+      await attachReference(params.reference);
+      await sleep(800);
+      el = composer() || el; // the composer node can be replaced after an attach
+    }
 
     const ratio = String(params.aspectRatio || '16:9');
     const phrase = RATIO_PHRASE[ratio] || `${ratio} aspect ratio`;
     // Don't double-wrap if the prompt already begins with a generate verb.
-    const instruction = /^(generate|create|make|draw|render|design)\b/i.test(prompt)
+    const base = /^(generate|create|make|draw|render|design)\b/i.test(prompt)
       ? `${prompt} (as a ${phrase} image)`
       : `Create a ${phrase} image of ${prompt}`;
+    // The attached image is the character to keep consistent — say so explicitly.
+    const instruction = params.reference
+      ? `Using the attached image as the reference for the main character (keep the same character design), ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+      : base;
 
     const beforeImages = new Set(assistantImageSrcs());
     const beforeCount = assistantTurns().length;
     setComposer(el, instruction);
     await sleep(200);
+    postProgress('generating');
     await clickSendWhenReady();
     return waitForImage(beforeImages, beforeCount);
   }

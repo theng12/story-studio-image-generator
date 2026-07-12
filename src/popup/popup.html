@@ -244,13 +244,6 @@
       </div>
       <div id="chatgptCard" class="leo hidden">
         <div class="label">ChatGPT options</div>
-        <div class="row between">
-          <div>
-            <div class="mini">Chat to use</div>
-            <div id="chatgptChatName" class="muted small">none selected</div>
-          </div>
-          <button id="useCurrentChatgpt" class="btn small" title="Open the chat you want to use, then click to pin it">Use current tab</button>
-        </div>
         <div class="row leo-grid">
           <label class="grow">
             <span class="mini">Requested aspect ratio</span>
@@ -264,7 +257,7 @@
           </label>
         </div>
         <div class="hint">
-          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b>. Open the chat you want, click <b>Use current tab</b> to pin it, and the queue drives that conversation with "Create a &lt;ratio&gt; image of …". Free image quota is small; when it's hit the queue pauses so you can rotate providers. Character-reference (paste) img2img is coming later.
+          Uses the dedicated <b>chatgpt.com/images</b> generator on your signed-in tab — <b>keep it the visible/active tab</b>. Each scene opens a fresh generation ("Create a &lt;ratio&gt; image of …"), so scenes don't bleed context into each other. Ratio is set via the prompt. Character reference (img2img) is supported — pick a character below and its sheet is pasted into the composer before each character scene. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
         </div>
       </div>
       <div id="piclumenCard" class="leo hidden">

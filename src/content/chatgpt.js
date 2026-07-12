@@ -6,8 +6,16 @@ if (!globalThis.__STORY_STUDIO_CHATGPT_BRIDGE__) {
 
   const REQ = 'STUDIO_CHATGPT_REQ';
   const RES = 'STUDIO_CHATGPT_RES';
+  const PROGRESS = 'STUDIO_CHATGPT_PROGRESS';
   let seq = 0;
   const pending = new Map();
+
+  // Live sub-phase notes (e.g. "uploading reference" → "generating") from the
+  // MAIN-world driver, surfaced in the panel status line.
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.kind !== PROGRESS) return;
+    chrome.runtime.sendMessage({ type: 'chatgpt:progress', phase: event.data.phase }).catch(() => {});
+  });
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.kind !== RES) return;

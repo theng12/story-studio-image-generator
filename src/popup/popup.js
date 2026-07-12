@@ -348,7 +348,6 @@ function wire() {
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
   $('chatgptAspect').onchange = async () => (settings = await saveSettings({ chatgptAspectRatio: $('chatgptAspect').value }));
-  $('useCurrentChatgpt').onclick = useCurrentChatgpt;
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -1242,36 +1241,6 @@ function aistudioPopulate() {
 
 function chatgptPopulate() {
   $('chatgptAspect').value = settings.chatgptAspectRatio || '16:9';
-  refreshChatgptChat();
-}
-
-function refreshChatgptChat() {
-  const el = $('chatgptChatName');
-  if (!el) return;
-  const id = settings.chatgptConversationId;
-  el.textContent = id ? `chat ${id.slice(0, 8)}…` : 'none selected — open a chat, then click →';
-}
-
-// Pin the ChatGPT conversation to drive (the active tab's chatgpt.com/c/<id>),
-// mirroring Flow's "Use current tab". The worker then navigates its ChatGPT tab
-// to this conversation before generating, so it always drives the right chat.
-async function useCurrentChatgpt() {
-  $('useCurrentChatgpt').disabled = true;
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const m = tab && /^https:\/\/chatgpt\.com\/c\/([0-9a-f-]+)/i.exec(tab.url || '');
-    if (!m) {
-      setStatus('Open the ChatGPT chat you want (a chatgpt.com/c/… URL) as the active tab, then click again.', 'err');
-      return;
-    }
-    settings = await saveSettings({ chatgptConversationId: m[1] });
-    refreshChatgptChat();
-    setStatus('ChatGPT chat pinned.', 'done');
-  } catch (e) {
-    setStatus(String(e.message || e), 'err');
-  } finally {
-    $('useCurrentChatgpt').disabled = false;
-  }
 }
 
 // Only Flow supports video; all other providers use their image-generator UI.
@@ -1298,13 +1267,15 @@ function onProviderChange() {
   const hasPage = provider !== 'pollinations';
   openBtn.classList.toggle('hidden', !hasPage);
   openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
-  const wantsChar = provider === 'flow' || provider === 'qwen';
+  const wantsChar = provider === 'flow' || provider === 'qwen' || provider === 'chatgpt';
   $('charRefCard').classList.toggle('hidden', !wantsChar);
   if (wantsChar)
     $('charRefHint').textContent =
       provider === 'qwen'
         ? 'Uploaded to Qwen as an img2img reference before each character scene — Qwen consumes it per generation, so it re-uploads every time.'
-        : 'Uploaded to Flow once and applied as a reference on character scenes.';
+        : provider === 'chatgpt'
+          ? 'Pasted into the ChatGPT /images composer as a reference before each character scene — re-attached every time.'
+          : 'Uploaded to Flow once and applied as a reference on character scenes.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
   if (provider === 'freegen') freegenPopulate();
@@ -1447,9 +1418,7 @@ function confirmQueue() {
           ? ` Ratio ${settings.chatgptAspectRatio || '16:9'} (via the prompt).`
           : '';
     const chatNote =
-      provider === 'chatgpt' && !settings.chatgptConversationId
-        ? ' ⚠ No chat pinned yet — open a chat and click "Use current tab" in the ChatGPT card first.'
-        : '';
+      provider === 'chatgpt' ? ' Runs on chatgpt.com/images — keep that tab visible.' : '';
     $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via the ${name} website → ` +
