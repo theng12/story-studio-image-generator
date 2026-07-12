@@ -46,30 +46,52 @@
   const stopButton = () =>
     document.querySelector('button[data-testid="stop-button"], button[data-testid="composer-stop-button"]') ||
     [...document.querySelectorAll('button')].find((b) => /stop generating|stop streaming/i.test(b.getAttribute('aria-label') || ''));
-  const assistantTurns = () => [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  // ChatGPT wraps each turn in a <section>/<article data-testid="conversation-turn-N">.
+  // As of late-2026 the assistant's generated image lives HERE, no longer inside the
+  // [data-message-author-role="assistant"] node — so we key off the turn wrapper and
+  // fall back to the old role selector only if the testid ever disappears.
+  const conversationTurns = () => [...document.querySelectorAll('[data-testid^="conversation-turn"]')];
+  const isUserTurn = (t) => !!t.querySelector('[data-message-author-role="user"]');
+  const assistantTurns = () => {
+    const turns = conversationTurns().filter((t) => !isUserTurn(t));
+    return turns.length ? turns : [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+  };
 
-  // A generated image is hosted on OpenAI's content hosts (or a blob:/data: URL).
-  // Prefer images inside assistant turns, but fall back to scanning the page
-  // (excluding the user turn) in case the assistant-turn markup shifts. Exclude
-  // tiny UI icons/avatars.
+  // A finished generated image carries a stable alt marker ("Generated image: …")
+  // and is served from ChatGPT's content backend. Two things make visibility an
+  // unreliable signal: it sits OUTSIDE the assistant-role node, and once the turn
+  // finishes the UI collapses it under a "Worked for Ns" toggle — the <img> stays
+  // in the DOM but goes offsetParent:null. So detection here must NOT require the
+  // element to be visible; the alt marker is what we trust. Exclude UI chrome.
   function candidateImage(img) {
     const src = img.currentSrc || img.src || '';
-    if (!src || /oaistatic|avatar|icon|emoji/i.test(src)) return '';
+    if (!src) return '';
+    if (/oaistatic|\/avatars?\/|\bavatar\b|favicon|sprite|emoji/i.test(src)) return '';
+    if (/^generated image\b/i.test(img.alt || '')) return src; // definitive marker
+    const looksGenerated = /oaiusercontent|\/backend-api\/(?:estuary\/)?content|\/backend-api\/files|\/files\/|blob:|^data:image/i.test(src);
     const big = (img.naturalWidth || 0) >= 256 || (img.width || 0) >= 256;
-    const looksGenerated = /oaiusercontent|\/backend-api\/|\/files\/|blob:|^data:image/i.test(src);
-    return big || looksGenerated ? src : '';
+    return looksGenerated && big ? src : '';
   }
 
+  // Collect generated-image URLs. Primary signal is the alt marker (survives the
+  // post-generation collapse and the move out of the assistant-role node); a scan
+  // of the assistant conversation turns is a fallback if the marker ever changes.
   function assistantImageSrcs() {
-    const turns = assistantTurns();
-    const scope = turns.length ? turns : [document.body];
     const out = [];
-    for (const turn of scope) {
-      for (const img of turn.querySelectorAll('img')) {
-        if (turn === document.body && img.closest('[data-message-author-role="user"]')) continue;
-        const src = candidateImage(img);
-        if (src) out.push(src);
+    const seen = new Set();
+    const push = (src) => {
+      if (src && !seen.has(src)) {
+        seen.add(src);
+        out.push(src);
       }
+    };
+    for (const img of document.querySelectorAll('img[alt^="Generated image" i]')) {
+      if (img.closest('[data-message-author-role="user"]')) continue;
+      push(candidateImage(img));
+    }
+    for (const turn of assistantTurns()) {
+      if (isUserTurn(turn)) continue;
+      for (const img of turn.querySelectorAll('img')) push(candidateImage(img));
     }
     return out;
   }
@@ -159,7 +181,6 @@
   function waitForImage(beforeImages, beforeCount) {
     return new Promise((resolve, reject) => {
       let settled = false;
-      const started = Date.now();
       const finish = (fn, v) => {
         if (settled) return;
         settled = true;
@@ -168,42 +189,51 @@
         clearTimeout(deadline);
         fn(v);
       };
-      let lastSrc = '';
-      let stableSince = 0;
+      // Remembered from the first sighting so we can still fetch after the element
+      // unmounts — ChatGPT collapses the turn and drops the <img> within ~1–2s.
+      let seenSrc = '';
+      let seenSince = 0;
       const check = async () => {
-        // While ChatGPT is actively generating, its stop button is present — do
-        // NOT accept anything yet. This is what keeps the queue from firing the
-        // next prompt before this image is finished and saved.
         const streaming = !!stopButton();
-        const fresh = assistantImageSrcs().find((s) => !beforeImages.has(s));
-        if (fresh) {
-          if (fresh !== lastSrc) {
-            lastSrc = fresh;
-            stableSince = Date.now();
-          }
-          const stableMs = Date.now() - stableSince;
-          // Normal path: streaming has stopped and the final image URL settled.
-          // Safety net: if the stop button can't be detected, accept only once
-          // the URL has been rock-stable for a long window (a still-generating
-          // image keeps changing, so it won't look stable that long).
-          if ((!streaming && stableMs >= 2500) || stableMs >= 12000) {
+        // Newly-appeared generated image src (live element, or the src list).
+        const el = [...document.querySelectorAll('img[alt^="Generated image" i]')].find((i) => {
+          const s = i.currentSrc || i.src;
+          return s && !beforeImages.has(s);
+        });
+        const fresh = (el && (el.currentSrc || el.src)) || assistantImageSrcs().find((s) => !beforeImages.has(s)) || '';
+        if (fresh && fresh !== seenSrc) {
+          seenSrc = fresh;
+          seenSince = Date.now();
+        }
+        if (seenSrc) {
+          // Capture EAGERLY: as soon as the final image is loaded, not after
+          // streaming stops. ChatGPT now collapses the turn and UNMOUNTS the <img>
+          // within ~1–2s of finishing, so the old "wait 2.5s after the stop button
+          // disappears" gate raced the image out of the DOM. The "Generated image:"
+          // alt marks the finished asset; once we've recorded its src we hold onto
+          // it and fetch by that remembered URL (a signed, minutes-long link that
+          // stays valid) even after the DOM drops the element.
+          const liveEl = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === seenSrc);
+          const loaded = liveEl ? liveEl.complete && (liveEl.naturalWidth || 0) >= 256 : true;
+          if (loaded && Date.now() - seenSince >= 700) {
             try {
-              finish(resolve, await toPayload(fresh));
+              finish(resolve, await toPayload(seenSrc));
             } catch (e) {
               finish(reject, e);
             }
             return;
           }
         }
-        // Ignore any limit/refusal text while still streaming (partial text).
-        if (!streaming) {
+        // Refusal/limit text only counts once nothing is generating and no image
+        // has shown up (partial mid-stream text would false-positive otherwise).
+        if (!streaming && !seenSrc) {
           const err = classifyText(newAssistantText(beforeCount));
           if (err) return finish(reject, err);
         }
       };
       const observer = new MutationObserver(check);
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
-      const poll = setInterval(check, 1200);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'alt'] });
+      const poll = setInterval(check, 700);
       const deadline = setTimeout(
         () => finish(reject, new Error('ChatGPT did not return a new image before the timeout. Keep the tab visible and check for a limit/verification message.')),
         TIMEOUT_MS
