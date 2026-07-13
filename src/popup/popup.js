@@ -348,6 +348,11 @@ function wire() {
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
   $('chatgptAspect').onchange = async () => (settings = await saveSettings({ chatgptAspectRatio: $('chatgptAspect').value }));
+  $('chatgptMaxWait').onchange = async () => {
+    const min = Math.min(15, Math.max(1, Math.round(Number($('chatgptMaxWait').value) || 8)));
+    $('chatgptMaxWait').value = min;
+    settings = await saveSettings({ chatgptMaxWaitSec: min * 60 });
+  };
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -1241,6 +1246,7 @@ function aistudioPopulate() {
 
 function chatgptPopulate() {
   $('chatgptAspect').value = settings.chatgptAspectRatio || '16:9';
+  $('chatgptMaxWait').value = Math.round((Number(settings.chatgptMaxWaitSec) || 480) / 60);
 }
 
 // Only Flow supports video; all other providers use their image-generator UI.
@@ -1274,7 +1280,7 @@ function onProviderChange() {
       provider === 'qwen'
         ? 'Uploaded to Qwen as an img2img reference before each character scene — Qwen consumes it per generation, so it re-uploads every time.'
         : provider === 'chatgpt'
-          ? 'Pasted into the ChatGPT /images composer as a reference before each character scene — re-attached every time.'
+          ? 'Pasted into the ChatGPT composer as a reference before each character scene — re-attached every time.'
           : 'Uploaded to Flow once and applied as a reference on character scenes.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
@@ -1418,7 +1424,7 @@ function confirmQueue() {
           ? ` Ratio ${settings.chatgptAspectRatio || '16:9'} (via the prompt).`
           : '';
     const chatNote =
-      provider === 'chatgpt' ? ' Runs on chatgpt.com/images — keep that tab visible.' : '';
+      provider === 'chatgpt' ? ' Runs on chatgpt.com — keep that tab visible.' : '';
     $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via the ${name} website → ` +

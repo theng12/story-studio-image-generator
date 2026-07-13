@@ -58,6 +58,10 @@ export const DEFAULTS = {
   // Each keeps its own preferred shape (same option set as Qwen).
   aistudioAspectRatio: '16:9',
   chatgptAspectRatio: '16:9',
+  // How long to wait for one ChatGPT image before giving up. The wait is
+  // progress-aware (it won't cut off while ChatGPT is actively generating), so
+  // this is the hard ceiling for a genuinely slow-but-working image. Minutes ×60.
+  chatgptMaxWaitSec: 480,
 
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
@@ -208,6 +212,11 @@ function normalizeSettings(settings) {
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.aistudioAspectRatio)) settings.aistudioAspectRatio = DEFAULTS.aistudioAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.chatgptAspectRatio)) settings.chatgptAspectRatio = DEFAULTS.chatgptAspectRatio;
+  {
+    const n = Math.round(Number(settings.chatgptMaxWaitSec));
+    // Clamp 60s–900s (1–15 min); the bridge safety-net timeout sits above this.
+    settings.chatgptMaxWaitSec = Number.isFinite(n) ? Math.min(900, Math.max(60, n)) : DEFAULTS.chatgptMaxWaitSec;
+  }
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
   const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
   settings.humanDelayMinSec = Math.min(first, second);

@@ -16,7 +16,6 @@
   const REQ = 'STUDIO_CHATGPT_REQ';
   const RES = 'STUDIO_CHATGPT_RES';
   const PROGRESS = 'STUDIO_CHATGPT_PROGRESS';
-  const TIMEOUT_MS = 240000;
 
   // Live sub-phase note surfaced in the panel status line (via the bridge).
   const postProgress = (phase) => window.postMessage({ kind: PROGRESS, phase }, '*');
@@ -181,7 +180,7 @@
     throw new Error('ChatGPT image could not be read from the page.');
   }
 
-  function waitForImage(beforeImages, beforeCount) {
+  function waitForImage(beforeImages, beforeCount, maxWaitMs) {
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (fn, v) => {
@@ -192,11 +191,23 @@
         clearTimeout(deadline);
         fn(v);
       };
+      const started = Date.now();
       // Remembered from the first sighting so we can still fetch after the element
       // unmounts — ChatGPT collapses the turn and drops the <img> within ~1–2s.
       let seenSrc = '';
       let seenSince = 0;
+      // Progress-aware idle guard. ChatGPT's image gen can take minutes and cycles
+      // through status text ("Creating image" → "Sketching it out" → "Adding final
+      // touches" …) with the stop button up. We keep waiting as long as it shows
+      // ANY sign of life, and only bail early when it goes SILENT with no image —
+      // a genuine stall. This stops a slow-but-working image from being cut off at
+      // a flat timeout and abandoned, which would pile the next scene's request on
+      // top and slow ChatGPT further. maxWaitMs is the absolute ceiling.
+      const IDLE_MS = 90000;
+      let lastProgressAt = started;
+      let lastText = '';
       const check = async () => {
+        const now = Date.now();
         const streaming = !!stopButton();
         // Newly-appeared generated image src (live element, or the src list).
         const el = [...document.querySelectorAll('img[alt^="Generated image" i]')].find((i) => {
@@ -206,19 +217,21 @@
         const fresh = (el && (el.currentSrc || el.src)) || assistantImageSrcs().find((s) => !beforeImages.has(s)) || '';
         if (fresh && fresh !== seenSrc) {
           seenSrc = fresh;
-          seenSince = Date.now();
+          seenSince = now;
         }
+        const text = newAssistantText(beforeCount);
+        // Any of these = still alive; reset the idle clock.
+        if (streaming || fresh || (text && text !== lastText)) lastProgressAt = now;
+        lastText = text;
         if (seenSrc) {
           // Capture EAGERLY: as soon as the final image is loaded, not after
-          // streaming stops. ChatGPT now collapses the turn and UNMOUNTS the <img>
-          // within ~1–2s of finishing, so the old "wait 2.5s after the stop button
-          // disappears" gate raced the image out of the DOM. The "Generated image:"
-          // alt marks the finished asset; once we've recorded its src we hold onto
-          // it and fetch by that remembered URL (a signed, minutes-long link that
-          // stays valid) even after the DOM drops the element.
+          // streaming stops. ChatGPT collapses the turn and UNMOUNTS the <img>
+          // within ~1–2s of finishing, so we hold onto the first-seen src and
+          // fetch by that remembered URL (a signed, minutes-long link) even after
+          // the DOM drops the element.
           const liveEl = [...document.querySelectorAll('img')].find((i) => (i.currentSrc || i.src) === seenSrc);
           const loaded = liveEl ? liveEl.complete && (liveEl.naturalWidth || 0) >= 256 : true;
-          if (loaded && Date.now() - seenSince >= 700) {
+          if (loaded && now - seenSince >= 700) {
             try {
               finish(resolve, await toPayload(seenSrc));
             } catch (e) {
@@ -227,19 +240,29 @@
             return;
           }
         }
-        // Refusal/limit text only counts once nothing is generating and no image
-        // has shown up (partial mid-stream text would false-positive otherwise).
+        // Nothing generating and no image yet: check for a refusal/limit message,
+        // else — if it's been silent too long — call it a stall.
         if (!streaming && !seenSrc) {
-          const err = classifyText(newAssistantText(beforeCount));
+          const err = classifyText(text);
           if (err) return finish(reject, err);
+          if (now - lastProgressAt > IDLE_MS) {
+            return finish(
+              reject,
+              new Error('ChatGPT went quiet without producing an image (stalled). Keep the tab visible/active; if it keeps happening ChatGPT may be throttling image generation — pause and retry later.')
+            );
+          }
         }
       };
       const observer = new MutationObserver(check);
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'alt'] });
       const poll = setInterval(check, 700);
       const deadline = setTimeout(
-        () => finish(reject, new Error('ChatGPT did not return a new image before the timeout. Keep the tab visible and check for a limit/verification message.')),
-        TIMEOUT_MS
+        () =>
+          finish(
+            reject,
+            new Error(`ChatGPT did not finish this image within ${Math.round(maxWaitMs / 60000)} min. Raise "Max wait per image" if your images legitimately take longer, and keep the tab visible.`)
+          ),
+        maxWaitMs
       );
       check();
     });
@@ -321,7 +344,7 @@
     const prompt = String(params.prompt || '').trim();
     if (!prompt) throw new Error('Empty image prompt.');
     let el = composer();
-    if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com/images, sign in, and wait for the prompt box.');
+    if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com, sign in, and wait for the prompt box.');
 
     // Character reference (img2img): attach the sheet BEFORE typing so ChatGPT
     // uses it. When present, phrase the instruction to key off the attachment.
@@ -349,7 +372,9 @@
     await sleep(200);
     postProgress('generating');
     await clickSendWhenReady();
-    return waitForImage(beforeImages, beforeCount);
+    // Clamp mirrors config (60s–900s); default 8 min if unset.
+    const maxWaitMs = Math.min(900, Math.max(60, Math.round(Number(params.maxWaitSec) || 480))) * 1000;
+    return waitForImage(beforeImages, beforeCount, maxWaitMs);
   }
 
   const handlers = { getContext, generateImage };
