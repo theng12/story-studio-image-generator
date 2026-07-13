@@ -266,11 +266,15 @@ async function ensureAiStudioReady(tab) {
   return await chrome.tabs.get(current.id);
 }
 
-// Generate on the dedicated image generator (chatgpt.com/images). Each send there
-// spins up its own new chat, so we return to /images before every scene: it gives
-// a fresh composer AND keeps unrelated scenes in separate chats (no cross-scene
-// context bleed). After a scene the tab sits on the resulting /c/<id>; navigating
-// back to /images is a full reload, which also clears any prior attachment.
+// Generate on the dedicated image generator (chatgpt.com/images). A send on
+// /images spins up a new /c/<id> chat; staying in that chat lets later scenes
+// reuse it. We rotate to a fresh chat every `chatgptNewChatEvery` scenes (like
+// Flow's project rotation) by navigating back to /images — a full reload that
+// also clears any prior attachment. Reusing a chat shares its context across
+// scenes (can aid character consistency but risks drift), which is why the count
+// is configurable. Starts at a huge value so the first scene of a worker run
+// always opens a clean chat.
+let chatgptScenesInChat = Number.MAX_SAFE_INTEGER;
 async function ensureChatgptReady(tab, settings) {
   let current = await chrome.tabs.get(tab.id).catch(() => null);
   if (!current) throw new Error('The ChatGPT tab was closed. Reopen it to resume the queue.');
@@ -280,11 +284,18 @@ async function ensureChatgptReady(tab, settings) {
   } catch {
     /* leave blank → navigate */
   }
-  if (path !== '/images') {
-    current = await chrome.tabs.update(current.id, { url: 'https://chatgpt.com/images' });
-    await waitForTabReady(current.id);
-    await sleep(1200); // let the /images composer hydrate
+  const every = Math.max(1, Math.round(Number(settings.chatgptNewChatEvery) || 50));
+  const onChatPage = path === '/images' || /^\/c\//.test(path);
+  // New chat at each group boundary, or if the tab drifted off a chat page.
+  if (chatgptScenesInChat >= every || !onChatPage) {
+    if (path !== '/images') {
+      current = await chrome.tabs.update(current.id, { url: 'https://chatgpt.com/images' });
+      await waitForTabReady(current.id);
+      await sleep(1200); // let the /images composer hydrate
+    }
+    chatgptScenesInChat = 0;
   }
+  // else: reuse the current /c/<id> chat — its composer is already live.
   return await chrome.tabs.get(current.id);
 }
 
@@ -504,6 +515,9 @@ async function generateAndSave(item, settings, tab) {
     const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);
     base64 = payload.base64;
     mime = payload.mime;
+    // Count this scene toward the current chat's group so ensureChatgptReady
+    // rotates to a fresh chat once the batch limit is reached.
+    chatgptScenesInChat++;
   } else if (provider === 'flow') {
     const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
