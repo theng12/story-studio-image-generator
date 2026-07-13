@@ -27,7 +27,9 @@ if (!globalThis.__STORY_STUDIO_CHATGPT_BRIDGE__) {
       : request.reject(Object.assign(new Error(event.data.error || 'ChatGPT error.'), { limit: !!event.data.limit }));
   });
 
-  const callMain = (op, payload = {}, timeoutMs = 240000) => {
+  // Safety-net only — sits well above the MAIN-world waitForImage cap (≤15 min),
+  // which owns the real per-image timeout, so this never fires first.
+  const callMain = (op, payload = {}, timeoutMs = 1200000) => {
     const id = `${Date.now()}-${seq++}`;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });

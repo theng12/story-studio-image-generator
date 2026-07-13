@@ -27,7 +27,7 @@ const PROVIDER = {
   freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
   leonardo: { url: 'https://app.leonardo.ai/generate', match: 'https://app.leonardo.ai/*' },
   piclumen: { url: 'https://www.piclumen.com/ai-image/', match: 'https://www.piclumen.com/*' },
-  chatgpt: { url: 'https://chatgpt.com/images', match: 'https://chatgpt.com/*' },
+  chatgpt: { url: 'https://chatgpt.com/', match: 'https://chatgpt.com/*' },
 };
 const PROVIDER_NAME = {
   flow: 'Flow',
@@ -266,14 +266,15 @@ async function ensureAiStudioReady(tab) {
   return await chrome.tabs.get(current.id);
 }
 
-// Generate on the dedicated image generator (chatgpt.com/images) with a FRESH
-// chat every scene: navigate back to /images before each one (a full reload that
-// also clears any prior attachment). We do NOT reuse chats — verified live
-// 2026-07-13 that a 2nd image request in a chat that already has an image makes
-// ChatGPT treat it as an EDIT of the previous image and hang forever on "Adding
-// final touches…/One last tweak…", never producing a new image. A chat is a
-// conversation (not a stateless container like a Flow project), so every image
-// needs its own clean chat.
+// Generate on the regular ChatGPT (chatgpt.com) with a FRESH chat every scene:
+// navigate to the new-chat root before each one. This full page LOAD is
+// load-bearing, not leftover batch cruft — verified live 2026-07-13 that a 2nd
+// image request in the same page session stalls ("Adding final touches…/One last
+// tweak…", no new image) and only a page refresh clears it (likely OpenAI
+// automation/abuse throttling on repeated same-session sends). A fresh load per
+// scene is that refresh, and also gives each image its own clean chat (a chat is
+// a conversation, so images can't share one). After a scene the tab sits on
+// /c/<id>; navigating back to the root reloads a clean composer.
 async function ensureChatgptReady(tab, settings) {
   let current = await chrome.tabs.get(tab.id).catch(() => null);
   if (!current) throw new Error('The ChatGPT tab was closed. Reopen it to resume the queue.');
@@ -283,10 +284,11 @@ async function ensureChatgptReady(tab, settings) {
   } catch {
     /* leave blank → navigate */
   }
-  if (path !== '/images') {
-    current = await chrome.tabs.update(current.id, { url: 'https://chatgpt.com/images' });
+  // Reload to a clean new chat unless we're already on the bare root.
+  if (path !== '') {
+    current = await chrome.tabs.update(current.id, { url: 'https://chatgpt.com/' });
     await waitForTabReady(current.id);
-    await sleep(1200); // let the /images composer hydrate
+    await sleep(1200); // let the composer hydrate
   }
   return await chrome.tabs.get(current.id);
 }
@@ -500,7 +502,12 @@ async function generateAndSave(item, settings, tab) {
       item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
     const r = await send(tab.id, {
       type: 'chatgpt:generateImage',
-      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio, reference },
+      params: {
+        prompt: item.prompt,
+        aspectRatio: item.aspectRatio || settings.aspectRatio,
+        reference,
+        maxWaitSec: settings.chatgptMaxWaitSec,
+      },
     });
     // The adapter returns in-page PNG bytes when it can, else a URL for the
     // worker to fetch (oaiusercontent can be CORS-locked in the page).
