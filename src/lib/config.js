@@ -58,10 +58,6 @@ export const DEFAULTS = {
   // Each keeps its own preferred shape (same option set as Qwen).
   aistudioAspectRatio: '16:9',
   chatgptAspectRatio: '16:9',
-  // ChatGPT reuses one chat for this many scenes before starting a fresh one
-  // (like Flow's project rotation). Unlike a Flow project, a chat shares context,
-  // so a smaller number limits cross-scene drift; a larger one cuts reload churn.
-  chatgptNewChatEvery: 50,
 
   // Perchance remembers the last website style, which can silently contaminate
   // a batch. Force an explicit style for every queued image instead.
@@ -212,10 +208,6 @@ function normalizeSettings(settings) {
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.aistudioAspectRatio)) settings.aistudioAspectRatio = DEFAULTS.aistudioAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.chatgptAspectRatio)) settings.chatgptAspectRatio = DEFAULTS.chatgptAspectRatio;
-  {
-    const n = Math.round(Number(settings.chatgptNewChatEvery));
-    settings.chatgptNewChatEvery = Number.isFinite(n) && n >= 1 ? Math.min(n, 1000) : DEFAULTS.chatgptNewChatEvery;
-  }
   const first = normalizeDelay(settings.humanDelayMinSec, DEFAULTS.humanDelayMinSec);
   const second = normalizeDelay(settings.humanDelayMaxSec, DEFAULTS.humanDelayMaxSec);
   settings.humanDelayMinSec = Math.min(first, second);

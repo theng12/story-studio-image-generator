@@ -255,26 +255,9 @@
               <option value="3:4">3:4 — vertical portrait</option>
             </select>
           </label>
-          <label class="grow">
-            <span class="mini">New chat every</span>
-            <select id="chatgptNewChatEvery">
-              <option value="10">10 scenes</option>
-              <option value="20">20 scenes</option>
-              <option value="30">30 scenes</option>
-              <option value="50">50 scenes</option>
-              <option value="100">100 scenes</option>
-              <option value="200">200 scenes</option>
-              <option value="300">300 scenes</option>
-              <option value="custom">Custom…</option>
-            </select>
-          </label>
-          <label class="grow hidden" id="chatgptNewChatEveryCustomWrap">
-            <span class="mini">Custom (scenes)</span>
-            <input type="number" id="chatgptNewChatEveryCustom" min="1" max="1000" step="1" class="num-sm" style="width:80px" />
-          </label>
         </div>
         <div class="hint">
-          Uses the dedicated <b>chatgpt.com/images</b> generator on your signed-in tab — <b>keep it the visible/active tab</b>. Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). A chat is reused for the chosen number of scenes, then a fresh one starts — fewer reloads, and scenes in the same chat share context (can help character consistency, but a smaller number limits drift). Character reference (img2img) is supported — pick a character below and its sheet is pasted into the composer before each character scene. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
+          Uses the dedicated <b>chatgpt.com/images</b> generator on your signed-in tab — <b>keep it the visible/active tab</b>. Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> — ChatGPT treats a 2nd image request in the same chat as an edit of the previous one and stalls, so scenes can't share a chat. Character reference (img2img) is supported — pick a character below and its sheet is pasted into the composer before each character scene. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
         </div>
       </div>
       <div id="piclumenCard" class="leo hidden">
