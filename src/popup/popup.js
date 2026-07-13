@@ -348,20 +348,6 @@ function wire() {
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
   $('chatgptAspect').onchange = async () => (settings = await saveSettings({ chatgptAspectRatio: $('chatgptAspect').value }));
-  $('chatgptNewChatEvery').onchange = async () => {
-    const custom = $('chatgptNewChatEvery').value === 'custom';
-    $('chatgptNewChatEveryCustomWrap').classList.toggle('hidden', !custom);
-    if (custom) {
-      $('chatgptNewChatEveryCustom').focus();
-      return; // wait for the custom value before saving
-    }
-    settings = await saveSettings({ chatgptNewChatEvery: Number($('chatgptNewChatEvery').value) });
-  };
-  $('chatgptNewChatEveryCustom').onchange = async () => {
-    const v = Math.min(1000, Math.max(1, Math.round(Number($('chatgptNewChatEveryCustom').value) || 50)));
-    $('chatgptNewChatEveryCustom').value = v;
-    settings = await saveSettings({ chatgptNewChatEvery: v });
-  };
   $('includeExisting').onchange = () => {
     saveSettings({ includeExisting: $('includeExisting').checked });
     if (currentScenes.length) renderScenes();
@@ -1255,16 +1241,6 @@ function aistudioPopulate() {
 
 function chatgptPopulate() {
   $('chatgptAspect').value = settings.chatgptAspectRatio || '16:9';
-  const every = Number(settings.chatgptNewChatEvery) || 50;
-  const presets = new Set([10, 20, 30, 50, 100, 200, 300]);
-  if (presets.has(every)) {
-    $('chatgptNewChatEvery').value = String(every);
-    $('chatgptNewChatEveryCustomWrap').classList.add('hidden');
-  } else {
-    $('chatgptNewChatEvery').value = 'custom';
-    $('chatgptNewChatEveryCustom').value = every;
-    $('chatgptNewChatEveryCustomWrap').classList.remove('hidden');
-  }
 }
 
 // Only Flow supports video; all other providers use their image-generator UI.
