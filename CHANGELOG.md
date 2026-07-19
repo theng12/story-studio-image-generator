@@ -2,6 +2,9 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.46.2 — Clear Flow reference fetch errors
+- Flow character-reference failures now report the exact Story Studio project, character id, and filename that could not be served. This makes stale/missing Story Studio reference-image routes distinguishable from Flow upload/generation failures.
+
 ## 0.46.1 — AI Studio character reference
 - AI Studio now receives the selected Story Studio character reference for character scenes. The worker fetches the character sheet from Story Studio, passes it to the AI Studio tab, and the tab pastes it into the composer before running the prompt.
 - The popup now shows the character-reference picker for AI Studio and explains that references are re-attached per scene.
