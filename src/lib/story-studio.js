@@ -174,7 +174,19 @@ export class StudioClient {
       )}/reference-image/${encodeURIComponent(filename)}`,
       { credentials: 'include' }
     );
-    if (!res.ok) throw new Error(`Character reference image not found (${res.status}).`);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body?.detail ? ` ${body.detail}` : '';
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(
+        `Story Studio could not serve character reference "${filename}" for ${slug}/${characterId} (${res.status}).${detail} ` +
+          'Open the same reference preview in Story Studio or restart/update Story Studio so its reference-image route is active.'
+      );
+    }
     const buf = await res.arrayBuffer();
     if (!buf.byteLength) throw new Error('Character reference image is empty.');
     return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
