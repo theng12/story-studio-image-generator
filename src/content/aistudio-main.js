@@ -44,6 +44,67 @@
   const dataImages = () =>
     [...document.images].filter((i) => i.src.startsWith('data:image/') && i.naturalWidth >= 256).map((i) => i.src);
 
+  // Character reference (img2img): AI Studio accepts pasted image files in the
+  // prompt composer. The generated output is captured after attachment, so the
+  // uploaded reference preview is never mistaken for the generated image.
+  const refChips = () =>
+    [...document.querySelectorAll('button, [role="button"]')].filter((el) =>
+      vis(el) && /^(remove|delete|clear)\b.*\b(file|image|attachment)\b/i.test(el.getAttribute('aria-label') || norm(el.textContent))
+    );
+
+  async function clearReferences() {
+    for (let guard = 0; guard < 10 && refChips().length; guard++) {
+      refChips()[0].click();
+      await sleep(350);
+    }
+  }
+
+  async function attachReference(ref) {
+    if (!ref || !ref.base64) return;
+    const ta = promptInput();
+    if (!ta) throw new Error('AI Studio prompt box not found before reference upload.');
+    await clearReferences();
+    await sleep(300);
+    const bin = atob(ref.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pasteFile = () => {
+      const target = promptInput();
+      if (!target) return;
+      target.focus();
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], ref.name || 'reference.png', { type: ref.mime || 'image/png' }));
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: dt });
+      target.dispatchEvent(event);
+    };
+    const waitForAttachment = async (ms, beforeText, beforeImages) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        const text = norm(document.body.innerText);
+        if (refChips().length) return true;
+        if (dataImages().length > beforeImages) return true;
+        if (text !== beforeText && /\b(upload|attached|remove|image|file)\b/i.test(text)) return true;
+        await sleep(300);
+      }
+      return false;
+    };
+    const beforeText = norm(document.body.innerText);
+    const beforeImages = dataImages().length;
+    pasteFile();
+    let attached = await waitForAttachment(20000, beforeText, beforeImages);
+    if (!attached) {
+      await clearReferences();
+      await sleep(500);
+      const retryText = norm(document.body.innerText);
+      const retryImages = dataImages().length;
+      pasteFile();
+      attached = await waitForAttachment(20000, retryText, retryImages);
+    }
+    if (!attached) throw new Error('AI Studio did not accept the character reference image.');
+    await sleep(1200);
+  }
+
   function currentErrorText() {
     // AI Studio surfaces failures in the model turn or an alert. Never scan the
     // user turn: ordinary prompt text such as "safety" would look like an error.
@@ -102,12 +163,16 @@
     if (!params.prompt || !params.prompt.trim()) throw new Error('Empty image prompt.');
     const ta = promptInput();
     if (!ta) throw new Error('AI Studio prompt box not found — open aistudio.google.com in image mode.');
+    if (params.reference) await attachReference(params.reference);
     const before = new Set(dataImages());
     // Wrap as an explicit generate instruction with the ratio in words; don't
     // double-wrap if the prompt already starts with a generate/create verb.
     const p = params.prompt.trim();
     const phrase = RATIO_PHRASE[String(params.aspectRatio || '16:9')] || `${params.aspectRatio} aspect ratio`;
-    const text = /^(generate|create|make|draw|render|design)\b/i.test(p) ? p : `Create a ${phrase} image of ${p}`;
+    const base = /^(generate|create|make|draw|render|design)\b/i.test(p) ? p : `Create a ${phrase} image of ${p}`;
+    const text = params.reference
+      ? `Using the attached image as the reference for the main character (keep the same character design), ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+      : base;
     setTextarea(ta, text);
     await sleep(250);
     const run = runButton();
