@@ -1273,7 +1273,7 @@ function onProviderChange() {
   const hasPage = provider !== 'pollinations';
   openBtn.classList.toggle('hidden', !hasPage);
   openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
-  const wantsChar = provider === 'flow' || provider === 'qwen' || provider === 'chatgpt';
+  const wantsChar = provider === 'flow' || provider === 'qwen' || provider === 'chatgpt' || provider === 'aistudio';
   $('charRefCard').classList.toggle('hidden', !wantsChar);
   if (wantsChar)
     $('charRefHint').textContent =
@@ -1281,6 +1281,8 @@ function onProviderChange() {
         ? 'Uploaded to Qwen as an img2img reference before each character scene — Qwen consumes it per generation, so it re-uploads every time.'
         : provider === 'chatgpt'
           ? 'Pasted into the ChatGPT composer as a reference before each character scene — re-attached every time.'
+          : provider === 'aistudio'
+            ? 'Pasted into AI Studio as an img2img reference before each character scene — re-attached every time.'
           : 'Uploaded to Flow once and applied as a reference on character scenes.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();

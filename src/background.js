@@ -514,6 +514,21 @@ async function generateAndSave(item, settings, tab) {
     const payload = r.base64 ? r : await fetchImagePayload(r.imageUrl);
     base64 = payload.base64;
     mime = payload.mime;
+  } else if (provider === 'aistudio') {
+    // Character reference (img2img): fetch the sheet bytes so the content script
+    // can paste it into AI Studio before generating (character scenes only).
+    const reference =
+      item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+    const r = await send(tab.id, {
+      type: 'aistudio:generateImage',
+      params: {
+        prompt: item.prompt,
+        aspectRatio: item.aspectRatio || settings.aistudioAspectRatio || settings.aspectRatio,
+        reference,
+      },
+    });
+    base64 = r.base64;
+    mime = r.mime;
   } else if (provider === 'flow') {
     const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
     if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
@@ -538,9 +553,7 @@ async function generateAndSave(item, settings, tab) {
         ? 'perchance:generateImage'
         : provider === 'freegen'
           ? 'freegen:generateImage'
-          : provider === 'aistudio'
-            ? 'aistudio:generateImage'
-            : provider === 'qwen'
+          : provider === 'qwen'
               ? 'qwen:generateImage'
               : 'leonardo:generateImage';
     // Qwen img2img: fetch the character sheet bytes so the content script can
@@ -1031,7 +1044,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   // renderer). Non-plan sources have no scene_type, so the reference applies to
   // all of them.
   const wantRef =
-    (prov === 'flow' || prov === 'qwen' || prov === 'chatgpt') &&
+    (prov === 'flow' || prov === 'qwen' || prov === 'chatgpt' || prov === 'aistudio') &&
     !isVideo &&
     akind === 'scene' &&
     !!(characterRef && characterRef.characterId && characterRef.filename);

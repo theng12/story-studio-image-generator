@@ -2,6 +2,10 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.46.1 — AI Studio character reference
+- AI Studio now receives the selected Story Studio character reference for character scenes. The worker fetches the character sheet from Story Studio, passes it to the AI Studio tab, and the tab pastes it into the composer before running the prompt.
+- The popup now shows the character-reference picker for AI Studio and explains that references are re-attached per scene.
+
 ## 0.41 — Fix: new Flow project now actually creates one
 - **Auto-rotate (0.39) didn't work** — it just navigated the tab to a fresh project UUID, but Flow won't create a project that way (it shows "Something went wrong"). Fixed: the extension now **creates a real project** via Flow's own create API before switching to it, then points the tab there and generates into it. Verified end-to-end live (create → navigate → generate returns an image). Both the **New project** button and the auto-every-N-images rollover now work; if creating a project ever fails it keeps the current one so generation is never interrupted.
 
