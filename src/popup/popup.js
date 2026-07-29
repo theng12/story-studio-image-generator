@@ -1535,10 +1535,14 @@ async function pollQueue() {
   }
   // Pause/Resume only matters while there is still work to do.
   const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
+  const hasPending = queue.some((i) => i.status === 'pending');
+  const hasFailed = queue.some((i) => i.status === 'failed');
   const pause = $('pauseQueue');
   pause.classList.toggle('hidden', !hasWork && !paused);
   pause.dataset.paused = String(paused);
   pause.textContent = paused ? '▶ Resume' : '❚❚ Pause';
+  $('retryFailed').disabled = !hasFailed;
+  $('clearQueue').disabled = !hasPending;
   updateGenStatus(queue, paused);
   // Live per-scene status + tab-visibility reminder — run every tick, even when
   // the queue-list DOM itself is unchanged.
