@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.14 — Interface polish
+
+- Unified panel spacing, controls, disclosure chevrons, and typography with the
+  other Story Studio generators.
+- Removed the redundant in-panel product heading; Chrome's side-panel heading
+  remains the single product title.
+
 ## 0.47.13 — Story Studio KH only
 
 - Removed standalone prompts and the Downloads save path.

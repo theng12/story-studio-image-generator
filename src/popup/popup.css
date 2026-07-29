@@ -619,3 +619,110 @@ select, input[type="text"], input[type="password"], input[type="number"] {
   .asset-setting .mini { margin: 0; }
   .asset-setting select { margin: 0; }
 }
+
+/* Compact shared generator finish.  This lives last intentionally: older
+   product-specific passes above remain useful, but this makes the interaction
+   geometry match Audio and Video. */
+:root {
+  --control-height: 38px;
+  --utility-height: 32px;
+  --primary-height: 46px;
+}
+
+body {
+  padding: 14px;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header {
+  min-height: var(--utility-height);
+  margin: 0 0 12px;
+}
+
+.header-brand { min-height: var(--utility-height); }
+.version-badge {
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.header-actions { gap: 6px; }
+.whats-new, .link.small { min-height: var(--utility-height); padding: 0 8px; font-size: 13px; }
+header .settings-gear { width: var(--utility-height); height: var(--utility-height); border-radius: 8px; font-size: 19px; }
+
+.applied-settings { margin: -2px 0 12px; font-size: 12px; }
+#activeBatch { margin-bottom: 16px; border-radius: 10px; }
+#activeBatch .activity-inner { padding: 14px; border-radius: 8px; }
+.active-task { font-size: 16px; }
+
+.card { margin-bottom: 16px; }
+.asset-settings { gap: 12px; }
+.asset-setting .mini, .leo .mini {
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+select, input[type="text"], input[type="password"], input[type="number"], .fixed-destination {
+  min-height: var(--control-height);
+  margin-top: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.fixed-destination { display: flex; align-items: center; }
+.asset-setting select { padding: 8px 10px; }
+.row { gap: 8px; margin-top: 12px; }
+.open-provider-row { margin-top: 10px; }
+.workspace-open { min-width: 0; }
+
+.btn {
+  min-height: var(--control-height);
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn.small, .active-controls .btn {
+  min-height: var(--utility-height);
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+#queueSelected {
+  min-height: var(--primary-height);
+  margin-top: 0;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.provider-options, .advanced-card { margin-top: 12px; border-radius: 8px; }
+.provider-options summary, .advanced-card summary {
+  min-height: var(--control-height);
+  padding: 0 12px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.provider-options summary::-webkit-details-marker, .advanced-card summary::-webkit-details-marker { display: none; }
+.provider-options summary::marker, .advanced-card summary::marker { content: ''; }
+.provider-options summary::before, .advanced-card summary::before {
+  content: '›';
+  flex: 0 0 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+}
+.provider-options[open] summary::before, .advanced-card[open] summary::before { content: '⌄'; }
+.summary-hint { font-size: 12px; font-weight: 400; }
+.provider-options .leo { margin: 0 12px; padding: 12px 0; }
+.advanced-card-body { padding: 0 12px 12px; }
+
+.studio-connection { min-height: 56px; margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; }
+.connection-status { font-size: 12px; }
+.connection-test { min-height: var(--utility-height); }
+.scenes { border-radius: 8px; }
+.scene { padding: 10px; font-size: 13px; }
+.scene .idx, .scene .prompt { font-size: 13px; }
