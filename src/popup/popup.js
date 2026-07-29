@@ -406,8 +406,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-// Compact "what's actually applied right now, and who set it" line under the
-// status bar — so you can tell your local settings from a Fleet Hub push.
+// Compact "what's actually applied right now, and who set it" line below the
+// header — so it stays visible independently of the current batch state.
 function renderAppliedSettings() {
   const el = $('appliedSettings');
   if (!el || !settings) return;
