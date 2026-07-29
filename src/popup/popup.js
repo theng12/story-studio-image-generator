@@ -23,6 +23,7 @@ let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done n
 let liveStatus = null;
 let studioConnection = null;
 let workMode = 'studio';
+let standalonePrompts = [];
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -278,7 +279,12 @@ function wire() {
   document.querySelectorAll('.mode-switch .seg').forEach((button) => {
     button.onclick = () => setWorkMode(button.dataset.mode);
   });
+  $('reviewStandalone').onclick = reviewStandalonePrompts;
+  $('editStandalone').onclick = showStandaloneEditor;
   $('queueStandalone').onclick = queueStandalone;
+  $('standalonePrompt').oninput = () => {
+    if (standalonePrompts.length) showStandaloneEditor();
+  };
   $('openStudioSettings').onclick = () => chrome.runtime.openOptionsPage();
   document.querySelectorAll('.open-options-link').forEach((button) => {
     button.onclick = () => chrome.runtime.openOptionsPage();
@@ -423,12 +429,7 @@ async function setWorkMode(mode) {
 }
 
 async function queueStandalone() {
-  const prompt = $('standalonePrompt').value.trim();
-  if (!prompt) {
-    setStatus('Add an image prompt first.', 'err');
-    $('standalonePrompt').focus();
-    return;
-  }
+  if (!standalonePrompts.length) return reviewStandalonePrompts();
   if ($('provider').value === 'flow' && !settings.flowProjectId) {
     setStatus('Select a generation workspace before queuing with this provider.', 'err');
     return;
@@ -438,17 +439,63 @@ async function queueStandalone() {
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueStandalone',
-      payload: { prompt, label: $('standaloneLabel').value, provider: $('provider').value },
+      payload: { prompts: standalonePrompts, label: $('standaloneLabel').value, provider: $('provider').value },
     });
-    if (!res?.ok) throw new Error(res?.error || 'Could not queue the image.');
+    if (!res?.ok) throw new Error(res?.error || 'Could not queue the images.');
     $('standalonePrompt').value = '';
-    setStatus('Standalone image queued. It will save to Downloads.', 'done');
+    standalonePrompts = [];
+    showStandaloneEditor();
+    setStatus(`Queued ${res.added} standalone image${res.added === 1 ? '' : 's'} to Downloads${res.skipped ? `; skipped ${res.skipped}` : ''}.`, 'done');
     pollQueue();
   } catch (error) {
     setStatus(String(error?.message || error), 'err');
   } finally {
     button.disabled = false;
   }
+}
+
+function parseStandalonePrompts(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, ''))
+    .filter(Boolean);
+}
+
+function showStandaloneEditor() {
+  $('standaloneEditor').classList.remove('hidden');
+  $('standaloneReview').classList.add('hidden');
+}
+
+function reviewStandalonePrompts() {
+  const prompts = parseStandalonePrompts($('standalonePrompt').value);
+  if (!prompts.length) {
+    setStatus('Paste at least one image prompt first.', 'err');
+    $('standalonePrompt').focus();
+    return;
+  }
+  if (prompts.length > 100) {
+    setStatus('Review up to 100 prompts at a time.', 'err');
+    return;
+  }
+  standalonePrompts = prompts;
+  const list = $('standaloneReviewList');
+  list.replaceChildren();
+  prompts.forEach((prompt, index) => {
+    const item = document.createElement('li');
+    const number = document.createElement('span');
+    number.className = 'standalone-review-index';
+    number.textContent = String(index + 1);
+    const text = document.createElement('span');
+    text.className = 'standalone-review-prompt';
+    text.textContent = prompt;
+    item.append(number, text);
+    list.appendChild(item);
+  });
+  $('standaloneReviewCount').textContent = `${prompts.length} task${prompts.length === 1 ? '' : 's'}`;
+  $('queueStandalone').textContent = `Queue ${prompts.length} image${prompts.length === 1 ? '' : 's'}`;
+  $('standaloneEditor').classList.add('hidden');
+  $('standaloneReview').classList.remove('hidden');
+  setStatus('Review the split, then queue the approved tasks.', 'info');
 }
 
 function testedLabel(at) {

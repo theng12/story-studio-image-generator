@@ -448,16 +448,29 @@
     </details>
 
     <section class="card standalone-workflow hidden" id="standaloneWorkflow">
-      <label class="grow">
-        <span class="label">Image prompt</span>
-        <textarea id="standalonePrompt" rows="5" placeholder="Describe the image you want to create."></textarea>
-      </label>
-      <label class="grow">
-        <span class="label">File label</span>
-        <input id="standaloneLabel" placeholder="Optional name" />
-      </label>
-      <p class="muted small">Uses this local prompt and saves the completed image to Downloads.</p>
-      <button id="queueStandalone" class="btn primary">Queue image</button>
+      <div id="standaloneEditor" class="standalone-editor">
+        <label class="standalone-field" for="standalonePrompt">
+          <span class="label">Paste image prompts</span>
+          <textarea id="standalonePrompt" rows="8" placeholder="One image prompt per line&#10;A rain-soaked market at dawn&#10;A lantern-lit river crossing at night"></textarea>
+        </label>
+        <p class="muted standalone-hint">Each non-empty line becomes one image task. Review the split before anything is queued.</p>
+        <label class="standalone-field" for="standaloneLabel">
+          <span class="label">File prefix <span class="optional">Optional</span></span>
+          <input id="standaloneLabel" placeholder="Episode-042" />
+        </label>
+        <button id="reviewStandalone" class="btn primary" type="button">Review prompts</button>
+      </div>
+      <section id="standaloneReview" class="standalone-review hidden" aria-live="polite">
+        <div class="standalone-review-heading">
+          <span>Review image tasks</span>
+          <span id="standaloneReviewCount" class="summary-hint"></span>
+        </div>
+        <ol id="standaloneReviewList" class="standalone-review-list"></ol>
+        <div class="standalone-review-actions">
+          <button id="editStandalone" class="btn" type="button">Edit prompts</button>
+          <button id="queueStandalone" class="btn primary" type="button">Queue images</button>
+        </div>
+      </section>
     </section>
 
     <section class="card" id="studioWorkflow">
