@@ -584,6 +584,9 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 .leo select { padding: 6px 8px; }
 .advanced-card-body { padding: 0 10px 10px; }
 .pace-state { border-color: var(--border); border-radius: 999px; background: transparent; color: var(--ok); padding: 1px 8px; }
+.pacing-section { padding: 10px 0; }
+.pacing-section:first-child { padding-top: 2px; }
+.cooldown-section { border-top: 1px solid var(--divider); }
 
 .scenes { margin-top: 6px; max-height: 220px; border-color: var(--border); border-radius: 8px; background: transparent; }
 .scene { gap: 8px; padding: 8px; border-color: var(--divider); font-size: 12px; }
