@@ -708,16 +708,17 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
 }
 .provider-options summary::-webkit-details-marker, .advanced-card summary::-webkit-details-marker { display: none; }
 .provider-options summary::marker, .advanced-card summary::marker { content: ''; }
-.provider-options summary::before, .advanced-card summary::before {
+.provider-options summary::before, .advanced-card summary::before { display: none; }
+.provider-options summary::after, .advanced-card summary::after {
   content: '›';
   flex: 0 0 12px;
-  margin: 0;
+  margin-left: 8px;
   color: var(--muted);
   font-size: 18px;
   font-weight: 400;
   line-height: 1;
 }
-.provider-options[open] summary::before, .advanced-card[open] summary::before { content: '⌄'; }
+.provider-options[open] summary::after, .advanced-card[open] summary::after { content: '⌄'; }
 .summary-hint { font-size: 12px; font-weight: 400; }
 .provider-options .leo { margin: 0 12px; padding: 12px 0; }
 .advanced-card-body { padding: 0 12px 12px; }

@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.21 — Trailing disclosure controls
+
+- Moved expandable-row chevrons to the trailing edge, matching Audio and Video.
+
 ## 0.47.20 — Compact Studio test action
 
 - Replaced Image Generator's boxed Studio status with the shared compact test
