@@ -2,8 +2,8 @@
 //
 // The panel enqueues work (one scene, a whole episode, or a whole project);
 // this worker processes one scene at a time, human-paced, generating the image
-// on Google Flow and writing each result back to the Story Studio episode (or
-// Downloads). The queue lives in chrome.storage, so it survives the panel
+// on Google Flow and writing each result back to the Story Studio episode. The
+// queue lives in chrome.storage, so it survives the panel
 // closing AND the worker being killed: a chrome.alarms tick wakes the worker to
 // resume any pending items.
 //
@@ -12,7 +12,6 @@
 
 import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
-import { buildDownloadPath } from './lib/naming.js';
 import { flowCommand } from './lib/flow-exec.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
@@ -485,7 +484,7 @@ async function pollinationsGenerate(item, settings) {
   }
 }
 
-// Generate one scene's image and save it to Story Studio or Downloads.
+// Generate one scene's image and save it to Story Studio.
 // Character reference: upload the chosen character's sheet to Flow ONCE per
 // (project, character, file) and cache the returned mediaId, so every character
 // scene in the batch reuses it. Runs through the Flow content-script tab.
@@ -638,35 +637,25 @@ async function generateAndSave(item, settings, tab) {
     base64 = payload.base64;
     mime = payload.mime;
   }
-  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
-
-  if (item.target === 'project' && item.slug && item.episodeCode && item.sceneKey != null) {
-    try {
-      const client = new StudioClient(settings.studioBaseUrl);
-      const pad = String(item.sceneKey).padStart(2, '0');
-      if (item.kind === 'thumbnail') {
-        const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
-        return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
-      }
-      if (item.source === 'prompts') {
-        const out = await client.ingestImage(item.slug, item.episodeCode, 'scene', item.sceneKey, base64, item.episodeTitle);
-        return { savedAs: out.saved_as || `${item.episodeCode}_Scene${pad}_v1.png`, target: 'project' };
-      }
-      const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
-      return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
-    } catch (error) {
-      throw new Error(`Story Studio save failed: ${String(error?.message || error)}`);
-    }
+  if (!item.slug || !item.episodeCode || item.sceneKey == null) {
+    throw new Error('Story Studio project details are required to save an image.');
   }
-
-  const filename = item.downloadPath.replace(/\.(png|jpg|jpeg|webp)$/i, '') + `.${ext}`;
-  const downloadId = await chrome.downloads.download({
-    url: `data:${mime};base64,${base64}`,
-    filename,
-    saveAs: false,
-    conflictAction: 'uniquify',
-  });
-  return { downloadId, savedAs: filename, target: 'download' };
+  try {
+    const client = new StudioClient(settings.studioBaseUrl);
+    const pad = String(item.sceneKey).padStart(2, '0');
+    if (item.kind === 'thumbnail') {
+      const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
+      return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
+    }
+    if (item.source === 'prompts') {
+      const out = await client.ingestImage(item.slug, item.episodeCode, 'scene', item.sceneKey, base64, item.episodeTitle);
+      return { savedAs: out.saved_as || `${item.episodeCode}_Scene${pad}_v1.png`, target: 'project' };
+    }
+    const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
+    return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
+  } catch (error) {
+    throw new Error(`Story Studio save failed: ${String(error?.message || error)}`);
+  }
 }
 
 // ── status (persisted so the panel survives close/reopen) ───────────────────
@@ -854,8 +843,11 @@ function diagnoseFailure(error, item = {}) {
 }
 
 async function getQueue() {
-  const { queue = [] } = await chrome.storage.local.get(QUEUE_KEY);
-  let changed = false;
+  const { queue: storedQueue = [] } = await chrome.storage.local.get(QUEUE_KEY);
+  // Old standalone / Downloads jobs cannot be saved back to Story Studio KH.
+  // Drop them rather than replaying them after the Story Studio-only migration.
+  const queue = storedQueue.filter((item) => item.source !== 'standalone' && item.target !== 'download');
+  let changed = queue.length !== storedQueue.length;
   for (const item of queue) {
     if (item.status === 'failed' && item.error && !item.failure) {
       item.failure = diagnoseFailure(item.error, item);
@@ -952,13 +944,12 @@ async function retryFailed(id = null) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, scenes, source, kind, target, projectId, provider, characterRef, fleetJobId }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, fleetJobId }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || 'flow';
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
   const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene'; // asset kind
-  const stem = akind === 'thumbnail' ? 'Thumb' : 'Scene';
-  const effTarget = target || settings.saveTarget;
+  const effTarget = 'project';
 
   // Character reference (Flow / Qwen / ChatGPT images). Gate by scene_type so the
   // sheet only lands on character scenes — read the raw scene plan (scene-review
@@ -1011,62 +1002,9 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
       characterRef: appliesRef(s.key) ? characterRef : undefined,
       fleetJobId: fleetJobId || undefined, // tag scenes dispatched by the Fleet Hub
       label: `${episodeCode} ${s.label || akind + ' ' + s.key}`,
-      // tokens for Downloads naming:
-      project: projectName || episodeTitle || slug,
-      downloadPath:
-        effTarget === 'project'
-          ? null
-          : buildDownloadPath(
-              settings,
-              {
-                project: projectName || episodeTitle || slug,
-                episodeCode,
-                episodeTitle: episodeTitle || '',
-                sceneId: src === 'plan' && akind === 'scene' ? s.key : `${stem}${String(s.key).padStart(2, '0')}`,
-                sceneIndex: String(s.key),
-              },
-              'png'
-            ),
     })
   );
   return enqueue(items);
-}
-
-// Standalone prompts intentionally never call Story Studio. They share the
-// persistent queue and provider safety model, but always save to Downloads.
-async function enqueueStandalone({ prompt, label, provider }) {
-  const text = String(prompt || '').trim();
-  if (!text) throw new Error('Paste an image prompt first.');
-  const settings = await getSettings();
-  const prov = provider || settings.provider || 'flow';
-  const safeLabel = String(label || 'image')
-    .trim()
-    .replace(/[^a-z0-9_-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'image';
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const key = `${stamp}_${safeLabel}`;
-  return enqueue([mkItem({
-    kind: 'scene',
-    provider: prov,
-    source: 'standalone',
-    slug: '',
-    episodeCode: 'Standalone',
-    episodeTitle: '',
-    sceneKey: key,
-    prompt: text,
-    target: 'download',
-    projectId: normalizeFlowProjectId(settings.flowProjectId),
-    model: settings.imageModel,
-    aspectRatio:
-      prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
-        : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
-          : prov === 'chatgpt' ? settings.chatgptAspectRatio || '16:9'
-            : settings.aspectRatio,
-    label: `Standalone — ${safeLabel}`,
-    project: 'Standalone',
-    downloadPath: `StoryStudioImages/Standalone/${stamp}_${safeLabel}.png`,
-  })]);
 }
 
 async function processQueue() {
@@ -1544,10 +1482,8 @@ async function executeFleetCommand(cmd, settings) {
           slug: cmd.slug,
           episodeCode: cmd.episodeCode,
           provider: cmd.provider,
-          target: cmd.target,
           source: 'plan',
           kind: 'scene',
-          projectName: cmd.slug,
           fleetJobId: cmd.jobId,
           // Character reference for character scenes — enqueueScenes gates it to
           // Flow/Qwen and to scene_type === 'character', so it's safe to pass through.
@@ -1656,9 +1592,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'enqueueScenes':
       reply(enqueueScenes(msg.payload));
-      return true;
-    case 'enqueueStandalone':
-      reply(enqueueStandalone(msg.payload));
       return true;
     case 'removeItem':
       reply(removeFromQueue(msg.id));

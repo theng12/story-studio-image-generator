@@ -114,22 +114,6 @@ export const DEFAULTS = {
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
   aspectRatio: '16:9',
 
-  // Where generated scene images go:
-  //   "project"  — POST back to Story Studio so the file lands in the episode's
-  //                real "05 Scene Images" folder with the canonical name and the
-  //                scene_plan.json is updated. Companion mode only (needs the
-  //                image-ingest endpoint in story-studio-kh).
-  //   "download" — save into the browser Downloads folder (works always).
-  // Default to the project folder: the free image flow (Nano Banana 2 ->
-  // upload-image) is verified end-to-end and is the point of the integration.
-  saveTarget: 'project',
-
-  // Downloads layout (relative to the browser Downloads dir).
-  // Tokens: {project} {episodeCode} {episodeTitle} {sceneId} {sceneIndex}
-  downloadSubdir: 'StoryStudioScenes/{project}/{episodeCode}',
-  // Filename template (extension appended automatically).
-  filenameTemplate: '{episodeCode}_{sceneId}',
-
   // Re-generate scenes that already have an image? Off by default.
   includeExisting: false,
 

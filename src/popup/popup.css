@@ -604,12 +604,7 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 /* Operational settings stay visible even when the batch card has no work. */
 .applied-settings { margin: -4px 0 10px; }
 
-/* The working source is always explicit: Story Studio is the default, while
-   standalone is deliberately a local, Downloads-only prompt path. */
-.work-mode { display: flex; align-items: center; gap: 7px; margin: -1px 0 12px; }
-.mode-label { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.mode-switch .seg { padding: 4px 8px; }
-.mode-description { color: var(--muted); font-size: 11px; }
+.fixed-destination { margin-top: 3px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); }
 .studio-connection { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .connection-status { color: var(--muted); font-size: 11px; }
 .studio-connection[data-state="connected"] { border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); }
@@ -617,13 +612,6 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 .studio-connection[data-state="connected"] .connection-status { color: var(--ok); }
 .studio-connection[data-state="failed"] .connection-status { color: var(--danger); }
 .connection-test { flex: none; border-color: var(--accent); color: var(--link); font-weight: 600; }
-.standalone-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.mode-badge { color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; font-size: 10px; }
-.standalone-workflow label { display: block; margin-top: 10px; }
-.standalone-workflow .mini { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; }
-.standalone-workflow textarea { width: 100%; resize: vertical; min-height: 110px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--fg); font: inherit; }
-.standalone-save { margin: 9px 0; }
-.standalone-workflow #queueStandalone { width: 100%; }
 
 @media (max-width: 340px) {
   .asset-settings, .active-controls { grid-template-columns: 1fr; }

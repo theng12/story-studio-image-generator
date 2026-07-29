@@ -21,7 +21,6 @@ let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
 let liveStatus = null;
-let workMode = 'studio';
 let studioConnection = null;
 
 const HUMAN_PACE_PRESETS = {
@@ -248,24 +247,21 @@ async function init() {
   initWhatsNew(manifest.version);
   settings = await getSettings();
   client = new StudioClient(settings.studioBaseUrl);
-  $('saveTarget').value = settings.saveTarget;
   $('provider').value = settings.provider || 'flow';
   $('includeExisting').checked = !!settings.includeExisting;
   $('charRefEnabled').checked = settings.characterRefEnabled !== false;
   $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
-  const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorWorkMode', 'imageGeneratorStudioConnection']);
+  const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorStudioConnection']);
   settingsSource = localState.settingsSource || {};
-  workMode = localState.imageGeneratorWorkMode === 'standalone' ? 'standalone' : 'studio';
   studioConnection = localState.imageGeneratorStudioConnection || null;
   renderHumanPace();
   renderCooldownCard();
   renderAppliedSettings();
-  renderWorkMode();
   renderStudioConnection();
   await refreshFlowProject();
   wire();
-  if (workMode === 'studio') await loadProjects();
+  await loadProjects();
   onProviderChange();
   pollQueue();
   setInterval(pollQueue, 1500);
@@ -276,9 +272,6 @@ function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
   document.querySelectorAll('.open-options-link').forEach((button) => {
     button.onclick = () => chrome.runtime.openOptionsPage();
-  });
-  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
-    button.onclick = () => setWorkMode(button.dataset.mode);
   });
   $('humanPacePreset').onchange = selectHumanPacePreset;
   $('humanPaceMin').onchange = saveCustomHumanPace;
@@ -333,10 +326,6 @@ function wire() {
     const res = await chrome.runtime.sendMessage({ type: 'retryFailed' });
     if (!res?.retried) setStatus('No failed jobs to retry.', 'info');
     pollQueue();
-  };
-  $('saveTarget').onchange = () => {
-    saveSettings({ saveTarget: $('saveTarget').value });
-    flashSaved();
   };
   $('mediaType').onchange = onMediaTypeChange;
   $('provider').onchange = onProviderChange;
@@ -395,30 +384,7 @@ function wire() {
     settings = await saveSettings({ flowNewProjectEvery: v });
   };
   $('testConn').onclick = testConnection;
-  $('queueStandalone').onclick = queueStandalone;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
-}
-
-function renderWorkMode() {
-  const studio = workMode !== 'standalone';
-  $('studioWorkflow').classList.toggle('hidden', !studio);
-  $('scenesCard').classList.toggle('hidden', !studio);
-  $('standaloneWorkflow').classList.toggle('hidden', studio);
-  $('saveTarget').disabled = !studio;
-  $('saveTarget').value = studio ? settings.saveTarget : 'download';
-  $('modeDescription').textContent = studio ? 'Project-connected workflow' : 'Local prompt · Downloads only';
-  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
-    const active = button.dataset.mode === (studio ? 'studio' : 'standalone');
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
-}
-
-async function setWorkMode(mode) {
-  workMode = mode === 'standalone' ? 'standalone' : 'studio';
-  await chrome.storage.local.set({ imageGeneratorWorkMode: workMode });
-  renderWorkMode();
-  if (workMode === 'studio') await loadProjects();
 }
 
 function testedLabel(at) {
@@ -586,35 +552,6 @@ async function testConnection() {
   }
 }
 
-async function queueStandalone() {
-  const prompt = $('standalonePrompt').value.trim();
-  if (!prompt) {
-    setStatus('Paste an image prompt first.', 'err');
-    $('standalonePrompt').focus();
-    return;
-  }
-  if ($('provider').value === 'flow' && !settings.flowProjectId) {
-    setStatus('Set a Flow project in Generation workspace first, then generate.', 'err');
-    return;
-  }
-  const button = $('queueStandalone');
-  button.disabled = true;
-  try {
-    const res = await chrome.runtime.sendMessage({
-      type: 'enqueueStandalone',
-      payload: { prompt, label: $('standaloneLabel').value, provider: $('provider').value },
-    });
-    if (!res?.ok) throw new Error(res?.error || 'enqueue failed');
-    $('standalonePrompt').value = '';
-    setStatus('Standalone image queued. It will save to Downloads.', 'done');
-    pollQueue();
-  } catch (e) {
-    setStatus(String(e.message || e), 'err');
-  } finally {
-    button.disabled = false;
-  }
-}
-
 // ── projects / episodes ─────────────────────────────────────────────────────
 async function loadProjects() {
   try {
@@ -702,7 +639,6 @@ async function queueAllPending() {
   if (currentKind() === 'thumbnail')
     return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
   const provider = $('provider').value;
-  const target = $('saveTarget').value;
   if (provider === 'flow' && !settings.flowProjectId) return setStatus('Set a Flow project first.', 'err');
   let rows;
   try {
@@ -719,7 +655,7 @@ async function queueAllPending() {
   $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[provider] || provider}?`;
   $('confirmBody').textContent =
     `Loads ${pending.length} pending episode${pending.length > 1 ? 's' : ''} and queues every missing scene image via ` +
-    `${PROVIDER_LABEL[provider] || provider} → ${target === 'project' ? 'Story Studio folders' : 'Downloads'}. ` +
+    `${PROVIDER_LABEL[provider] || provider} → Story Studio folders. ` +
     `Already-queued scenes are skipped. This can be a lot of scenes — continue?`;
   $('confirmOk').textContent = 'Queue all pending';
   dlg.classList.remove('hidden');
@@ -740,7 +676,6 @@ async function queueAllPending() {
             slug: currentProject.slug,
             episodeCode: code,
             episodeTitle: e.title || '',
-            projectName: currentProject.name,
             scenes: missing,
             source: r.source,
             kind: 'scene',
@@ -1396,7 +1331,6 @@ async function checkWebGenerator(provider) {
 
 // Reload the list when switching between scene and thumbnail image prompts.
 async function onMediaTypeChange() {
-  $('saveTarget').disabled = false;
   if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
     await loadScenes();
   }
@@ -1412,8 +1346,8 @@ function confirmQueue() {
   const kind = currentKind();
   const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
-  const target = $('saveTarget').value;
-  if (target === 'project' && !currentProject) return;
+  const target = 'project';
+  if (!currentProject) return;
   if (isFlow && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
@@ -1423,21 +1357,21 @@ function confirmQueue() {
     $('confirmTitle').textContent = `Queue these ${noun}s on Grok?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Grok Imagine → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Free tier has a DAILY LIMIT — ` +
+      `Story Studio ${folder}. Free tier has a DAILY LIMIT — ` +
       `the queue pauses when it's hit; press Resume after it resets. ${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Grok';
   } else if (isFlow) {
     $('confirmTitle').textContent = `Queue these ${noun}s?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Story Studio ${folder}. ` +
       `Images use Nano Banana 2 (free). One at a time.`;
     $('confirmOk').textContent = 'Queue';
   } else if (provider === 'aistudio') {
     $('confirmTitle').textContent = `Queue these ${noun}s on AI Studio?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Google AI Studio → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the AI Studio tab open in ` +
+      `Story Studio ${folder}. Keep the AI Studio tab open in ` +
       `image mode. Uses your FREE DAILY image quota — the queue pauses when it's hit; press Resume after reset. ` +
       `${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on AI Studio';
@@ -1445,7 +1379,7 @@ function confirmQueue() {
     $('confirmTitle').textContent = `Queue these ${noun}s on Qwen Studio?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Qwen Studio (${settings.qwenAspectRatio || '16:9'}) → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. Keep the Qwen tab open. ` +
+      `Story Studio ${folder}. Keep the Qwen tab open. ` +
       `Qwen uses one submission per scene, ratio is best-effort, and explicit usage limits pause the queue. ` +
       `${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Qwen';
@@ -1453,7 +1387,7 @@ function confirmQueue() {
     $('confirmTitle').textContent = `Queue these ${noun}s on Pollinations?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via Pollinations (${settings.pollinationsModel || 'flux'}) → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Story Studio ${folder}. ` +
       `Runs in the background — no tab needed. One at a time with a ${humanDelayLabel()} gap` +
       `${settings.pollinationsToken ? '' : ' (free tier is watermarked and rate-limited ~1 image/15s)'}.`;
     $('confirmOk').textContent = 'Queue on Pollinations';
@@ -1471,7 +1405,7 @@ function confirmQueue() {
     $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} via the ${name} website → ` +
-      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Story Studio ${folder}. ` +
       `Keep the generator tab open; jobs run one at a time with a ${humanDelayLabel()} gap.${ratioNote}${chatNote}`;
     $('confirmOk').textContent = `Queue on ${name}`;
   }
@@ -1491,7 +1425,6 @@ async function doEnqueue(scenes, target, provider, kind) {
         slug: currentProject.slug,
         episodeCode: currentEpisode.code,
         episodeTitle: currentEpisode.title,
-        projectName: currentProject.name,
         scenes,
         source: currentSource,
         kind,
