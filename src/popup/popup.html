@@ -55,13 +55,12 @@
       </div>
     </section>
 
-    <section class="work-mode" aria-label="Working mode">
-      <span class="mini">Mode</span>
-      <div class="segmented mode-switch" role="group" aria-label="Working mode">
-        <button type="button" class="seg" data-mode="studio">Story Studio</button>
-        <button type="button" class="seg" data-mode="standalone">Standalone</button>
-      </div>
-    </section>
+    <label class="workflow-mode">Mode
+      <select id="workingMode" aria-label="Working mode">
+        <option value="studio">Story Studio</option>
+        <option value="standalone">Standalone</option>
+      </select>
+    </label>
 
     <!-- Start here: pick the provider, what to make, and where to save. -->
     <section class="card" id="assetSettingsCard">

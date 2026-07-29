@@ -659,13 +659,16 @@ header .settings-gear { width: var(--utility-height); height: var(--utility-heig
 
 .card { margin-bottom: 16px; }
 .asset-settings { gap: 12px; }
-.work-mode {
+.workflow-mode {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
 }
+.workflow-mode select { width: auto; min-width: 144px; margin: 0; }
 .standalone-workflow { display: grid; gap: 12px; margin-bottom: 12px; }
 .standalone-workflow .muted { margin: 0; }
 .asset-setting .mini, .leo .mini {
