@@ -4,7 +4,7 @@ MV3 image-only extension: generates Story Studio KH scene images and thumbnails
 through supported image providers, including **Google Flow** and **Grok
 Imagine**, then saves them back into the episode or Downloads. Video generation
 lives in the sibling `../story-studio-video-generator` extension. Sibling to
-`story-studio-tts` — same architecture (see parent `../CLAUDE.md`). Full
+`story-studio-audio-generator` — same architecture (see parent `../CLAUDE.md`). Full
 writeup in `README.md`.
 
 ## Flow automation — how it actually works (verified live 2026-06-27)

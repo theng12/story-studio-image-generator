@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.47.1",
-  "description": "Generate Story Studio KH scene and thumbnail images through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, Pollinations, PicLumen, and ChatGPT, then save each image with the correct name.",
+  "version": "0.47.2",
+  "description": "Create and organize image assets for Story Studio projects.",
   "permissions": [
     "downloads",
     "storage",
