@@ -57,12 +57,11 @@ async function login() {
   const url = $('studioBaseUrl').value.trim();
   const username = $('studioUsername').value.trim();
   const password = $('studioPassword').value;
-  $('loginStatus').textContent = 'Logging in…';
+  $('loginStatus').textContent = 'Signing in…';
   try {
     await new StudioClient(url).login(username, password);
     await saveCredentials({ username, password });
-    $('loginStatus').textContent = 'Logged in — session cookie set.';
-    $('studioPassword').value = '';
+    $('loginStatus').textContent = '✓ Signed in — this browser session is ready.';
   } catch (e) {
     $('loginStatus').textContent = `Login failed: ${e.message}`;
   }

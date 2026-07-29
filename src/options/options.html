@@ -28,25 +28,30 @@
 
     <section class="card settings-section">
       <div class="label">Story Studio connection</div>
-      <div class="field">
+      <label class="connection-url">
         <span class="label">Server URL</span>
         <input type="text" id="studioBaseUrl" placeholder="http://localhost:8677" />
-        <div class="hint">Local studio (localhost) needs no login or access grant. A remote/Tailscale server (e.g. http://mac-mini.tailXXXX.ts.net:8677) needs both.</div>
-        <div class="row" style="margin-top:6px">
-          <button id="grantAccess" class="btn small">Grant access to this server</button>
-          <button id="testConnection" class="btn small">Test connection</button>
-          <span id="grantStatus" class="muted small"></span>
-        </div>
-        <div id="testStatus" class="hint" aria-live="polite"></div>
+      </label>
+      <p class="hint connection-copy">Use <b>localhost</b> when Story Studio runs on this computer. For a remote or Tailscale server, grant site access, then sign in.</p>
+      <div class="connection-actions">
+        <button id="grantAccess" class="btn small">Grant site access</button>
+        <button id="testConnection" class="btn small">Test connection</button>
       </div>
-      <div class="field" id="loginFields">
-        <div class="row">
-          <input type="text" id="studioUsername" placeholder="username (remote only)" />
-          <input type="password" id="studioPassword" placeholder="password (remote only)" />
-          <button id="login" class="btn">Log in</button>
-        </div>
-        <div class="hint" id="loginStatus"></div>
+      <div class="connection-feedback">
+        <span id="grantStatus" class="muted small" aria-live="polite"></span>
+        <span id="testStatus" class="hint" aria-live="polite"></span>
       </div>
+      <div class="connection-credentials" id="loginFields">
+        <label>Username <span class="muted">(remote only)</span>
+          <input type="text" id="studioUsername" autocomplete="username" placeholder="Your username" />
+        </label>
+        <label>Password <span class="muted">(remote only)</span>
+          <input type="password" id="studioPassword" autocomplete="current-password" placeholder="Stored locally" />
+        </label>
+        <button id="login" class="btn">Sign in</button>
+      </div>
+      <p class="hint connection-login-hint">Sign in is only needed when your remote Story Studio server requires credentials.</p>
+      <div class="hint" id="loginStatus" aria-live="polite"></div>
     </section>
 
     <!-- Provider, workspace, model, ratio, style, pacing, and cooldown choices

@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.19 — Connection-card consistency
+
+- Standardized the Story Studio connection guidance, actions, credentials, and
+  sign-in feedback with the other generators.
+
 ## 0.47.18 — Purple product accent
 
 - Updated Image Generator's primary, link, and focus colors to match its
