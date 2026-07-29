@@ -401,3 +401,202 @@ select, input[type="text"], input[type="password"], input[type="number"] { backg
   .asset-settings { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .asset-setting select { font-size: 11px; }
 }
+
+/* Shared Story Studio generator system --------------------------------------
+   Audio Generator is the interaction and visual reference. Image keeps its
+   image-specific accent and workflow, but deliberately shares the panel
+   geometry, theme behavior, controls, queue language, and activity anatomy. */
+:root {
+  --bg: #ffffff;
+  --fg: #0f0e0d;
+  --muted: #6b6b6b;
+  --border: #e5e5e5;
+  --accent: #5546a8;
+  --accent-fg: #ffffff;
+  --input-bg: #ffffff;
+  --btn-bg: #ffffff;
+  --surface: #fafafa;
+  --divider: #f1f1f1;
+  --danger: #b00000;
+  --link: #5546a8;
+  --ok: #0a7a0a;
+  --warn: #b7791f;
+  --err: var(--danger);
+  --badge-fg: #0a7a0a;
+  --badge-bg: #f2fbf2;
+  --badge-border: #cdebcd;
+  --overlay-bg: rgba(0, 0, 0, .35);
+  --dialog-shadow: rgba(0, 0, 0, .2);
+}
+[data-theme='dark'] {
+  --bg: #1c1b1a;
+  --fg: #ece9e5;
+  --muted: #9a948c;
+  --border: #3a3836;
+  --accent: #b9aaff;
+  --accent-fg: #1c1b1a;
+  --input-bg: #262523;
+  --btn-bg: #262523;
+  --surface: #242322;
+  --divider: #2f2e2c;
+  --danger: #ff6b6b;
+  --link: #b9aaff;
+  --ok: #5cc95c;
+  --warn: #e0a458;
+  --err: var(--danger);
+  --badge-fg: #7fdb7f;
+  --badge-bg: #1f2e1f;
+  --badge-border: #2f4a2f;
+  --overlay-bg: rgba(0, 0, 0, .6);
+  --dialog-shadow: rgba(0, 0, 0, .5);
+}
+
+body {
+  width: 100%;
+  min-width: 280px;
+  margin: 0;
+  padding: 12px;
+  font: 13px/1.45 -apple-system, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+header { margin: 0 0 10px; }
+header h1 { font-size: 14px; letter-spacing: normal; }
+.header-actions { gap: 4px; }
+.version-badge { background: var(--surface); border-color: var(--border); border-radius: 999px; padding: 1px 7px; }
+.whats-new, .link, .open-provider-row .link { color: var(--link); }
+header .settings-gear { width: 38px; height: 38px; border-radius: 10px; color: var(--fg); }
+header .settings-gear:hover { background: var(--surface); }
+
+/* The outer two-pixel frame carries operational state; the inner surface stays
+   quiet so the color communicates work rather than decoration. */
+#activeBatch {
+  margin: 0 0 14px;
+  padding: 2px;
+  overflow: visible;
+  border: 0;
+  border-radius: 8px;
+  background: var(--border);
+  box-shadow: none;
+  transition: background .25s ease, box-shadow .25s ease;
+}
+#activeBatch .activity-inner { padding: 12px; border-radius: 6px; background: var(--bg); }
+#activeBatch.running {
+  background: linear-gradient(100deg, #ff6b6b, #f7b955, #86d46a, #50c9d6, #668cff, #c875e8, #ff6b6b);
+  background-size: 300% 100%;
+  animation: audio-spectrum-flow 3s linear infinite;
+  box-shadow: 0 0 14px color-mix(in srgb, #668cff 20%, transparent);
+}
+#activeBatch.waiting { background: #6a8cff; box-shadow: 0 0 12px color-mix(in srgb, #6a8cff 22%, transparent); }
+#activeBatch.paused { background: var(--warn); }
+#activeBatch.done { background: var(--ok); }
+#activeBatch.failed { background: var(--danger); }
+@keyframes audio-spectrum-flow { to { background-position: 300% 0; } }
+.active-batch-heading { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.batch-state-pill { font-variant-numeric: tabular-nums; }
+.genstatus, #activeBatch .genstatus {
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  box-shadow: none;
+  font-size: 13px;
+}
+.genstatus .gs-counts { gap: 10px; font-size: 12px; }
+.genstatus .gs-done { color: var(--ok); }
+.genstatus .gs-failed { color: var(--danger); }
+.genstatus.running .gs-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.genstatus.waiting .gs-dot { background: #6a8cff; }
+.genstatus.paused .gs-dot { background: var(--warn); }
+.active-task {
+  margin-top: 10px;
+  padding-top: 14px;
+  min-height: 0;
+  border-top: 1px solid var(--divider);
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 650;
+}
+.active-meta { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.batch-progress { height: 6px; margin: 12px 0 0; border-radius: 999px; background: var(--divider); }
+.batch-progress span { background: var(--ok); }
+#activeBatch.running .batch-progress span { background: linear-gradient(90deg, #ff6b6b, #f7b955, #86d46a, #50c9d6, #668cff, #c875e8); background-size: 200% 100%; animation: audio-spectrum-flow 2s linear infinite; }
+#activeBatch.waiting .batch-progress span { background: #6a8cff; }
+#activeBatch.failed .batch-progress span { background: var(--danger); }
+.active-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; }
+.active-controls .btn { min-width: 0; padding: 8px 5px; border-radius: 8px; font-size: 12px; }
+.active-controls #pauseQueue, .active-controls #retryFailed { color: var(--link); }
+.active-controls #clearQueue { color: var(--danger); }
+.queue-timing { margin: 9px 0 0; font-size: 11px; }
+.queue {
+  max-height: 228px;
+  margin-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+.qitem { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 9px 2px; border-color: var(--divider); font-size: 12px; }
+.qitem.has-failure { padding: 9px 2px; }
+.qitem .qlabel { font-size: 12px; }
+.qitem .qstatus { min-width: 62px; padding: 0; border: 0; border-radius: 0; font-size: 11px; text-align: right; }
+.qstatus.pending { color: var(--muted); }.qstatus.running { color: var(--link); }.qstatus.done { color: var(--ok); }.qstatus.failed { color: var(--danger); }
+.qitem:has(.qstatus.running) { background: color-mix(in srgb, var(--link) 7%, transparent); }
+.qitem:has(.qstatus.running) .qlabel { font-weight: 600; }
+.qitem .x, .qitem .retry { color: var(--danger); font-size: 13px; padding: 0 4px; }
+.qitem .retry { color: var(--link); }
+.failure-diagnosis { color: var(--danger); }
+
+/* Audio's form hierarchy: controls sit directly on the panel; advanced
+   configuration gets the only quiet containment. */
+.card { margin: 0 0 14px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.asset-settings { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.asset-setting .mini, .leo .mini { margin-bottom: 3px; color: var(--muted); font-size: 11px; }
+select, input[type="text"], input[type="password"], input[type="number"] {
+  margin-top: 3px;
+  padding: 6px 8px;
+  border-color: var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--fg);
+}
+.asset-setting select { padding: 6px 8px; }
+.row { gap: 6px; margin: 8px 0 0; }
+.open-provider-row { margin-top: 4px; }
+.btn { padding: 6px 10px; border-color: var(--border); border-radius: 8px; background: var(--btn-bg); color: var(--fg); }
+.btn:hover { background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.small { padding: 5px 8px; font-size: 12px; }
+.link { padding: 2px 4px; }
+.link.small { font-size: 12px; }
+
+.provider-options, .advanced-card {
+  margin: 10px 0 0;
+  border-color: var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.provider-options summary, .advanced-card summary { min-height: 0; padding: 9px 10px; color: var(--muted); font-size: 12px; }
+.provider-options .leo { margin: 0 10px; padding: 10px 0; border-color: var(--border); }
+.leo-grid { gap: 10px; margin: 10px 0; }
+.leo select { padding: 6px 8px; }
+.advanced-card-body { padding: 0 10px 10px; }
+.pace-state { border-color: var(--border); border-radius: 999px; background: transparent; color: var(--ok); padding: 1px 8px; }
+
+.scenes { margin-top: 6px; max-height: 220px; border-color: var(--border); border-radius: 8px; background: transparent; }
+.scene { gap: 8px; padding: 8px; border-color: var(--divider); font-size: 12px; }
+.scene .idx { font-size: 12px; }.scene .prompt { font-size: 12px; }
+.badge { color: var(--badge-fg); background: var(--badge-bg); border: 1px solid var(--badge-border); border-radius: 999px; }
+#queueSelected { min-height: 0; margin-top: 0; padding: 9px; border-radius: 6px; }
+.episode-queue-actions { gap: 8px; margin-top: 8px; }
+.episode-queue-actions .link { color: var(--link); }
+
+.overlay { background: var(--overlay-bg); }
+.dialog { border: 0; border-radius: 12px; background: var(--bg); color: var(--fg); box-shadow: 0 10px 30px var(--dialog-shadow); }
+.dialog .row { margin-top: 12px; }
+
+@media (max-width: 340px) {
+  .asset-settings, .active-controls { grid-template-columns: 1fr; }
+  .asset-setting { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; }
+  .asset-setting .mini { margin: 0; }
+  .asset-setting select { margin: 0; }
+}

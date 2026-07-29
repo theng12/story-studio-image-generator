@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Story Studio Image Generator</title>
+    <!-- Apply the saved/system theme before paint, matching the Audio Generator. -->
+    <script src="../lib/theme-preload.js"></script>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -21,6 +23,7 @@
     <!-- The live queue stays first: it is the only part of the panel that needs
          attention while a batch is running. -->
     <section id="activeBatch" class="active-batch idle" aria-live="polite">
+      <div class="activity-inner">
       <div class="active-batch-heading">
         <span>Active batch</span>
         <span id="batchStatePill" class="batch-state-pill">Idle</span>
@@ -46,6 +49,7 @@
       <div id="tabReminder" class="reminder hidden"></div>
       <div id="queueTiming" class="queue-timing muted small"></div>
       <div id="queue" class="queue"></div>
+      </div>
     </section>
 
     <!-- Start here: pick the provider, what to make, and where to save. -->

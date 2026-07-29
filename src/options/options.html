@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>Story Studio Image Generator — Settings</title>
+    <script src="../lib/theme-preload.js"></script>
     <link rel="stylesheet" href="../popup/popup.css" />
     <style>
       body { max-width: 560px; margin: 0 auto; padding: 20px; }
@@ -14,6 +15,14 @@
     <header><h1>Story Studio Image Generator — Settings</h1></header>
 
     <section class="card">
+      <div class="field">
+        <span class="label">Appearance</span>
+        <select id="theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
       <div class="label">Story Studio</div>
       <div class="field">
         <span class="label">Server URL</span>
