@@ -79,6 +79,11 @@ const ALARM = 'queueTick';
 // queue drains, so an idle machine would stop reporting and drop offline; this
 // one stays scheduled while the agent is enabled, waking the worker to check in.
 const FLEET_ALARM = 'fleetTick';
+const FLEET_IDENTITY_KEY = 'fleetV2Identity';
+const FLEET_QUEUE_REVISION_KEY = 'fleetV2QueueRevision';
+const FLEET_RESPONSE_NONCES_KEY = 'fleetV2ResponseNonces';
+const FLEET_COMMAND_RECEIPTS_KEY = 'fleetV2CommandReceipts';
+const FLEET_HUB_PAUSE_KEY = 'fleetV2HubPause';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 // Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
@@ -863,11 +868,26 @@ async function getQueue() {
       changed = true;
     }
   }
-  if (changed) await chrome.storage.local.set({ [QUEUE_KEY]: queue });
+  if (changed) await setQueue(queue);
   return queue;
 }
-async function setQueue(q) {
-  await chrome.storage.local.set({ [QUEUE_KEY]: q });
+let queueWrite = Promise.resolve();
+function setQueue(q) {
+  // Serialize local writes so each persistent change advances the monotonic
+  // revision exactly once, even when an alarm and panel message arrive together.
+  const write = queueWrite.then(async () => {
+    const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
+    const revision = Math.max(0, Number(stored[FLEET_QUEUE_REVISION_KEY]) || 0) + 1;
+    await chrome.storage.local.set({ [QUEUE_KEY]: q, [FLEET_QUEUE_REVISION_KEY]: revision });
+    return revision;
+  });
+  queueWrite = write.catch(() => {});
+  return write;
+}
+
+async function getQueueRevision() {
+  const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
+  return Math.max(0, Number(stored[FLEET_QUEUE_REVISION_KEY]) || 0);
 }
 
 let _seq = 0;
@@ -949,6 +969,37 @@ async function retryFailed(id = null) {
     processQueue();
   }
   return { ok: true, retried };
+}
+
+// Remote retry is deliberately more conservative than the local Retry Failed
+// button. A remote command cannot inspect a provider tab, so it may only retry
+// an item explicitly marked safe by the local queue in a future adapter.
+function isFleetRetrySafe(item) {
+  return item?.status === 'failed' && item.fleetRetrySafe === true && item.failure?.code !== 'ambiguous';
+}
+
+async function retryFleetSafeFailed() {
+  const q = await getQueue();
+  let retried = 0;
+  for (const item of q) {
+    if (!isFleetRetrySafe(item)) continue;
+    item.status = 'pending';
+    delete item.error;
+    delete item.failure;
+    delete item.fleetReported;
+    delete item.startedAt;
+    delete item.finishedAt;
+    delete item.durationMs;
+    delete item.fleetRetrySafe;
+    retried++;
+  }
+  if (retried) {
+    await setQueue(q);
+    await writeStatus(`Retrying ${retried} Fleet-safe failed job${retried === 1 ? '' : 's'}…`, 'running');
+    alarmCreate();
+    processQueue();
+  }
+  return { retried };
 }
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
@@ -1173,6 +1224,8 @@ async function processQueue() {
             alarmCreate();
           } else {
             await chrome.storage.local.set({ [PAUSE_KEY]: true });
+            await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
+            await setQueue(await getQueue());
             const detail = e && e.message ? ` ${e.message}` : '';
             await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
             alarmClear();
@@ -1221,6 +1274,10 @@ async function processQueue() {
           it.status = 'failed';
           it.error = String(e.message || e);
           it.failure = diagnoseFailure(e, it);
+          // A terminal provider failure never proves that no generation was
+          // accepted. Keep remote retry disabled unless a future adapter can
+          // establish that no provider request was made.
+          it.fleetRetrySafe = false;
           it.finishedAt = Date.now();
           it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
         }
@@ -1252,6 +1309,15 @@ async function clearQueue() {
   return { ok: true };
 }
 
+// The Hub may clear only work that has not started. It must not alter provider
+// cooldowns: those are local safety limits, not Fleet scheduling knobs.
+async function clearPendingFromFleet() {
+  const q = (await getQueue()).filter((i) => i.status !== 'pending');
+  await setQueue(q);
+  await writeStatus('Pending queue items cleared by Fleet Hub.', 'info');
+  return { cleared: true };
+}
+
 // Resume after a worker restart: re-pend any item that was mid-flight when the
 // worker died, then keep going if anything is pending.
 (async () => {
@@ -1263,6 +1329,7 @@ async function clearQueue() {
         i.status = 'failed';
         i.error = 'Leonardo generation was interrupted after submission; its outcome is unknown. Check the Leonardo tab before retrying.';
         i.failure = diagnoseFailure(i.error, i);
+        i.fleetRetrySafe = false;
         i.finishedAt = Date.now();
         i.durationMs = i.finishedAt - (i.startedAt || i.finishedAt);
       } else {
@@ -1287,15 +1354,12 @@ chrome.alarms?.onAlarm?.addListener((a) => {
   }
 });
 
-// ── Fleet Hub agent ───────────────────────────────────────────────────────────
-// When enabled, report this machine's queue status to the hub every few seconds
-// and run any commands it returns. All outbound — Chrome extensions can't accept
-// inbound connections, so control rides the heartbeat response. The 5s interval
-// runs while the worker is alive (i.e. during active batches, when it matters);
-// the 30s queue alarm also fires a heartbeat so idle machines still report.
-let fleetAckedIds = [];
-let fleetEnumeration = null; // { jobId, scenes:[{id,prompt,label}] } to report next beat
-let fleetCatalog = null; // { kind:'projects'|'episodes', slug?, items } to report next beat
+// ── Fleet Hub v2 agent ───────────────────────────────────────────────────────
+// Fleet is an authenticated observer of this persistent queue. It never drives
+// providers, Story Studio, settings, or scene dispatch; the small command set
+// below delegates only to local queue operations after a revision check.
+const FLEET_HEARTBEAT_PATH = '/api/v2/agents/heartbeat';
+const FLEET_SESSION_ID = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 async function hmacHex(secret, value) {
   const encoder = new TextEncoder();
@@ -1310,56 +1374,114 @@ async function hmacHex(secret, value) {
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function fleetSigningText(timestamp, nonce, bodyText) {
+  return `POST\n${FLEET_HEARTBEAT_PATH}\n${timestamp}\n${nonce}\n${bodyText}`;
+}
+
+function fleetRandomId(prefix) {
+  return crypto.randomUUID ? crypto.randomUUID() : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function getFleetIdentity() {
+  const stored = await chrome.storage.local.get(FLEET_IDENTITY_KEY);
+  const current = stored[FLEET_IDENTITY_KEY] || {};
+  const identity = {
+    agentId: typeof current.agentId === 'string' && current.agentId ? current.agentId : fleetRandomId('agent'),
+    machineId: typeof current.machineId === 'string' && current.machineId ? current.machineId : fleetRandomId('machine'),
+  };
+  if (identity.agentId !== current.agentId || identity.machineId !== current.machineId) {
+    await chrome.storage.local.set({ [FLEET_IDENTITY_KEY]: identity });
+  }
+  return identity;
+}
+
+function fleetSafeText(value, max = 240) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
 async function fleetResponseAuthenticated(response, bodyText, secret) {
-  if (!secret) return false;
-  const timestamp = response.headers.get('x-story-studio-timestamp') || '';
-  const signature = response.headers.get('x-story-studio-signature') || '';
+  if (!secret) return { ok: false, error: 'No local pairing secret configured.' };
+  const timestamp = response.headers.get('x-fleet-timestamp') || '';
+  const nonce = response.headers.get('x-fleet-nonce') || '';
+  const signature = response.headers.get('x-fleet-signature') || '';
   const timestampMs = Number(timestamp);
-  if (!timestamp || !signature || !Number.isFinite(timestampMs)) return false;
-  if (Math.abs(Date.now() - timestampMs) > 60000) return false;
-  const expected = await hmacHex(secret, `${timestamp}.${bodyText}`);
-  if (expected.length !== signature.length) return false;
+  if (!timestamp || !nonce || !signature || !Number.isFinite(timestampMs)) return { ok: false, error: 'Hub response is missing authentication headers.' };
+  if (Math.abs(Date.now() - timestampMs) > 60000) return { ok: false, error: 'Hub response timestamp is stale.' };
+  const expected = await hmacHex(secret, fleetSigningText(timestamp, nonce, bodyText));
+  if (expected.length !== signature.length) return { ok: false, error: 'Hub response signature is invalid.' };
   let difference = 0;
   for (let index = 0; index < expected.length; index++) {
     difference |= expected.charCodeAt(index) ^ signature.charCodeAt(index);
   }
-  return difference === 0;
+  if (difference !== 0) return { ok: false, error: 'Hub response signature is invalid.' };
+
+  // Persist response nonces before processing commands. A terminated service
+  // worker must not turn a signed response into a replayable command batch.
+  const stored = await chrome.storage.local.get(FLEET_RESPONSE_NONCES_KEY);
+  const now = Date.now();
+  const recent = (Array.isArray(stored[FLEET_RESPONSE_NONCES_KEY]) ? stored[FLEET_RESPONSE_NONCES_KEY] : [])
+    .filter((entry) => entry && typeof entry.nonce === 'string' && now - Number(entry.at || 0) <= 5 * 60 * 1000)
+    .slice(-200);
+  if (recent.some((entry) => entry.nonce === nonce)) return { ok: false, error: 'Hub response was already processed.' };
+  recent.push({ nonce, at: now });
+  await chrome.storage.local.set({ [FLEET_RESPONSE_NONCES_KEY]: recent.slice(-200) });
+  return { ok: true };
 }
 
-async function fleetHeartbeat() {
+async function getFleetCommandReceipts() {
+  const stored = await chrome.storage.local.get(FLEET_COMMAND_RECEIPTS_KEY);
+  return stored[FLEET_COMMAND_RECEIPTS_KEY] && typeof stored[FLEET_COMMAND_RECEIPTS_KEY] === 'object'
+    ? stored[FLEET_COMMAND_RECEIPTS_KEY]
+    : {};
+}
+
+async function recordFleetCommandResult(commandId, result) {
+  const receipts = await getFleetCommandReceipts();
+  receipts[commandId] = { commandId, ...result, recordedAt: Date.now() };
+  const retained = Object.values(receipts)
+    .filter((entry) => entry && entry.commandId)
+    .sort((a, b) => Number(a.recordedAt || 0) - Number(b.recordedAt || 0))
+    .slice(-200);
+  await chrome.storage.local.set({ [FLEET_COMMAND_RECEIPTS_KEY]: Object.fromEntries(retained.map((entry) => [entry.commandId, entry])) });
+  return receipts[commandId];
+}
+
+function fleetCommandResult(command, status, extra = {}) {
+  return {
+    action: String(command?.action || command?.type || ''),
+    status,
+    ...extra,
+  };
+}
+
+async function fleetHeartbeat({ testOnly = false } = {}) {
   const settings = await getSettings();
   const hub = String(settings.fleetHubUrl || '')
     .trim()
     .replace(/\/+$/, '');
-  const name = String(settings.fleetAgentName || '').trim();
-  if (!settings.fleetAgentEnabled || !hub || !name) return;
+  if (!hub) return { ok: false, error: 'Enter a Fleet Hub URL first.' };
+  if (!testOnly && (!settings.fleetAgentEnabled || !settings.fleetTelemetryEnabled)) {
+    return { ok: false, error: 'Enable Fleet telemetry before connecting.' };
+  }
+  const secret = String(settings.fleetSharedSecret || '').trim();
+  if (!secret) return { ok: false, error: 'Enter this agent’s local pairing secret first.' };
 
-  const [rawQueue, paused, stored] = await Promise.all([
+  await queueWrite;
+
+  const [queue, paused, stored, identity, queueRevision, receipts] = await Promise.all([
     getQueue(),
     isPaused(),
     chrome.storage.local.get([COOLDOWN_KEY, 'lastStatus']),
+    getFleetIdentity(),
+    getQueueRevision(),
+    getFleetCommandReceipts(),
   ]);
-  // COOLDOWN_KEY holds a PER-PROVIDER map ({ flow: resumeAt, qwen: resumeAt, … }),
-  // so read this machine's provider — not the map itself. (Reading it as a bare
-  // number always gave NaN→null, so the fleet never noticed a provider cooldown
-  // and never released its scenes; the hub then held them hostage.)
   const cooldowns = stored[COOLDOWN_KEY] || {};
   const cooldownUntil = Number(cooldowns[settings.provider]) || null;
-
-  // If we can't generate right now (paused or cooling down), hand our
-  // not-yet-started fleet scenes back to the pool: drop them from our queue so
-  // the hub redistributes them to a free machine AND so we don't double-generate
-  // them when we resume. Running / done / failed items stay put.
-  let queue = rawQueue;
-  const cantGenerate = paused || (cooldownUntil && cooldownUntil > Date.now());
-  if (cantGenerate) {
-    const trimmed = queue.filter((i) => !(i.fleetJobId && i.status === 'pending'));
-    if (trimmed.length !== queue.length) {
-      await setQueue(trimmed);
-      queue = trimmed;
-    }
-  }
-
   const counts = {
     done: queue.filter((i) => i.status === 'done').length,
     failed: queue.filter((i) => i.status === 'failed').length,
@@ -1372,184 +1494,122 @@ async function fleetHeartbeat() {
   else if (cooldownUntil && cooldownUntil > Date.now()) state = 'cooldown';
   else if (left > 0) state = counts.running ? 'generating' : 'queued';
 
-  // Dispatch bookkeeping: report done/failed for hub-assigned scenes and how many
-  // are still in flight so the hub knows our capacity.
-  const fleetItems = queue.filter((i) => i.fleetJobId);
-  const report = fleetItems
-    .filter((i) => (i.status === 'done' || i.status === 'failed') && !i.fleetReported)
-    .map((i) => ({
-      jobId: i.fleetJobId,
-      sceneId: i.sceneKey,
-      status: i.status,
-      // Send a concise reason so the hub can show WHY a scene failed.
-      ...(i.status === 'failed' ? { error: (i.failure && i.failure.title) || String(i.error || 'Generation failed').slice(0, 300) } : {}),
-    }));
-  const fleetPending = fleetItems.filter((i) => i.status === 'pending' || i.status === 'running').length;
-
   const body = {
-    agentId: name,
-    name,
-    version: chrome.runtime.getManifest().version,
-    provider: settings.provider,
-    studioUrl: settings.studioBaseUrl,
-    state,
-    counts,
-    current: queue.find((i) => i.status === 'running')?.label || '',
-    status: stored.lastStatus?.text || '',
-    cooldownUntil,
-    ackedCommandIds: fleetAckedIds,
-    fleet: { pending: fleetPending, report, enumeration: fleetEnumeration, catalog: fleetCatalog },
-    // Current pacing + this provider's cooldown + Flow auto-new-project so the hub
-    // can show and push fleet-wide settings without guessing.
-    config: {
-      humanDelayMinSec: settings.humanDelayMinSec,
-      humanDelayMaxSec: settings.humanDelayMaxSec,
-      cooldown: providerCooldown(settings, settings.provider),
-      flowAutoNewProject: settings.flowAutoNewProject === true,
-      flowNewProjectEvery: Number(settings.flowNewProjectEvery) || 300,
+    protocolVersion: 2,
+    agent: {
+      ...identity,
+      extensionType: 'image',
+      sessionId: FLEET_SESSION_ID,
+      version: chrome.runtime.getManifest().version,
+      displayName: fleetSafeText(settings.fleetAgentName, 80),
+      capabilities: { actions: ['pause_after_current', 'resume_hub_pause', 'clear_pending', 'retry_failed'] },
+      consent: {
+        telemetry: settings.fleetTelemetryEnabled === true,
+        queueControl: settings.fleetQueueControlEnabled === true,
+      },
     },
+    snapshot: {
+      queueRevision,
+      state,
+      counts,
+      current: fleetSafeText(queue.find((i) => i.status === 'running')?.label, 160),
+      cooldownUntil: cooldownUntil > Date.now() ? cooldownUntil : null,
+      status: fleetSafeText(stored.lastStatus?.text, 240),
+      config: {
+        provider: fleetSafeText(settings.provider, 40),
+        humanDelayMinSec: Number(settings.humanDelayMinSec) || 0,
+        humanDelayMaxSec: Number(settings.humanDelayMaxSec) || 0,
+      },
+    },
+    commandResults: Object.values(receipts).slice(-100),
   };
   try {
     const bodyText = JSON.stringify(body);
-    const headers = { 'Content-Type': 'application/json' };
-    const sharedSecret = String(settings.fleetSharedSecret || '').trim();
-    if (sharedSecret) {
-      const timestamp = String(Date.now());
-      headers['X-Story-Studio-Timestamp'] = timestamp;
-      headers['X-Story-Studio-Signature'] = await hmacHex(sharedSecret, `${timestamp}.${bodyText}`);
-    }
-    const r = await fetch(`${hub}/api/agents/heartbeat`, {
+    const timestamp = String(Date.now());
+    const nonce = fleetRandomId('request');
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Fleet-Timestamp': timestamp,
+      'X-Fleet-Nonce': nonce,
+      'X-Fleet-Signature': await hmacHex(secret, fleetSigningText(timestamp, nonce, bodyText)),
+    };
+    const r = await fetch(`${hub}${FLEET_HEARTBEAT_PATH}`, {
       method: 'POST',
       headers,
       body: bodyText,
     });
-    if (!r.ok) return; // keep acks/report pending; retry next tick
+    if (!r.ok) return { ok: false, error: `Hub returned HTTP ${r.status}.` };
     const responseText = await r.text();
-    const data = JSON.parse(responseText || '{}');
-    fleetAckedIds = [];
-    fleetEnumeration = null; // sent
-    fleetCatalog = null; // sent
-    // After reporting: drop the SUCCESSFUL scenes so they don't pile up, but KEEP
-    // the failed ones on this machine so their error stays visible — just flag
-    // them reported so we don't re-send them every heartbeat.
-    if (report.length) {
-      const reported = new Set(report.map((x) => `${x.jobId}|${x.sceneId}`));
-      const isReported = (i) => i.fleetJobId && reported.has(`${i.fleetJobId}|${i.sceneKey}`);
-      const q = await getQueue();
-      await setQueue(
-        q
-          .filter((i) => !(i.status === 'done' && isReported(i)))
-          .map((i) => (i.status === 'failed' && isReported(i) ? { ...i, fleetReported: true } : i))
-      );
+    let data;
+    try {
+      data = JSON.parse(responseText || '{}');
+    } catch {
+      return { ok: false, error: 'Hub returned invalid JSON.' };
     }
-    const commandsAuthenticated = await fleetResponseAuthenticated(r, responseText, sharedSecret);
-    if (commandsAuthenticated) {
-      for (const cmd of data.commands || []) await executeFleetCommand(cmd, settings);
+    const authenticated = await fleetResponseAuthenticated(r, responseText, secret);
+    if (!authenticated.ok) return authenticated;
+    if (!testOnly && Array.isArray(data.commands)) {
+      for (const command of data.commands) await executeFleetCommand(command, settings, identity);
     }
+    return { ok: true, commands: Array.isArray(data.commands) ? data.commands.length : 0 };
   } catch {
-    /* hub unreachable — try again next tick */
+    return { ok: false, error: 'Hub is unreachable. Check its URL and site access.' };
   }
 }
 
-async function executeFleetCommand(cmd, settings) {
+async function executeFleetCommand(command, settings, identity) {
+  const commandId = String(command?.commandId || command?.id || '');
+  if (!commandId) return null;
+  const receipts = await getFleetCommandReceipts();
+  if (receipts[commandId]) return receipts[commandId];
+  const action = String(command?.action || command?.type || '');
+  const reject = async (reason) => recordFleetCommandResult(commandId, fleetCommandResult(command, 'rejected', { reason, queueRevision: await getQueueRevision() }));
+  const createdAt = Number(command?.createdAt);
+  const expiresAt = Number(command?.expiresAt);
+  if (!Number.isFinite(createdAt) || !Number.isFinite(expiresAt) || createdAt > expiresAt || expiresAt <= Date.now() || expiresAt > Date.now() + 15 * 60 * 1000) {
+    return reject('expired_or_invalid_timing');
+  }
+  if (command.targetAgentId !== identity.agentId) return reject('wrong_agent');
+  if (command.targetSessionId !== FLEET_SESSION_ID) return reject('stale_session');
+  if (!settings.fleetQueueControlEnabled) return reject('queue_control_not_consented');
+  await queueWrite;
+  if (!Number.isInteger(command.expectedQueueRevision) || command.expectedQueueRevision !== await getQueueRevision()) return reject('stale_queue_revision');
+
   try {
-    switch (cmd.type) {
-      case 'pause':
-        await pauseQueue();
+    switch (action) {
+      case 'pause_after_current':
+        await pauseQueue({ byHub: true, commandId });
         break;
-      case 'resume':
-        await resumeQueue();
-        break;
-      case 'retryFailed':
-        await retryFailed(null);
-        break;
-      case 'clear':
-        await clearQueue();
-        break;
-      case 'fetchCatalog': {
-        // The hub can't reach the shared Story Studio (auth) — we can, so list
-        // projects/episodes for the hub's Distribute picker.
-        const client = new StudioClient(settings.studioBaseUrl);
-        if (cmd.kind === 'episodes' && cmd.slug) {
-          // Episodes + characters in one shot (both per-project) for the picker.
-          const [rows, chars] = await Promise.all([client.listEpisodes(cmd.slug), client.listCharacters(cmd.slug).catch(() => [])]);
-          const eps = (Array.isArray(rows) ? rows : rows.episodes || [])
-            .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', done: !!e.status?.images, hasPlan: !!e.status?.scene_plan }))
-            .filter((e) => e.code);
-          const characters = [];
-          for (const c of Array.isArray(chars) ? chars : chars.characters || []) {
-            const imgs = (c.references && c.references.images) || c.reference_images || [];
-            const first = imgs[0];
-            const filename = typeof first === 'string' ? first : first && (first.filename || first.name);
-            if (filename) characters.push({ id: c.id, name: c.name || c.id, filename });
-          }
-          fleetCatalog = { kind: 'episodes', slug: cmd.slug, items: eps, characters };
-        } else {
-          const rows = await client.listProjects();
-          const projects = (Array.isArray(rows) ? rows : rows.projects || [])
-            .map((p) => ({ slug: p.slug, name: p.name || p.slug }))
-            .filter((p) => p.slug);
-          fleetCatalog = { kind: 'projects', items: projects };
-        }
+      case 'resume_hub_pause': {
+        const marker = (await chrome.storage.local.get(FLEET_HUB_PAUSE_KEY))[FLEET_HUB_PAUSE_KEY];
+        const q = await getQueue();
+        const nextProvider = q.find((item) => item.status === 'pending')?.provider;
+        const cooldownUntil = Number((await getCooldowns())[nextProvider]) || 0;
+        if (!marker || !(await isPaused())) return reject('not_hub_paused');
+        if (cooldownUntil > Date.now()) return reject('local_cooldown_active');
+        await chrome.storage.local.remove([PAUSE_KEY, FLEET_HUB_PAUSE_KEY]);
+        await setQueue(q); // record the state transition in the revision
+        alarmCreate();
+        processQueue();
         break;
       }
-      case 'enumerateEpisode': {
-        // Report this episode's missing scenes so the hub can build the pool.
-        const data = await new StudioClient(settings.studioBaseUrl).sceneReview(cmd.slug, cmd.episodeCode);
-        const scenes = (data?.scenes || [])
-          .filter((s) => !s.image_filename && (s.visual_prompt || '').trim())
-          .map((s) => ({ id: s.id, prompt: s.visual_prompt, label: `Scene ${s.scene_index}` }));
-        fleetEnumeration = { jobId: cmd.jobId, scenes };
+      case 'clear_pending':
+        await clearPendingFromFleet();
+        break;
+      case 'retry_failed': {
+        const result = await retryFleetSafeFailed();
+        if (!result.retried) return reject('no_provably_safe_failed_items');
         break;
       }
-      case 'applySettings': {
-        // Fleet-wide settings push from the hub (pacing, per-provider cooldown,
-        // Flow auto-new-project). providerCooldowns must DEEP-merge or we'd wipe
-        // providers we didn't set.
-        const patch = { ...(cmd.settings || {}) };
-        if (patch.providerCooldowns) {
-          const cur = (await getSettings()).providerCooldowns || {};
-          const merged = { ...cur };
-          for (const [prov, val] of Object.entries(patch.providerCooldowns)) merged[prov] = { ...(cur[prov] || {}), ...val };
-          patch.providerCooldowns = merged;
-        }
-        await saveSettings(patch);
-        // Record that the HUB set these, so the panel can show who's in control.
-        const src = {};
-        if ('humanDelayMinSec' in patch || 'humanDelayMaxSec' in patch) src.pace = { by: 'hub', at: Date.now() };
-        if (patch.providerCooldowns) src.cooldown = { by: 'hub', at: Date.now() };
-        if (Object.keys(src).length) {
-          const cur = (await chrome.storage.local.get('settingsSource')).settingsSource || {};
-          await chrome.storage.local.set({ settingsSource: { ...cur, ...src } });
-        }
-        break;
-      }
-      case 'newFlowProject':
-        // Fleet Hub asked this machine to roll over to a fresh Flow project.
-        await startNewFlowProject('Fleet Hub');
-        break;
-      case 'generateScenes':
-        // Queue exactly the scenes the hub leased to us (dedupe guards double work).
-        await enqueueScenes({
-          slug: cmd.slug,
-          episodeCode: cmd.episodeCode,
-          provider: cmd.provider,
-          source: 'plan',
-          kind: 'scene',
-          fleetJobId: cmd.jobId,
-          // Character reference for character scenes — enqueueScenes gates it to
-          // Flow/Qwen and to scene_type === 'character', so it's safe to pass through.
-          characterRef: cmd.characterRef || undefined,
-          scenes: (cmd.scenes || []).map((x) => ({ source: 'plan', kind: 'scene', key: x.id, prompt: x.prompt, label: x.label, hasImage: false })),
-        });
-        break;
       default:
-        break;
+        return reject('unsupported_action');
     }
-  } catch {
-    /* command failed — acked anyway so it doesn't loop forever */
-  } finally {
-    fleetAckedIds.push(cmd.id);
+    return recordFleetCommandResult(commandId, fleetCommandResult(command, 'succeeded', { queueRevision: await getQueueRevision() }));
+  } catch (error) {
+    return recordFleetCommandResult(commandId, fleetCommandResult(command, 'failed', {
+      reason: fleetSafeText(error?.message || error, 180),
+      queueRevision: await getQueueRevision(),
+    }));
   }
 }
 
@@ -1617,14 +1677,20 @@ async function leonardoModelControls(model) {
 // Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
 async function resumeQueue() {
   // Manual resume overrides any provider's cooldown — clear them all.
-  await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY]);
+  await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY]);
+  await setQueue(await getQueue()); // pause state is part of the Fleet snapshot
   alarmCreate();
   processQueue();
   return { ok: true };
 }
 
-async function pauseQueue() {
-  await chrome.storage.local.set({ [PAUSE_KEY]: true });
+async function pauseQueue({ byHub = false, commandId = '' } = {}) {
+  if (byHub) await chrome.storage.local.set({ [PAUSE_KEY]: true, [FLEET_HUB_PAUSE_KEY]: { commandId, at: Date.now() } });
+  else {
+    await chrome.storage.local.set({ [PAUSE_KEY]: true });
+    await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
+  }
+  await setQueue(await getQueue()); // pause state is part of the Fleet snapshot
   // If something is mid-generation it finishes and saves; the loop then stops.
   await writeStatus(processing ? 'Pausing — finishing the current item first…' : 'Queue paused — press Resume to continue.', 'info');
   return { ok: true };
@@ -1681,6 +1747,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'pauseQueue':
       reply(pauseQueue());
+      return true;
+    case 'fleet:testConnection':
+      // A test authenticates the exact v2 heartbeat contract but never executes
+      // any returned command.
+      reply(fleetHeartbeat({ testOnly: true }));
       return true;
     case 'flowContext':
       reply(flowContext());

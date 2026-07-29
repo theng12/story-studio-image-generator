@@ -15,7 +15,7 @@ const FIELDS = [
   'fleetAgentName',
   'fleetSharedSecret',
 ];
-const CHECKBOX_FIELDS = ['fleetAgentEnabled'];
+const CHECKBOX_FIELDS = ['fleetAgentEnabled', 'fleetTelemetryEnabled', 'fleetQueueControlEnabled'];
 
 async function load() {
   await initTheme();
@@ -209,11 +209,34 @@ async function grantFleet() {
   }
 }
 
+async function testFleet() {
+  const status = $('fleetTestStatus');
+  status.textContent = 'Testing Hub connection…';
+  status.style.color = 'var(--muted)';
+  // Persist the form first: the worker deliberately reads only local settings
+  // when constructing the authenticated test heartbeat.
+  await save();
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'fleet:testConnection' });
+    if (result?.ok) {
+      status.textContent = `✓ Authenticated Hub connection${result.commands ? ` (${result.commands} command${result.commands === 1 ? '' : 's'} ignored during test)` : ''}.`;
+      status.style.color = 'var(--ok)';
+    } else {
+      status.textContent = result?.error || 'Couldn’t connect to the Hub.';
+      status.style.color = 'var(--err)';
+    }
+  } catch (error) {
+    status.textContent = `Couldn’t connect: ${error.message}`;
+    status.style.color = 'var(--err)';
+  }
+}
+
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
 $('testConnection').onclick = testConnection;
 $('grantFleet').onclick = grantFleet;
+$('testFleet').onclick = testFleet;
 $('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 // Wire auto-save: text fields on input, selects on change.
