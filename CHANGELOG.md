@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.16 — Single provider settings surface
+
+- Removed duplicated image-provider controls from global Settings.
+- Provider model, style, ratio, workspace, pacing, cooldown, and recovery
+  choices now live only in the side panel where the batch is configured.
+
 ## 0.47.15 — Connection recovery and settings
 
 - Failed side-panel connection tests now offer a direct **Update Studio URL**

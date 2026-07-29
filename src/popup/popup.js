@@ -342,6 +342,10 @@ function wire() {
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
   $('flowImageModel').onchange = async () => (settings = await saveSettings({ imageModel: $('flowImageModel').value }));
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
+  $('flowRecaptchaMaxAttempts').onchange = async () => {
+    settings = await saveSettings({ flowRecaptchaMaxAttempts: $('flowRecaptchaMaxAttempts').value });
+    $('flowRecaptchaMaxAttempts').value = settings.flowRecaptchaMaxAttempts;
+  };
   $('flowCharacterRef').onchange = async () => (settings = await saveSettings({ characterRefId: $('flowCharacterRef').value }));
   $('charRefEnabled').onchange = async () => {
     settings = await saveSettings({ characterRefEnabled: $('charRefEnabled').checked });
@@ -1206,6 +1210,7 @@ async function leoSyncAll() {
 function flowPopulate() {
   $('flowImageModel').value = settings.imageModel || 'nano-banana-2';
   $('flowAspect').value = settings.aspectRatio || '16:9';
+  $('flowRecaptchaMaxAttempts').value = settings.flowRecaptchaMaxAttempts || 4;
 }
 
 function freegenPopulate() {
