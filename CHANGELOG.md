@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.18 — Purple product accent
+
+- Updated Image Generator's primary, link, and focus colors to match its
+  purple icon identity.
+
 ## 0.47.17 — Settings structure
 
 - Split Appearance, Story Studio connection, and Fleet Hub into separate
