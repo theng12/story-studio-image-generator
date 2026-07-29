@@ -126,10 +126,13 @@ export const DEFAULTS = {
   lastProject: '',
   lastEpisode: '',
 
-  // Fleet Hub agent: when enabled, the background worker reports this machine's
-  // queue status to the hub and obeys commands it returns (pause/resume/retry/
-  // clear). agentName must be unique per machine — it's the fleet identity.
+  // Fleet Hub v2: identity and secrets stay local; this synced portion contains
+  // only the user's explicit participation/consent choices and display name.
+  // The Hub may observe the queue only when telemetry consent is on, and may
+  // request the small safe-control set only when queue-control consent is on.
   fleetAgentEnabled: false,
+  fleetTelemetryEnabled: false,
+  fleetQueueControlEnabled: false,
   fleetHubUrl: '',
   fleetAgentName: '',
 };
