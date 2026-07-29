@@ -400,7 +400,7 @@
       </div>
       <label class="checkbox small">
         <input type="checkbox" id="cooldownAutoResume" />
-        <span>Auto-resume this provider after a limit or failure</span>
+        <span>Auto-resume after a detected limit</span>
       </label>
       <div id="cooldownOpts" class="hidden">
         <label class="pace-preset">
@@ -425,7 +425,7 @@
           <span class="mini">Retries on failure before giving up</span>
           <input id="cooldownRetries" type="number" min="0" max="10" step="1" />
         </label>
-        <div class="hint">Off = the queue pauses on a limit and waits for you to press Resume (default). On = it waits the chosen time, then resumes on its own — press Resume any time to override. Qwen uses its own stated wait when it gives one.</div>
+        <div class="hint">Manual (default): a detected limit pauses the queue until you press Resume. Auto-resume: the queue waits the chosen time, then resumes on its own. You can press Resume any time to override.</div>
       </div>
       <div id="cooldownUnsupported" class="muted small hidden">This provider has no automatic limit detection — it just stops on error.</div>
       </div>
