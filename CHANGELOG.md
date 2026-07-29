@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.24 — Mode control consistency
+
+- Replaced Image Generator's segmented mode switch with the shared Story Studio / Standalone dropdown.
+
 ## 0.47.23 — Standalone batch review
 
 - Reworked standalone prompt entry into a full-width paste surface.

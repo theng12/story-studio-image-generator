@@ -276,9 +276,7 @@ async function init() {
 
 function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
-  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
-    button.onclick = () => setWorkMode(button.dataset.mode);
-  });
+  $('workingMode').onchange = () => setWorkMode($('workingMode').value);
   $('reviewStandalone').onclick = reviewStandalonePrompts;
   $('editStandalone').onclick = showStandaloneEditor;
   $('queueStandalone').onclick = queueStandalone;
@@ -413,11 +411,7 @@ function renderWorkMode() {
   $('scenesCard').classList.toggle('hidden', !studioMode);
   $('standaloneWorkflow').classList.toggle('hidden', studioMode);
   $('saveDestination').textContent = studioMode ? 'Story Studio KH' : 'Downloads';
-  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
-    const active = button.dataset.mode === workMode;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
+  $('workingMode').value = workMode;
 }
 
 async function setWorkMode(mode) {
