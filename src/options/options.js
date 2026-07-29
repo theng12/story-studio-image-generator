@@ -7,9 +7,11 @@ import {
   saveLeonardoModels,
 } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
+import { initTheme, setTheme } from '../lib/theme.js';
 
 const $ = (id) => document.getElementById(id);
 const FIELDS = [
+  'theme',
   'studioBaseUrl',
   'flowProjectId',
   'perchanceStyle',
@@ -52,6 +54,7 @@ function addModelOptions(models) {
 }
 
 async function load() {
+  await initTheme();
   const s = await getSettings();
   // Seed cached live models before restoring the saved value, so a saved model
   // that isn't in the static list still resolves to a real option.
@@ -252,7 +255,10 @@ $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 for (const f of FIELDS) {
   const el = $(f);
   if (!el) continue;
-  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', autoSave);
+  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
+    if (f === 'theme') setTheme(el.value);
+    autoSave();
+  });
 }
 for (const f of CHECKBOX_FIELDS) {
   const el = $(f);

@@ -6,6 +6,9 @@
 // chrome.storage.sync and are edited on the Options page / side panel.
 
 export const DEFAULTS = {
+  // Shared presentation preference across the Story Studio generators.
+  theme: 'system',
+
   // Story Studio server. Default port 8766, but fully editable — set this to a
   // localhost URL (any port; loopback bypasses auth) or a remote/Tailscale URL
   // like http://mac-mini.tailXXXX.ts.net:8766 (needs Grant access + login).

@@ -8,6 +8,7 @@
 
 import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels, providerCooldown } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
+import { initTheme } from '../lib/theme.js';
 
 const $ = (id) => document.getElementById(id);
 let settings = null;
@@ -238,6 +239,7 @@ async function initWhatsNew(version) {
 }
 
 async function init() {
+  await initTheme();
   const manifest = chrome.runtime.getManifest();
   $('extensionVersion').textContent = `v${manifest.version}`;
   $('extensionVersion').title = `${manifest.name} v${manifest.version}`;
