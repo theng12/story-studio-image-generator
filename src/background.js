@@ -1032,6 +1032,43 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, projectName, sce
   return enqueue(items);
 }
 
+// Standalone prompts intentionally never call Story Studio. They share the
+// persistent queue and provider safety model, but always save to Downloads.
+async function enqueueStandalone({ prompt, label, provider }) {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('Paste an image prompt first.');
+  const settings = await getSettings();
+  const prov = provider || settings.provider || 'flow';
+  const safeLabel = String(label || 'image')
+    .trim()
+    .replace(/[^a-z0-9_-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'image';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const key = `${stamp}_${safeLabel}`;
+  return enqueue([mkItem({
+    kind: 'scene',
+    provider: prov,
+    source: 'standalone',
+    slug: '',
+    episodeCode: 'Standalone',
+    episodeTitle: '',
+    sceneKey: key,
+    prompt: text,
+    target: 'download',
+    projectId: normalizeFlowProjectId(settings.flowProjectId),
+    model: settings.imageModel,
+    aspectRatio:
+      prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
+        : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
+          : prov === 'chatgpt' ? settings.chatgptAspectRatio || '16:9'
+            : settings.aspectRatio,
+    label: `Standalone — ${safeLabel}`,
+    project: 'Standalone',
+    downloadPath: `StoryStudioImages/Standalone/${stamp}_${safeLabel}.png`,
+  })]);
+}
+
 async function processQueue() {
   if (processing) return;
   processing = true;
@@ -1619,6 +1656,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'enqueueScenes':
       reply(enqueueScenes(msg.payload));
+      return true;
+    case 'enqueueStandalone':
+      reply(enqueueStandalone(msg.payload));
       return true;
     case 'removeItem':
       reply(removeFromQueue(msg.id));
