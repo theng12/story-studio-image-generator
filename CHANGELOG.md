@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.15 — Connection recovery and settings
+
+- Failed side-panel connection tests now offer a direct **Update Studio URL**
+  action.
+- Standardized the Settings layout and added an explicit connection test.
+
 ## 0.47.14 — Interface polish
 
 - Unified panel spacing, controls, disclosure chevrons, and typography with the

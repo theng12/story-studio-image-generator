@@ -5,16 +5,17 @@
     <title>Story Studio Image Generator — Settings</title>
     <script src="../lib/theme-preload.js"></script>
     <link rel="stylesheet" href="../popup/popup.css" />
+    <link rel="stylesheet" href="options.css" />
     <style>
-      body { max-width: 560px; margin: 0 auto; padding: 20px; }
+      body { max-width: none; margin: 0; padding: 28px 16px; }
       .field { margin-bottom: 14px; }
       .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
     </style>
   </head>
-  <body>
-    <header><h1>Story Studio Image Generator — Settings</h1></header>
+  <body class="settings-page">
+    <header class="settings-header"><h1>Story Studio Image Generator — Settings</h1></header>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="field">
         <span class="label">Appearance</span>
         <select id="theme">
@@ -30,8 +31,10 @@
         <div class="hint">Local studio (localhost) needs no login or access grant. A remote/Tailscale server (e.g. http://mac-mini.tailXXXX.ts.net:8677) needs both.</div>
         <div class="row" style="margin-top:6px">
           <button id="grantAccess" class="btn small">Grant access to this server</button>
+          <button id="testConnection" class="btn small">Test connection</button>
           <span id="grantStatus" class="muted small"></span>
         </div>
+        <div id="testStatus" class="hint" aria-live="polite"></div>
       </div>
       <div class="field" id="loginFields">
         <div class="row">
@@ -43,7 +46,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Human-paced queue</div>
       <div class="row">
         <label class="grow">
@@ -58,7 +61,7 @@
       <div class="hint">A new delay is chosen between these values after every provider attempt. Use equal values for a fixed delay, or 0 and 0 to disable it.</div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Flow reCAPTCHA recovery</div>
       <div class="field">
         <span class="label">Fresh-token attempts per generation</span>
@@ -67,7 +70,7 @@
       <div class="hint">Flow mints this many fresh reCAPTCHA tokens within a single image generation (1–10, default 4) before giving up on that image. What happens after it gives up — pause vs. auto-resume, and after how long — is set per provider in the side panel's <b>Provider cooldown</b> card.</div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Perchance</div>
       <div class="field">
         <span class="label">Art style</span>
@@ -90,7 +93,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Leonardo AI</div>
       <div class="field">
         <span class="label">Image model</span>
@@ -190,7 +193,7 @@
       <div class="hint">We always keep only the first candidate, so fewer images = faster and (on metered models) cheaper. Applied only when your plan lets you choose — free plans are locked (often to 4) and this is skipped without error.</div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Google Flow</div>
       <div class="field">
         <span class="label">Flow project ID</span>
@@ -219,7 +222,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card settings-section">
       <div class="label">Fleet Hub (remote monitoring)</div>
       <div class="field">
         <label class="checkbox">
@@ -247,7 +250,7 @@
       </div>
     </section>
 
-    <div class="row end">
+    <div class="row end settings-footer">
       <span id="saved" class="muted small"></span>
       <button id="save" class="btn primary">Save</button>
     </div>

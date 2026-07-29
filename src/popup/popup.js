@@ -270,6 +270,7 @@ async function init() {
 
 function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
+  $('openStudioSettings').onclick = () => chrome.runtime.openOptionsPage();
   document.querySelectorAll('.open-options-link').forEach((button) => {
     button.onclick = () => chrome.runtime.openOptionsPage();
   });
@@ -399,6 +400,7 @@ function renderStudioConnection() {
   const out = $('connStatus');
   const state = studioConnection?.state || 'untested';
   card.dataset.state = state;
+  $('openStudioSettings').classList.toggle('hidden', state !== 'failed');
   if (state === 'testing') {
     out.textContent = 'Testing Story Studio…';
     return;
