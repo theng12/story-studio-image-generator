@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.22 — Standalone mode
+
+- Restored local-prompt generation with completed images saved to Downloads.
+
 ## 0.47.21 — Trailing disclosure controls
 
 - Moved expandable-row chevrons to the trailing edge, matching Audio and Video.

@@ -22,6 +22,7 @@ let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
 let liveStatus = null;
 let studioConnection = null;
+let workMode = 'studio';
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -255,13 +256,17 @@ async function init() {
   const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorStudioConnection']);
   settingsSource = localState.settingsSource || {};
   studioConnection = localState.imageGeneratorStudioConnection || null;
+  workMode = (await chrome.storage.local.get('imageGeneratorWorkMode')).imageGeneratorWorkMode === 'standalone'
+    ? 'standalone'
+    : 'studio';
   renderHumanPace();
   renderCooldownCard();
   renderAppliedSettings();
+  renderWorkMode();
   renderStudioConnection();
   await refreshFlowProject();
   wire();
-  await loadProjects();
+  if (workMode === 'studio') await loadProjects();
   onProviderChange();
   pollQueue();
   setInterval(pollQueue, 1500);
@@ -270,6 +275,10 @@ async function init() {
 
 function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
+  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
+    button.onclick = () => setWorkMode(button.dataset.mode);
+  });
+  $('queueStandalone').onclick = queueStandalone;
   $('openStudioSettings').onclick = () => chrome.runtime.openOptionsPage();
   document.querySelectorAll('.open-options-link').forEach((button) => {
     button.onclick = () => chrome.runtime.openOptionsPage();
@@ -390,6 +399,56 @@ function wire() {
   };
   $('testConn').onclick = testConnection;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
+}
+
+function renderWorkMode() {
+  const studioMode = workMode === 'studio';
+  $('studioWorkflow').classList.toggle('hidden', !studioMode);
+  $('scenesCard').classList.toggle('hidden', !studioMode);
+  $('standaloneWorkflow').classList.toggle('hidden', studioMode);
+  $('saveDestination').textContent = studioMode ? 'Story Studio KH' : 'Downloads';
+  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
+    const active = button.dataset.mode === workMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+async function setWorkMode(mode) {
+  workMode = mode === 'standalone' ? 'standalone' : 'studio';
+  await chrome.storage.local.set({ imageGeneratorWorkMode: workMode });
+  renderWorkMode();
+  if (workMode === 'studio') await loadProjects();
+  else setStatus('Standalone mode uses a local prompt and Downloads.', 'info');
+}
+
+async function queueStandalone() {
+  const prompt = $('standalonePrompt').value.trim();
+  if (!prompt) {
+    setStatus('Add an image prompt first.', 'err');
+    $('standalonePrompt').focus();
+    return;
+  }
+  if ($('provider').value === 'flow' && !settings.flowProjectId) {
+    setStatus('Select a generation workspace before queuing with this provider.', 'err');
+    return;
+  }
+  const button = $('queueStandalone');
+  button.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'enqueueStandalone',
+      payload: { prompt, label: $('standaloneLabel').value, provider: $('provider').value },
+    });
+    if (!res?.ok) throw new Error(res?.error || 'Could not queue the image.');
+    $('standalonePrompt').value = '';
+    setStatus('Standalone image queued. It will save to Downloads.', 'done');
+    pollQueue();
+  } catch (error) {
+    setStatus(String(error?.message || error), 'err');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function testedLabel(at) {

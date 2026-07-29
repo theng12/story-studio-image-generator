@@ -55,6 +55,14 @@
       </div>
     </section>
 
+    <section class="work-mode" aria-label="Working mode">
+      <span class="mini">Mode</span>
+      <div class="segmented mode-switch" role="group" aria-label="Working mode">
+        <button type="button" class="seg" data-mode="studio">Story Studio</button>
+        <button type="button" class="seg" data-mode="standalone">Standalone</button>
+      </div>
+    </section>
+
     <!-- Start here: pick the provider, what to make, and where to save. -->
     <section class="card" id="assetSettingsCard">
       <div class="asset-settings">
@@ -82,7 +90,7 @@
         </label>
         <div class="asset-setting">
           <span class="mini">Save to</span>
-          <div class="fixed-destination">Story Studio KH</div>
+          <div id="saveDestination" class="fixed-destination">Story Studio KH</div>
         </div>
       </div>
       <div class="row open-provider-row">
@@ -438,6 +446,19 @@
       <summary>Fleet Hub <span class="summary-hint">Optional coordination</span></summary>
       <div class="advanced-card-body muted small">Manage Fleet Hub connection and agent settings from <button type="button" class="link small open-options-link">Provider settings</button>.</div>
     </details>
+
+    <section class="card standalone-workflow hidden" id="standaloneWorkflow">
+      <label class="grow">
+        <span class="label">Image prompt</span>
+        <textarea id="standalonePrompt" rows="5" placeholder="Describe the image you want to create."></textarea>
+      </label>
+      <label class="grow">
+        <span class="label">File label</span>
+        <input id="standaloneLabel" placeholder="Optional name" />
+      </label>
+      <p class="muted small">Uses this local prompt and saves the completed image to Downloads.</p>
+      <button id="queueStandalone" class="btn primary">Queue image</button>
+    </section>
 
     <section class="card" id="studioWorkflow">
       <div class="studio-connection" data-state="untested">

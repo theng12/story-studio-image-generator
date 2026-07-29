@@ -637,6 +637,17 @@ async function generateAndSave(item, settings, tab) {
     base64 = payload.base64;
     mime = payload.mime;
   }
+  if (item.target === 'download') {
+    const ext = mime.includes('webp') ? 'webp' : mime.includes('jpeg') ? 'jpg' : 'png';
+    const filename = `${String(item.downloadPath || 'StoryStudioImages/Standalone/image.png').replace(/\.(png|jpg|jpeg|webp)$/i, '')}.${ext}`;
+    const downloadId = await chrome.downloads.download({
+      url: `data:${mime};base64,${base64}`,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    return { downloadId, savedAs: filename, target: 'download' };
+  }
   if (!item.slug || !item.episodeCode || item.sceneKey == null) {
     throw new Error('Story Studio project details are required to save an image.');
   }
@@ -844,10 +855,8 @@ function diagnoseFailure(error, item = {}) {
 
 async function getQueue() {
   const { queue: storedQueue = [] } = await chrome.storage.local.get(QUEUE_KEY);
-  // Old standalone / Downloads jobs cannot be saved back to Story Studio KH.
-  // Drop them rather than replaying them after the Story Studio-only migration.
-  const queue = storedQueue.filter((item) => item.source !== 'standalone' && item.target !== 'download');
-  let changed = queue.length !== storedQueue.length;
+  const queue = storedQueue;
+  let changed = false;
   for (const item of queue) {
     if (item.status === 'failed' && item.error && !item.failure) {
       item.failure = diagnoseFailure(item.error, item);
@@ -1005,6 +1014,42 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
     })
   );
   return enqueue(items);
+}
+
+async function enqueueStandalone({ prompt, label, provider }) {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('Add an image prompt first.');
+  const settings = await getSettings();
+  const prov = provider || settings.provider || 'flow';
+  const safeLabel = String(label || 'image')
+    .trim()
+    .replace(/[^a-z0-9_-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'image';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const sceneKey = `standalone_${stamp}_${safeLabel}`;
+  return enqueue([mkItem({
+    source: 'standalone',
+    kind: 'scene',
+    key: sceneKey,
+    sceneKey,
+    slug: 'standalone',
+    episodeCode: 'Standalone',
+    episodeTitle: '',
+    prompt: text,
+    provider: prov,
+    target: 'download',
+    projectId: normalizeFlowProjectId(settings.flowProjectId),
+    model: settings.imageModel,
+    aspectRatio:
+      prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
+        : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
+          : prov === 'chatgpt' ? settings.chatgptAspectRatio || '16:9'
+            : settings.aspectRatio,
+    label: `Standalone — ${safeLabel}`,
+    project: 'Standalone',
+    downloadPath: `StoryStudioImages/Standalone/${stamp}_${safeLabel}.png`,
+  })]);
 }
 
 async function processQueue() {
@@ -1592,6 +1637,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'enqueueScenes':
       reply(enqueueScenes(msg.payload));
+      return true;
+    case 'enqueueStandalone':
+      reply(enqueueStandalone(msg.payload));
       return true;
     case 'removeItem':
       reply(removeFromQueue(msg.id));
