@@ -529,6 +529,9 @@ header .settings-gear:hover { background: var(--surface); }
 .active-controls .btn { min-width: 0; padding: 8px 5px; border-radius: 8px; font-size: 12px; }
 .active-controls #pauseQueue, .active-controls #retryFailed { color: var(--link); }
 .active-controls #clearQueue { color: var(--danger); }
+.queue-action-group { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--divider); }
+.queue-action-heading { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.queue-action-group .active-controls { margin-top: 8px; }
 .queue-timing { margin: 9px 0 0; font-size: 11px; }
 .queue {
   max-height: 228px;

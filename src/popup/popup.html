@@ -39,16 +39,19 @@
       <div id="activeTask" class="active-task muted">No batch is running.</div>
       <div id="activeMeta" class="active-meta hidden"></div>
       <div class="batch-progress" aria-label="Batch progress"><span id="batchProgressFill"></span></div>
-      <div class="active-controls">
-        <button id="pauseQueue" class="btn small hidden">❚❚ Pause</button>
-        <button id="retryFailed" class="btn small">↻ Retry failed</button>
-        <button id="clearQueue" class="btn small danger">× Clear pending</button>
-      </div>
       <div id="status" class="status"></div>
       <div id="appliedSettings" class="applied-settings"></div>
       <div id="tabReminder" class="reminder hidden"></div>
       <div id="queueTiming" class="queue-timing muted small"></div>
       <div id="queue" class="queue"></div>
+      <div class="queue-action-group" aria-label="Queue actions">
+        <div class="queue-action-heading">Queue actions</div>
+        <div class="active-controls">
+          <button id="pauseQueue" class="btn small hidden">❚❚ Pause</button>
+          <button id="retryFailed" class="btn small">↻ Retry failed</button>
+          <button id="clearQueue" class="btn small danger">× Clear pending</button>
+        </div>
+      </div>
       </div>
     </section>
 
