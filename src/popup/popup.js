@@ -21,6 +21,8 @@ let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
 let liveStatus = null;
+let workMode = 'studio';
+let studioConnection = null;
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -252,13 +254,18 @@ async function init() {
   $('charRefEnabled').checked = settings.characterRefEnabled !== false;
   $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
-  settingsSource = (await chrome.storage.local.get('settingsSource')).settingsSource || {};
+  const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorWorkMode', 'imageGeneratorStudioConnection']);
+  settingsSource = localState.settingsSource || {};
+  workMode = localState.imageGeneratorWorkMode === 'standalone' ? 'standalone' : 'studio';
+  studioConnection = localState.imageGeneratorStudioConnection || null;
   renderHumanPace();
   renderCooldownCard();
   renderAppliedSettings();
+  renderWorkMode();
+  renderStudioConnection();
   await refreshFlowProject();
-  await loadProjects();
   wire();
+  if (workMode === 'studio') await loadProjects();
   onProviderChange();
   pollQueue();
   setInterval(pollQueue, 1500);
@@ -269,6 +276,9 @@ function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
   document.querySelectorAll('.open-options-link').forEach((button) => {
     button.onclick = () => chrome.runtime.openOptionsPage();
+  });
+  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
+    button.onclick = () => setWorkMode(button.dataset.mode);
   });
   $('humanPacePreset').onchange = selectHumanPacePreset;
   $('humanPaceMin').onchange = saveCustomHumanPace;
@@ -385,7 +395,64 @@ function wire() {
     settings = await saveSettings({ flowNewProjectEvery: v });
   };
   $('testConn').onclick = testConnection;
+  $('queueStandalone').onclick = queueStandalone;
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
+}
+
+function renderWorkMode() {
+  const studio = workMode !== 'standalone';
+  $('studioWorkflow').classList.toggle('hidden', !studio);
+  $('scenesCard').classList.toggle('hidden', !studio);
+  $('standaloneWorkflow').classList.toggle('hidden', studio);
+  $('saveTarget').disabled = !studio;
+  $('saveTarget').value = studio ? settings.saveTarget : 'download';
+  $('modeDescription').textContent = studio ? 'Project-connected workflow' : 'Local prompt · Downloads only';
+  document.querySelectorAll('.mode-switch .seg').forEach((button) => {
+    const active = button.dataset.mode === (studio ? 'studio' : 'standalone');
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+async function setWorkMode(mode) {
+  workMode = mode === 'standalone' ? 'standalone' : 'studio';
+  await chrome.storage.local.set({ imageGeneratorWorkMode: workMode });
+  renderWorkMode();
+  if (workMode === 'studio') await loadProjects();
+}
+
+function testedLabel(at) {
+  if (!at) return '';
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return '';
+  return `tested ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function renderStudioConnection() {
+  const card = $('studioWorkflow').querySelector('.studio-connection');
+  const out = $('connStatus');
+  const state = studioConnection?.state || 'untested';
+  card.dataset.state = state;
+  if (state === 'testing') {
+    out.textContent = 'Testing Story Studio…';
+    return;
+  }
+  if (state === 'connected') {
+    out.textContent = `Connected${studioConnection.projects != null ? ` · ${studioConnection.projects} project${studioConnection.projects === 1 ? '' : 's'}` : ''}${testedLabel(studioConnection.at) ? ` · ${testedLabel(studioConnection.at)}` : ''}`;
+    return;
+  }
+  if (state === 'failed') {
+    out.textContent = `Connection failed${testedLabel(studioConnection.at) ? ` · ${testedLabel(studioConnection.at)}` : ''}`;
+    out.title = studioConnection.message || '';
+    return;
+  }
+  out.textContent = 'Not tested yet';
+}
+
+async function saveStudioConnection(next) {
+  studioConnection = next;
+  renderStudioConnection();
+  await chrome.storage.local.set({ imageGeneratorStudioConnection: next });
 }
 
 // Keep the indicator current when Settings is edited in another extension tab.
@@ -484,13 +551,8 @@ async function useCurrentFlowProject() {
 // Verifies the whole chain from where you actually work: for a remote/Tailscale
 // URL it first checks host access was granted (Settings), then reaches the API.
 async function testConnection() {
-  const out = $('connStatus');
-  const setConn = (t, color) => {
-    out.textContent = t;
-    out.style.color = color;
-  };
   $('testConn').disabled = true;
-  setConn('Testing…', 'var(--muted)');
+  await saveStudioConnection({ state: 'testing' });
   try {
     const url = settings.studioBaseUrl || '';
     const local = /localhost|127\.0\.0\.1/.test(url);
@@ -504,22 +566,52 @@ async function testConnection() {
       }
       const granted = pat ? await chrome.permissions.contains({ origins: [pat] }).catch(() => false) : false;
       if (!granted) {
-        setConn('✗ No host access — open Settings → Grant access to this server.', 'var(--err)');
+        await saveStudioConnection({ state: 'failed', at: Date.now(), message: 'No host access — open Settings → Grant access to this server.' });
         return;
       }
     }
     const projects = await client.listProjects();
     const n = Array.isArray(projects) ? projects.length : (projects.projects || []).length;
-    setConn(`✓ Connected — ${n} project${n !== 1 ? 's' : ''}.`, 'var(--ok)');
+    await saveStudioConnection({ state: 'connected', at: Date.now(), projects: n });
     await loadProjects(); // refresh the dropdown now that we're reachable
   } catch (e) {
     const local = /localhost|127\.0\.0\.1/.test(settings.studioBaseUrl || '');
-    setConn(
-      `✗ ${e.message}. ${local ? 'Is Story Studio running?' : "Check it's running, access granted, and you're logged in."}`,
-      'var(--err)'
-    );
+    await saveStudioConnection({
+      state: 'failed',
+      at: Date.now(),
+      message: `${e.message}. ${local ? 'Is Story Studio running?' : "Check it's running, access granted, and you're logged in."}`,
+    });
   } finally {
     $('testConn').disabled = false;
+  }
+}
+
+async function queueStandalone() {
+  const prompt = $('standalonePrompt').value.trim();
+  if (!prompt) {
+    setStatus('Paste an image prompt first.', 'err');
+    $('standalonePrompt').focus();
+    return;
+  }
+  if ($('provider').value === 'flow' && !settings.flowProjectId) {
+    setStatus('Set a Flow project in Generation workspace first, then generate.', 'err');
+    return;
+  }
+  const button = $('queueStandalone');
+  button.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'enqueueStandalone',
+      payload: { prompt, label: $('standaloneLabel').value, provider: $('provider').value },
+    });
+    if (!res?.ok) throw new Error(res?.error || 'enqueue failed');
+    $('standalonePrompt').value = '';
+    setStatus('Standalone image queued. It will save to Downloads.', 'done');
+    pollQueue();
+  } catch (e) {
+    setStatus(String(e.message || e), 'err');
+  } finally {
+    button.disabled = false;
   }
 }
 
