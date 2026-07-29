@@ -9,14 +9,12 @@
 // stall on it.
 
 (() => {
-  const REQ = 'STUDIO_QWEN_REQ';
-  const RES = 'STUDIO_QWEN_RES';
   const TIMEOUT_MS = 240000;
 
   const norm = (text) => String(text || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   // Live sub-phase note surfaced in the panel status line (via the bridge).
-  const postProgress = (phase) => window.postMessage({ kind: 'STUDIO_QWEN_PROGRESS', phase }, '*');
+  const postProgress = (phase) => globalThis.__STORY_STUDIO_QWEN_PROGRESS__?.(phase);
   const visible = (element) => {
     if (!element) return false;
     const style = getComputedStyle(element);
@@ -304,20 +302,8 @@
   }
 
   const handlers = { getContext, generateImage };
-  const handleMessage = async (event) => {
-    if (event.source !== window || event.data?.kind !== REQ) return;
-    const { id, op, payload } = event.data;
-    try {
-      if (!handlers[op]) throw new Error(`Unknown Qwen Studio operation: ${op}`);
-      const result = await handlers[op](payload || {});
-      window.postMessage({ kind: RES, id, ok: true, result }, '*');
-    } catch (error) {
-      window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
-    }
+  globalThis.__STORY_STUDIO_QWEN_CALL__ = async (op, payload = {}) => {
+    if (!handlers[op]) throw new Error(`Unknown Qwen Studio operation: ${op}`);
+    return handlers[op](payload);
   };
-
-  if (window.__STORY_STUDIO_QWEN_MAIN_HANDLER__)
-    window.removeEventListener('message', window.__STORY_STUDIO_QWEN_MAIN_HANDLER__);
-  window.__STORY_STUDIO_QWEN_MAIN_HANDLER__ = handleMessage;
-  window.addEventListener('message', handleMessage);
 })();

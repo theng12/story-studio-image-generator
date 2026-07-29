@@ -69,7 +69,7 @@ export class StudioClient {
   }
 
   // Episode rows: { episode_code, title, status: { scene_plan, scene_review,
-  // images, video, ... } }. scene_plan = a scene_plan.json exists; images =
+  // images, ... } }. scene_plan = a scene_plan.json exists; images =
   // every expected scene image is on disk.
   listEpisodes(slug) {
     return this._json(`/projects/${encodeURIComponent(slug)}/episodes`);
@@ -135,22 +135,6 @@ export class StudioClient {
     );
   }
 
-  // ── image-to-video (scene_plan source) ─────────────────────────────────────
-  // Read a scene's existing {scene_id}.png so it can be uploaded to Flow and
-  // animated. Returns { base64, mime }.
-  async sceneImageBase64(slug, code, sceneId) {
-    const res = await fetch(
-      `${this.base}/api/projects/${encodeURIComponent(slug)}/scene-review/${encodeURIComponent(
-        code
-      )}/image/${encodeURIComponent(sceneId)}`,
-      { credentials: 'include' }
-    );
-    if (!res.ok) throw new Error(`Scene image not found (${res.status}).`);
-    const buf = await res.arrayBuffer();
-    if (!buf.byteLength) throw new Error('Scene image is empty on disk.');
-    return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
-  }
-
   // ── character references (for Flow imageInputs / character consistency) ─────
   // List the project's characters. Each: { id, name, references:{ images:[<filename>] }, ... }.
   listCharacters(slug) {
@@ -190,28 +174,5 @@ export class StudioClient {
     const buf = await res.arrayBuffer();
     if (!buf.byteLength) throw new Error('Character reference image is empty.');
     return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
-  }
-
-  // Save an animated clip for a scene. mp4 is raw bytes (ArrayBuffer/Uint8Array)
-  // POSTed as Content-Type video/mp4 — the upload-clip route takes raw binary
-  // (256 MB cap), NOT base64 JSON. Writes {scene_id}.mp4 to "11 Video Assets".
-  async uploadClip(slug, code, sceneId, mp4) {
-    const res = await fetch(
-      `${this.base}/api/projects/${encodeURIComponent(slug)}/scene-review/${encodeURIComponent(
-        code
-      )}/upload-clip/${encodeURIComponent(sceneId)}`,
-      { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'video/mp4' }, body: mp4 }
-    );
-    if (!res.ok) {
-      let detail = `${res.status}`;
-      try {
-        const j = await res.json();
-        if (j?.detail) detail = j.detail;
-      } catch {
-        /* non-JSON */
-      }
-      throw new Error(`Story Studio rejected the clip: ${detail}`);
-    }
-    return res.json();
   }
 }

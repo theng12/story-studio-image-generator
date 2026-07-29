@@ -2,8 +2,6 @@
 // mode, ratio, and size are selected explicitly before every queued request.
 
 (() => {
-  const REQ = 'STUDIO_LEONARDO_REQ';
-  const RES = 'STUDIO_LEONARDO_RES';
   const PROMPT_SELECTOR = '#prompt-textarea';
   const MODEL_TRIGGER_SELECTOR = '[data-testid="model-selector-trigger"]';
   const STYLE_TRIGGER_SELECTOR = '[role="combobox"][aria-label="Style options"]';
@@ -402,23 +400,8 @@
   }
 
   const handlers = { getContext, generateImage, listModels, modelControls };
-  const handleMessage = async (event) => {
-    if (event.source !== window || event.data?.kind !== REQ) return;
-    const { id, op, payload } = event.data;
-    try {
-      if (!handlers[op]) throw new Error(`Unknown Leonardo operation: ${op}`);
-      const result = await handlers[op](payload || {});
-      window.postMessage({ kind: RES, id, ok: true, result }, '*');
-    } catch (error) {
-      window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
-    }
+  globalThis.__STORY_STUDIO_LEONARDO_CALL__ = async (op, payload = {}) => {
+    if (!handlers[op]) throw new Error(`Unknown Leonardo operation: ${op}`);
+    return handlers[op](payload);
   };
-
-  // Programmatic recovery may reinject this file into a tab that survived an
-  // extension update. Replace the previous handler instead of stacking a
-  // second listener that could submit the same generation twice.
-  if (window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__)
-    window.removeEventListener('message', window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__);
-  window.__STORY_STUDIO_LEONARDO_MAIN_HANDLER__ = handleMessage;
-  window.addEventListener('message', handleMessage);
 })();

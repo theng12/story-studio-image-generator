@@ -22,14 +22,13 @@ const FIELDS = [
   'humanDelayMaxSec',
   'flowRecaptchaMaxAttempts',
   'imageModel',
-  'videoModel',
-  'videoSource',
   'aspectRatio',
   'saveTarget',
   'downloadSubdir',
   'filenameTemplate',
   'fleetHubUrl',
   'fleetAgentName',
+  'fleetSharedSecret',
 ];
 const CHECKBOX_FIELDS = ['fleetAgentEnabled'];
 

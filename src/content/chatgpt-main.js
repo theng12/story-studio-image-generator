@@ -13,12 +13,8 @@
 // ChatGPT's markup changes often. Kept resilient (data-testids + fallbacks).
 
 (() => {
-  const REQ = 'STUDIO_CHATGPT_REQ';
-  const RES = 'STUDIO_CHATGPT_RES';
-  const PROGRESS = 'STUDIO_CHATGPT_PROGRESS';
-
-  // Live sub-phase note surfaced in the panel status line (via the bridge).
-  const postProgress = (phase) => window.postMessage({ kind: PROGRESS, phase }, '*');
+  // Live sub-phase note surfaced in the panel status line.
+  const postProgress = (phase) => globalThis.__STORY_STUDIO_CHATGPT_PROGRESS__?.(phase);
   const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const visible = (el) => {
@@ -378,20 +374,8 @@
   }
 
   const handlers = { getContext, generateImage };
-  const handleMessage = async (event) => {
-    if (event.source !== window || event.data?.kind !== REQ) return;
-    const { id, op, payload } = event.data;
-    try {
-      if (!handlers[op]) throw new Error(`Unknown ChatGPT operation: ${op}`);
-      const result = await handlers[op](payload || {});
-      window.postMessage({ kind: RES, id, ok: true, result }, '*');
-    } catch (error) {
-      window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
-    }
+  globalThis.__STORY_STUDIO_CHATGPT_CALL__ = async (op, payload = {}) => {
+    if (!handlers[op]) throw new Error(`Unknown ChatGPT operation: ${op}`);
+    return handlers[op](payload);
   };
-
-  if (window.__STORY_STUDIO_CHATGPT_MAIN_HANDLER__)
-    window.removeEventListener('message', window.__STORY_STUDIO_CHATGPT_MAIN_HANDLER__);
-  window.__STORY_STUDIO_CHATGPT_MAIN_HANDLER__ = handleMessage;
-  window.addEventListener('message', handleMessage);
 })();
