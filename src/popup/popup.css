@@ -597,6 +597,9 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 .dialog { border: 0; border-radius: 12px; background: var(--bg); color: var(--fg); box-shadow: 0 10px 30px var(--dialog-shadow); }
 .dialog .row { margin-top: 12px; }
 
+/* Operational settings stay visible even when the batch card has no work. */
+.applied-settings { margin: -4px 0 10px; }
+
 @media (max-width: 340px) {
   .asset-settings, .active-controls { grid-template-columns: 1fr; }
   .asset-setting { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; }

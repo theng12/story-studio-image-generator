@@ -20,6 +20,8 @@
       </div>
     </header>
 
+    <div id="appliedSettings" class="applied-settings" aria-live="polite"></div>
+
     <!-- The live queue stays first: it is the only part of the panel that needs
          attention while a batch is running. -->
     <section id="activeBatch" class="active-batch idle" aria-live="polite">
@@ -40,7 +42,6 @@
       <div id="activeMeta" class="active-meta hidden"></div>
       <div class="batch-progress" aria-label="Batch progress"><span id="batchProgressFill"></span></div>
       <div id="status" class="status"></div>
-      <div id="appliedSettings" class="applied-settings"></div>
       <div id="tabReminder" class="reminder hidden"></div>
       <div id="queueTiming" class="queue-timing muted small"></div>
       <div id="queue" class="queue"></div>
