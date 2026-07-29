@@ -1227,7 +1227,7 @@ function onProviderChange() {
   const hasPage = provider !== 'pollinations';
   openBtn.classList.toggle('hidden', !hasPage);
   openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
-  $('providerOptionsTitle').textContent = `${PROVIDER_LABEL[provider] || provider} options`;
+  $('providerOptionsTitle').textContent = 'Provider settings';
   $('providerOptionsHint').textContent = provider === 'flow'
     ? 'Model · ratio · reference'
     : provider === 'leonardo'
