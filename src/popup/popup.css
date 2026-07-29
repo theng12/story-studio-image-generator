@@ -564,7 +564,8 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 }
 .asset-setting select { padding: 6px 8px; }
 .row { gap: 6px; margin: 8px 0 0; }
-.open-provider-row { margin-top: 4px; }
+.open-provider-row { justify-content: flex-end; margin-top: 6px; }
+.workspace-open { min-width: 132px; color: var(--link); }
 .btn { padding: 6px 10px; border-color: var(--border); border-radius: 8px; background: var(--btn-bg); color: var(--fg); }
 .btn:hover { background: var(--surface); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
