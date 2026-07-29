@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.17 — Settings structure
+
+- Split Appearance, Story Studio connection, and Fleet Hub into separate
+  Settings sections.
+- Standardized the full-width primary Save action with the other generators.
+
 ## 0.47.16 — Single provider settings surface
 
 - Removed duplicated image-provider controls from global Settings.
