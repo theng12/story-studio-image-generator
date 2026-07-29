@@ -1,49 +1,30 @@
-// Isolated-world bridge for the dedicated Leonardo AI MAIN-world adapter.
-
 if (!globalThis.__STORY_STUDIO_LEONARDO_BRIDGE__) {
   globalThis.__STORY_STUDIO_LEONARDO_BRIDGE__ = true;
 
-  const REQ = 'STUDIO_LEONARDO_REQ';
-  const RES = 'STUDIO_LEONARDO_RES';
-  let seq = 0;
-  const pending = new Map();
-
-  window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.kind !== RES) return;
-    const request = pending.get(event.data.id);
-    if (!request) return;
-    pending.delete(event.data.id);
-    event.data.ok
-      ? request.resolve(event.data.result)
-      : request.reject(Object.assign(new Error(event.data.error || 'Leonardo AI error.'), { limit: !!event.data.limit }));
-  });
-
-  function callMain(op, payload = {}, timeoutMs = 270000) {
-    const id = `${Date.now()}-${seq++}`;
-    return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      window.postMessage({ kind: REQ, id, op, payload }, '*');
-      setTimeout(() => {
-        if (!pending.has(id)) return;
-        pending.delete(id);
-        reject(new Error(`Leonardo AI "${op}" timed out.`));
-      }, timeoutMs);
-    });
-  }
-
-  const OPS = {
-    'leonardo:generateImage': 'generateImage',
-    'leonardo:getContext': 'getContext',
-    'leonardo:listModels': 'listModels',
-    'leonardo:modelControls': 'modelControls',
+  const callAdapter = (op, payload = {}, timeoutMs = 270000) => {
+    const adapter = globalThis.__STORY_STUDIO_LEONARDO_CALL__;
+    if (typeof adapter !== 'function') return Promise.reject(new Error('Leonardo adapter is not ready.'));
+    return Promise.race([
+      Promise.resolve().then(() => adapter(op, payload)),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Leonardo AI "${op}" timed out.`)), timeoutMs)
+      ),
+    ]);
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    const op = OPS[message?.type];
+    const op = {
+      'leonardo:generateImage': 'generateImage',
+      'leonardo:getContext': 'getContext',
+      'leonardo:listModels': 'listModels',
+      'leonardo:modelControls': 'modelControls',
+    }[message?.type];
     if (!op) return false;
-    callMain(op, message.params || {})
+    callAdapter(op, message.params || {})
       .then((result) => sendResponse({ ok: true, ...result, result }))
-      .catch((error) => sendResponse({ ok: false, error: String(error.message || error), limit: !!error.limit }));
+      .catch((error) =>
+        sendResponse({ ok: false, error: String(error.message || error), limit: !!error.limit })
+      );
     return true;
   });
 }

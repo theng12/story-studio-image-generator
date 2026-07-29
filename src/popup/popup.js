@@ -29,11 +29,8 @@ const HUMAN_PACE_PRESETS = {
   'very-cautious': { label: 'Very cautious', min: 60, max: 180 },
 };
 
-// The "Make:" selector encodes both the asset kind and media type.
+// The "Make:" selector chooses scene or thumbnail images.
 const currentKind = () => ($('mediaType').value.startsWith('thumbnail') ? 'thumbnail' : 'scene');
-const isVideoSel = () => $('mediaType').value === 'scene-video';
-// Combined selection identity: 'scene' | 'video' | 'thumbnail'.
-const selKind = () => (isVideoSel() ? 'video' : currentKind());
 const humanDelayValues = () => {
   const first = Number(settings?.humanDelayMinSec) || 0;
   const second = Number(settings?.humanDelayMaxSec) || 0;
@@ -322,8 +319,7 @@ function wire() {
   };
   $('retryFailed').onclick = async () => {
     const res = await chrome.runtime.sendMessage({ type: 'retryFailed' });
-    if (res?.skippedPaid) setStatus(`Retrying ${res.retried}; ${res.skippedPaid} paid video needs its row Retry button.`, 'info');
-    else if (!res?.retried) setStatus('No failed jobs to retry.', 'info');
+    if (!res?.retried) setStatus('No failed jobs to retry.', 'info');
     pollQueue();
   };
   $('saveTarget').onchange = () => {
@@ -349,8 +345,6 @@ function wire() {
     settings = await saveSettings({ characterRefEnabled: $('charRefEnabled').checked });
     $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   };
-  $('flowVideoModel').onchange = async () => (settings = await saveSettings({ videoModel: $('flowVideoModel').value }));
-  $('flowVideoSource').onchange = async () => (settings = await saveSettings({ videoSource: $('flowVideoSource').value }));
   $('freegenAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('freegenAspect').value }));
   $('perchanceStyleInput').onchange = async () => (settings = await saveSettings({ perchanceStyle: $('perchanceStyleInput').value.trim() || 'No style' }));
   $('perchanceAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('perchanceAspect').value }));
@@ -611,7 +605,7 @@ async function fetchEpisodeCounts(slug, codes) {
 // Queue every missing scene image across all pending episodes in the project.
 async function queueAllPending() {
   if (!currentProject) return setStatus('Pick a project first.', 'err');
-  if (isVideoSel() || currentKind() === 'thumbnail')
+  if (currentKind() === 'thumbnail')
     return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
   const provider = $('provider').value;
   const target = $('saveTarget').value;
@@ -657,7 +651,6 @@ async function queueAllPending() {
             source: r.source,
             kind: 'scene',
             target,
-            assetType: 'image',
             provider,
             characterRef: getCharacterRef(),
           },
@@ -761,18 +754,13 @@ async function loadScenes() {
   currentEpisode = { code, title: esel.selectedOptions[0]?.dataset.title || '' };
   await saveSettings({ lastEpisode: code });
   const kind = currentKind();
-  const video = isVideoSel();
   $('loadScenes').disabled = true;
   $('refreshScenes').disabled = true;
-  setStatus(`Loading ${video ? 'scene clips' : kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
+  setStatus(`Loading ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
   try {
     let scenes;
     let label;
-    if (video) {
-      scenes = await loadSceneVideos(slug, currentEpisode);
-      currentSource = 'plan';
-      label = 'Scene Plan · motion';
-    } else if (kind === 'thumbnail') {
+    if (kind === 'thumbnail') {
       scenes = await loadThumbnails(slug, currentEpisode);
       currentSource = 'prompts';
       label = 'Thumbnail Prompts';
@@ -783,15 +771,13 @@ async function loadScenes() {
       label = r.source === 'plan' ? 'Scene Plan' : 'Scene Prompts';
     }
     currentScenes = scenes;
-    loadedKind = selKind();
+    loadedKind = currentKind();
     renderScenes();
     const done = scenes.filter((s) => s.hasImage).length;
-    const noun = video ? 'Clips' : kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
-    const have = video ? 'have clips' : 'have images';
+    const noun = kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
+    const have = 'have images';
     $('scenesSummary').textContent = `${noun} (${label}) — ${done}/${scenes.length} ${have}`;
-    const emptyMsg = video
-      ? 'No animatable scenes. A scene must be approved, have an image, a motion prompt, and meet the minimum duration.'
-      : `No ${noun.toLowerCase()} found for this episode.`;
+    const emptyMsg = `No ${noun.toLowerCase()} found for this episode.`;
     setStatus(scenes.length ? '' : emptyMsg, scenes.length ? 'info' : 'err');
   } catch (e) {
     setStatus(`Couldn't load: ${e.message}`, 'err');
@@ -801,37 +787,6 @@ async function loadScenes() {
     // re-pulled in place without touching the tab.
     $('refreshScenes').disabled = false;
   }
-}
-
-// Scene video (image-to-video). The SPEND GATE (enforced here — Story Studio
-// can't block an external Veo spend after the fact): only show scenes that are
-//   approved === true, motion_prompt non-empty, image exists, and
-//   (end_sec − start_sec) >= animate_min_seconds.
-// Among those, "done" = a fresh clip already exists; stale = clip rendered from a
-// now-changed motion prompt (the soft gate — re-renderable via "include existing").
-async function loadSceneVideos(slug, ep) {
-  const data = await client.sceneReview(slug, ep.code);
-  const scenes = data?.scenes || [];
-  const minSec = Number(data?.animate_min_seconds) || 0;
-  return scenes
-    .filter(
-      (s) =>
-        s.approved === true &&
-        (s.motion_prompt || '').trim() &&
-        s.image_filename != null &&
-        Number(s.end_sec) - Number(s.start_sec) >= minSec
-    )
-    .map((s) => ({
-      source: 'plan',
-      kind: 'scene',
-      key: s.id,
-      label: `Scene ${s.scene_index}`,
-      prompt: s.motion_prompt || '', // motion prompt drives image-to-video
-      imagePrompt: s.visual_prompt || '', // used only in "generate fresh image" mode
-      durationSec: Math.max(0, Number(s.end_sec) - Number(s.start_sec)), // request clip ≈ scene window
-      hasImage: !!s.clip_exists && !s.clip_stale, // "done" = a fresh clip exists
-      stale: !!s.clip_stale,
-    }));
 }
 
 // Thumbnails always come from the Image Prompts generator's `thumbnails` array
@@ -953,23 +908,18 @@ function filterScenesList() {
 
 function renderScenes() {
   const includeExisting = $('includeExisting').checked;
-  const video = loadedKind === 'video';
   const wrap = $('scenes');
   wrap.innerHTML = '';
   for (const s of currentScenes) {
-    const has = s.hasImage; // image (image modes) or fresh clip (video)
+    const has = s.hasImage;
     const div = document.createElement('div');
     div.className = 'scene';
     div.dataset.key = String(s.key);
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.dataset.key = String(s.key);
-    // Pre-select scenes that still need the asset. For video, a fresh clip is
-    // HARD-skipped (re-render by editing the motion prompt → it becomes stale →
-    // eligible) — so "include existing" doesn't re-enable fresh clips, only the
-    // image modes honour it.
-    cb.checked = video ? !has : includeExisting || !has;
-    cb.disabled = video ? has : has && !includeExisting;
+    cb.checked = includeExisting || !has;
+    cb.disabled = has && !includeExisting;
     cb.onchange = updateQueueButton;
     const meta = document.createElement('div');
     meta.className = 'meta';
@@ -990,7 +940,7 @@ function renderScenes() {
     if (has) {
       const b = document.createElement('span');
       b.className = 'badge ' + (s.stale ? 'stale' : 'has');
-      b.textContent = s.stale ? 'stale' : loadedKind === 'video' ? 'has clip' : 'has image';
+      b.textContent = s.stale ? 'stale' : 'has image';
       div.appendChild(b);
     }
     wrap.appendChild(div);
@@ -1221,16 +1171,10 @@ async function leoSyncAll() {
   }
 }
 
-// Google Flow options in the panel (mirrors the Options page). The video row
-// only matters when the "Make" selector is on scene video.
+// Google Flow image options in the panel (mirrors the Options page).
 function flowPopulate() {
   $('flowImageModel').value = settings.imageModel || 'nano-banana-2';
   $('flowAspect').value = settings.aspectRatio || '16:9';
-  $('flowVideoModel').value = settings.videoModel || 'veo-3.1-fast';
-  $('flowVideoSource').value = settings.videoSource || 'existing';
-  $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
-  // Character reference is an image-only feature.
-  $('charRefCard').classList.toggle('hidden', isVideoSel());
 }
 
 function freegenPopulate() {
@@ -1262,14 +1206,9 @@ function chatgptPopulate() {
   $('chatgptMaxWait').value = Math.round((Number(settings.chatgptMaxWaitSec) || 480) / 60);
 }
 
-// Only Flow supports video; all other providers use their image-generator UI.
 function onProviderChange() {
   const provider = $('provider').value;
-  const imageOnly = provider !== 'flow';
   saveSettings({ provider });
-  const videoOpt = $('mediaType').querySelector('option[value="scene-video"]');
-  if (videoOpt) videoOpt.disabled = imageOnly;
-  if (imageOnly && isVideoSel()) $('mediaType').value = 'scene-image';
   $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
   $('flowOptsCard').classList.toggle('hidden', provider !== 'flow');
   $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
@@ -1361,16 +1300,10 @@ async function checkWebGenerator(provider) {
   }
 }
 
-// Reload the list when the selection kind changes (scene image / scene video /
-// thumbnail all read different prompts). Save target stays user-controlled —
-// video now writes clips back via upload-clip too.
+// Reload the list when switching between scene and thumbnail image prompts.
 async function onMediaTypeChange() {
   $('saveTarget').disabled = false;
-  if ($('provider').value === 'flow') {
-    $('flowVideoRow').classList.toggle('hidden', !isVideoSel());
-    $('charRefCard').classList.toggle('hidden', isVideoSel());
-  }
-  if (currentEpisode && currentScenes.length && selKind() !== loadedKind) {
+  if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
     await loadScenes();
   }
 }
@@ -1383,7 +1316,6 @@ function confirmQueue() {
   const isGrok = provider === 'grok';
   const isFlow = provider === 'flow';
   const kind = currentKind();
-  const isVideo = isFlow && isVideoSel();
   const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
   const target = $('saveTarget').value;
@@ -1401,16 +1333,12 @@ function confirmQueue() {
       `the queue pauses when it's hit; press Resume after it resets. ${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Grok';
   } else if (isFlow) {
-    $('confirmTitle').textContent = isVideo ? '⚠︎ Generate video — uses credits' : `Queue these ${noun}s?`;
-    $('confirmBody').textContent = isVideo
-      ? `${scenes.length} clip${scenes.length > 1 ? 's' : ''} from ${currentEpisode.code} — image-to-video ` +
-        `(${settings.videoSource === 'generate' ? 'fresh image' : 'existing image'} + motion prompt) → ` +
-        `${target === 'project' ? '“11 Video Assets”' : 'Downloads'}. Each clip costs credits ` +
-        `(Veo ~20, Omni Flash ~7). One at a time, ~1–3 min each. Continue?`
-      : `${n} from ${currentEpisode.code} → ` +
-        `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
-        `Images use Nano Banana 2 (free). One at a time.`;
-    $('confirmOk').textContent = isVideo ? 'Spend credits & generate' : 'Queue';
+    $('confirmTitle').textContent = `Queue these ${noun}s?`;
+    $('confirmBody').textContent =
+      `${n} from ${currentEpisode.code} → ` +
+      `${target === 'project' ? `Story Studio ${folder}` : 'Downloads'}. ` +
+      `Images use Nano Banana 2 (free). One at a time.`;
+    $('confirmOk').textContent = 'Queue';
   } else if (provider === 'aistudio') {
     $('confirmTitle').textContent = `Queue these ${noun}s on AI Studio?`;
     $('confirmBody').textContent =
@@ -1457,11 +1385,11 @@ function confirmQueue() {
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    await doEnqueue(scenes, target, isVideo ? 'video' : 'image', provider, kind);
+    await doEnqueue(scenes, target, provider, kind);
   };
 }
 
-async function doEnqueue(scenes, target, assetType, provider, kind) {
+async function doEnqueue(scenes, target, provider, kind) {
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
@@ -1474,7 +1402,6 @@ async function doEnqueue(scenes, target, assetType, provider, kind) {
         source: currentSource,
         kind,
         target,
-        assetType,
         provider,
         characterRef: getCharacterRef(),
       },
@@ -1548,9 +1475,7 @@ function updateGenStatus(queue, paused) {
     state = 'Paused';
     cls = 'paused';
   } else if (left > 0) {
-    state = running
-      ? `Generating ${active.assetType === 'video' ? 'scene video' : 'scene images'}`
-      : 'Waiting for human pace';
+    state = running ? 'Generating scene images' : 'Waiting for human pace';
     cls = running ? 'running' : 'waiting';
   } else if (queue.length) {
     state = failed ? 'Finished with failures' : 'Batch complete';
@@ -1578,9 +1503,10 @@ function updateGenStatus(queue, paused) {
   const meta = $('activeMeta');
   if (displayItem) {
     const provider = PROVIDER_LABEL[displayItem.provider] || displayItem.provider || 'Google Flow';
-    const model = displayItem.assetType === 'video'
-      ? (settings?.videoModel || 'Veo')
-      : (displayItem.provider === 'flow' ? (settings?.imageModel || 'Nano Banana 2').replaceAll('-', ' ') : 'Scene image');
+    const model =
+      displayItem.provider === 'flow'
+        ? (settings?.imageModel || 'Nano Banana 2').replaceAll('-', ' ')
+        : 'Scene image';
     const ratio = settings?.aspectRatio || '16:9';
     meta.textContent = `${provider} · ${model.replace(/\b\w/g, (c) => c.toUpperCase())} · ${ratio}`;
     meta.classList.remove('hidden');
@@ -1683,21 +1609,6 @@ async function pollQueue() {
       retry.textContent = '↻';
       retry.title = 'Retry this failed job';
       retry.onclick = async () => {
-        const ambiguousPaid = it.assetType === 'video' && it.phase === 'submitting' && !it.videoMediaId;
-        if (ambiguousPaid) {
-          const dlg = $('confirm');
-          $('confirmTitle').textContent = 'Retry paid video submission?';
-          $('confirmBody').textContent =
-            'Flow may have accepted the previous request before the page refreshed. Retrying could spend credits twice.';
-          $('confirmOk').textContent = 'Retry and accept risk';
-          dlg.classList.remove('hidden');
-          $('confirmOk').onclick = async () => {
-            dlg.classList.add('hidden');
-            await chrome.runtime.sendMessage({ type: 'retryFailed', id: it.id });
-            pollQueue();
-          };
-          return;
-        }
         await chrome.runtime.sendMessage({ type: 'retryFailed', id: it.id });
         pollQueue();
       };

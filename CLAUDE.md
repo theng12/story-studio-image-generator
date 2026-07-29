@@ -1,10 +1,11 @@
 # Story Studio Bulk Asset (`story-studio-bulk-asset`)
 
-MV3 extension: generates scene images (and, later, video) on **Google Flow** from
-a Story Studio KH scene plan, using your **web-subscription credits** (not the
-metered Vertex/Gemini Veo API), and saves each asset back into the episode. Also
-generates images on **Grok Imagine**. Sibling to `story-studio-tts` — same
-architecture (see parent `../CLAUDE.md`). Full writeup in `README.md`.
+MV3 image-only extension: generates Story Studio KH scene images and thumbnails
+through supported image providers, including **Google Flow** and **Grok
+Imagine**, then saves them back into the episode or Downloads. Video generation
+lives in the sibling `../story-studio-video-generator` extension. Sibling to
+`story-studio-tts` — same architecture (see parent `../CLAUDE.md`). Full
+writeup in `README.md`.
 
 ## Flow automation — how it actually works (verified live 2026-06-27)
 
@@ -15,9 +16,9 @@ Fully API-driven from a logged-in `labs.google/fx` tab:
   A logged-in tab must stay open: the session lives there *and* the call must run
   same-origin from the content script.
 - **reCAPTCHA is ENFORCED** (server-side, blanking it → `403 reCAPTCHA evaluation
-  failed`). It's the invisible/score-based kind, so the extension **mints its own
-  passing token in-page using the site's own `grecaptcha`** — this is why the
-  `flow-main.js` MAIN-world script exists. Don't break this path.
+  failed`). It is minted on the Flow page by the narrowly scoped
+  `src/lib/flow-exec.js` execution helper; do not move this work into the
+  background worker.
 - Generation goes through `flowMedia:batch…`; assets come back as a `fifeUrl` CDN
   link, fetched same-origin.
 - **Creating a project** (for auto-rollover) is a *different* API — a same-origin
@@ -25,8 +26,9 @@ Fully API-driven from a logged-in `labs.google/fx` tab:
   (verified live 2026-07-09): `POST /fx/api/trpc/project.createProject`
   `{ json: { projectTitle, toolName: 'PINHOLE' } }` →
   `result.data.json.result.projectId`. Navigating to an *un-created* `/project/<uuid>`
-  just shows "Something went wrong" — you must create it first. `flow-main.js`
-  `createProject` op; `background.startNewFlowProject` calls it, then navigates.
+  just shows "Something went wrong" — you must create it first. The Flow
+  execution helper creates the project before `background.startNewFlowProject`
+  navigates there.
 
 ## Scene plan & save-back (companion mode)
 
@@ -55,7 +57,8 @@ web session — it can't be made fully headless.
 ## Key files
 
 - `src/background.js` — the resumable queue (chrome.storage + chrome.alarms, dedupe).
-- `src/content/{flow,flow-main}.js` — Flow automation pair (MAIN world mints reCAPTCHA).
+- `src/lib/flow-exec.js` — narrowly scoped Flow image operations, executed in
+  the logged-in Flow tab.
 - `src/content/{grok,grok-main}.js` — Grok Imagine pair.
 - `src/lib/{naming,config,story-studio}.js` — shared with the sibling extension.
 - `src/popup/` side panel, `src/options/` settings.
@@ -63,5 +66,5 @@ web session — it can't be made fully headless.
 ## Gotchas
 
 - Keep the dedupe in the queue — a double-click must not double-spend Flow credits.
-- The MAIN-world reCAPTCHA minting is load-bearing; the isolated-world script alone
-  cannot reach the site's `grecaptcha`.
+- Flow reCAPTCHA minting is load-bearing; keep it constrained to the Flow tab
+  through the execution helper.

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Bulk Asset",
-  "version": "0.46.3",
-  "description": "Generate Story Studio KH scene images and video through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, Pollinations, PicLumen, and ChatGPT, then save each asset with the correct name.",
+  "version": "0.47.0",
+  "description": "Generate Story Studio KH scene and thumbnail images through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, Pollinations, PicLumen, and ChatGPT, then save each image with the correct name.",
   "permissions": [
     "downloads",
     "storage",
@@ -54,58 +54,21 @@
   "content_scripts": [
     {
       "matches": [
-        "https://labs.google/fx/*"
-      ],
-      "js": [
-        "src/content/flow-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://labs.google/fx/*"
-      ],
-      "js": [
-        "src/content/flow.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://aistudio.google.com/*"
       ],
       "js": [
-        "src/content/aistudio-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://chat.qwen.ai/*"
-      ],
-      "js": [
-        "src/content/qwen-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://chat.qwen.ai/*"
-      ],
-      "js": [
-        "src/content/qwen.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://aistudio.google.com/*"
-      ],
-      "js": [
+        "src/content/aistudio-main.js",
         "src/content/aistudio.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.qwen.ai/*"
+      ],
+      "js": [
+        "src/content/qwen-main.js",
+        "src/content/qwen.js"
       ],
       "run_at": "document_idle"
     },
@@ -133,16 +96,7 @@
         "https://app.leonardo.ai/*"
       ],
       "js": [
-        "src/content/leonardo-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://app.leonardo.ai/*"
-      ],
-      "js": [
+        "src/content/leonardo-main.js",
         "src/content/leonardo.js"
       ],
       "run_at": "document_idle"
@@ -152,16 +106,7 @@
         "https://freegen.app/*"
       ],
       "js": [
-        "src/content/freegen-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://freegen.app/*"
-      ],
-      "js": [
+        "src/content/freegen-main.js",
         "src/content/freegen.js"
       ],
       "run_at": "document_idle"
@@ -212,16 +157,7 @@
         "https://chatgpt.com/*"
       ],
       "js": [
-        "src/content/chatgpt-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://chatgpt.com/*"
-      ],
-      "js": [
+        "src/content/chatgpt-main.js",
         "src/content/chatgpt.js"
       ],
       "run_at": "document_idle"

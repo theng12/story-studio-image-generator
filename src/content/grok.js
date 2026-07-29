@@ -11,6 +11,15 @@ const TEMPLATE_KEY = 'grokTemplate';
 let seq = 0;
 const pending = new Map();
 
+function persistableTemplate(template) {
+  if (!template?.url || !template?.body) return null;
+  return {
+    url: template.url,
+    method: template.method || 'POST',
+    body: template.body,
+  };
+}
+
 window.addEventListener('message', (ev) => {
   if (ev.source !== window) return;
   const d = ev.data;
@@ -23,7 +32,8 @@ window.addEventListener('message', (ev) => {
   }
   // Persist a freshly captured template.
   if (d && d.kind === 'GROKEXT_EVENT' && d.event === 'grok:templateCaptured') {
-    chrome.storage.local.set({ [TEMPLATE_KEY]: d.payload.template }).catch(() => {});
+    const safe = persistableTemplate(d.payload.template);
+    if (safe) chrome.storage.local.set({ [TEMPLATE_KEY]: safe }).catch(() => {});
   }
 });
 
@@ -46,9 +56,12 @@ function callMain(op, payload, timeoutMs = 180000) {
 (async () => {
   try {
     const { [TEMPLATE_KEY]: t } = await chrome.storage.local.get(TEMPLATE_KEY);
-    if (t) {
+    const safe = persistableTemplate(t);
+    if (safe) {
+      // Scrub headers captured by older releases before using the template.
+      await chrome.storage.local.set({ [TEMPLATE_KEY]: safe });
       // wait a tick for grok-main to install its listener
-      setTimeout(() => callMain('loadTemplate', t).catch(() => {}), 800);
+      setTimeout(() => callMain('loadTemplate', safe).catch(() => {}), 800);
     }
   } catch {
     /* ignore */

@@ -11,16 +11,15 @@ episode or to Downloads with canonical filenames.
 
 Supported providers:
 
-- Google Flow: image and video; uses the logged-in Flow web session.
+- Google Flow: image only; uses the logged-in Flow web session.
 - Qwen Studio: image only; drives the signed-in conversational image workflow.
 - Grok Imagine: image only; capture-and-replay adapter.
 - Perchance: image only; drives the visible generator controls.
 - FreeGen: image only; drives the visible generator controls.
 - Leonardo AI: image only; drives the logged-in website and spends web tokens.
 
-Only Google Flow supports video. Do not expose video options for other
-providers unless their complete submit, status, download, and retry behavior is
-implemented and verified.
+Video generation belongs in the sibling `story-studio-video-generator`
+extension. Do not add Veo, clip, or video queue paths back to Bulk Asset.
 
 ## Architecture
 
@@ -28,11 +27,11 @@ implemented and verified.
 - `src/background.js`: persistent queue, provider tabs, generation dispatch,
   retry policy, Story Studio ingestion, and Downloads.
 - `src/popup/`: side-panel project/episode selection and queue controls.
-- `src/options/`: Story Studio, Flow, model, and naming settings.
+- `src/options/`: Story Studio, image-provider, model, and naming settings.
 - `src/lib/config.js`: settings defaults and storage boundary.
 - `src/lib/naming.js`: canonical download naming contract.
 - `src/lib/story-studio.js`: Story Studio REST client.
-- `src/content/flow-main.js` + `flow.js`: Flow MAIN/isolated-world pair.
+- `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands.
 - `src/content/grok-main.js` + `grok.js`: Grok MAIN/isolated-world pair.
 - `src/content/qwen-main.js` + `qwen.js`: Qwen Studio conversational image
   pair using the prompt, send, assistant-response, and qwen-image contracts.
@@ -57,7 +56,6 @@ The queue must remain:
 - Strictly sequential so providers are not flooded.
 - Deduplicated by provider and scene identity.
 - Resumable for operations known to be safe to repeat.
-- Conservative when a paid request has an unknown outcome.
 - Human-paced using the persisted, user-configured min/max delay; worker death
   must not bypass the next allowed provider-request timestamp.
 - Flow image reCAPTCHA uses a configurable total of 1–10 fresh-token attempts
@@ -65,10 +63,8 @@ The queue must remain:
   configurable cooldown timestamp before automatic alarm-driven resume. Manual
   Resume may clear that cooldown early.
 
-Never automatically replay an ambiguous paid submission. Leonardo image jobs
-interrupted after submission must ask the user to inspect the provider tab
-before retrying. Flow video submissions must persist their media ID immediately
-and resume polling rather than submit again.
+Leonardo image jobs interrupted after submission must ask the user to inspect
+the provider tab before retrying.
 
 ## Provider adapters
 
@@ -85,8 +81,8 @@ For visible-UI adapters:
 - Keep selectors specific where verified and provide careful semantic fallbacks.
 - Treat quota signals as a pause, not a failed batch.
 
-Grok uses capture-and-replay because its requests are signed. Preserve the
-captured template in local storage and never commit session data or headers.
+Grok uses capture-and-replay because its requests are signed. Never persist
+captured request headers; session-bound headers stay in page memory only.
 
 ## Story Studio contract
 
@@ -95,7 +91,7 @@ Default server URLs are `http://localhost:8000` for desktop and
 runtime-granted host permission.
 
 Do not casually change filenames or ingest routes. Story Studio depends on the
-scene, thumbnail, and video naming scheme. Keep generated credentials, request
+scene and thumbnail naming scheme. Keep generated credentials, request
 templates, and API keys in local Chrome storage only.
 
 ## Development and verification

@@ -1,5 +1,4 @@
-// MAIN-world script injected into grok.com (xAI Grok — the "Imagine" image/video
-// generator). Second provider alongside Google Flow.
+// MAIN-world script injected into grok.com (xAI Grok Imagine image generator).
 //
 // Design: CAPTURE-AND-REPLAY. Grok signs its API calls (x-statsig-id, and for
 // anon users x-challenge/x-signature derived from a localStorage key) behind
@@ -32,14 +31,14 @@
     typeof o === 'object' &&
     Object.keys(o).some((k) => (typeof o[k] === 'string' && o[k].trim() && PROMPT_KEYS.has(k)) || hasPromptField(o[k]));
 
-  // Heuristic match for an image/video *generation* call. Note `/imagine/` also
+  // Heuristic match for an image-generation call. Note `/imagine/` also
   // appears in Grok's OPTIONS + quota endpoints (…/models/imagine/overrides,
   // …/media/imagine/quota_info), so exclude those by name — and, decisively,
   // only accept a body that carries a prompt field (see the capture block).
   const isGen = (url, method) =>
     method === 'POST' &&
     /\/rest\//.test(url) &&
-    /(generat|imagine|image|video|media\/create|draft|responses)/i.test(url) &&
+    /(generat|imagine|image|media\/create|draft|responses)/i.test(url) &&
     !/\b(overrides|quota|quota_info|settings|preferences|history)\b|post\/list|feed|conversations\b/i.test(url);
 
   // The captured template, persisted via the bridge so it survives reloads.
@@ -76,18 +75,19 @@
         // this rejects the /overrides + /quota_info calls that also match isGen.
         if (promptable) {
           const t = { url: url.replace(location.origin, ''), method, headers, body: parsed };
-          window.__GROK_CAP.template = t;
+          const safeTemplate = { url: t.url, method: t.method, body: t.body };
+          window.__GROK_CAP.template = safeTemplate;
           template = t;
           // record result-media URL shape from the response (best-effort)
           try {
             const txt = await resp.clone().text();
-            const urls = (txt.match(/https?:\/\/[^"'\s]+\.(?:png|jpg|jpeg|webp|mp4)/gi) || []).slice(0, 3);
+            const urls = (txt.match(/https?:\/\/[^"'\s]+\.(?:png|jpg|jpeg|webp)/gi) || []).slice(0, 3);
             if (urls.length) window.__GROK_CAP.mediaUrls.push(...urls.map((u) => u.split('?')[0]));
           } catch {
             /* opaque */
           }
           // hand the template to the extension to persist
-          post('grok:templateCaptured', { template: t });
+          post('grok:templateCaptured', { template: safeTemplate });
         }
       } catch {
         /* not JSON / unexpected */
@@ -117,7 +117,7 @@
     // the prompt-less /overrides call, which then failed every replay. Ignoring
     // it here makes getContext report no template, so a fresh (correct) one is
     // captured on the next real generation.
-    if (t && t.url && hasPromptField(t.body)) template = t;
+    if (t && t.url && hasPromptField(t.body)) template = { ...t, headers: {} };
     return { ok: true, hasTemplate: !!template };
   }
   function getCapture() {

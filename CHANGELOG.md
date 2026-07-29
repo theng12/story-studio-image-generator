@@ -2,6 +2,14 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.47.0 — Image-only product split and security cleanup
+- Bulk Asset is now image-only. Flow/Veo video UI, settings, queue lifecycle, adapter commands, and Story Studio clip APIs moved to the sibling Story Studio Video Generator extension.
+- Flow image commands now use one-shot MAIN-world execution instead of a page-visible `postMessage` command bridge.
+- Pollinations tokens migrate from sync to local storage.
+- Provider-returned image URLs are allowlisted and fetched without credentials.
+- Grok no longer persists captured request headers.
+- Fleet Hub commands require authenticated response envelopes.
+
 ## 0.46.3 — Active batch side-panel workflow
 - The side panel now starts with a live **Active batch** view: its status, current scene, provider/model details, progress, compact queue, and queue controls are together at the top.
 - Active generation receives a subtle moving spectrum edge and multicolor progress line. Waiting/cooldown, successful completion, and failures use distinct blue, green, and red states without changing the queue behavior.

@@ -208,24 +208,6 @@
           </select>
         </label>
       </div>
-      <div class="field">
-        <span class="label">Video model (Veo — costs credits)</span>
-        <select id="videoModel">
-          <option value="omni-flash">Omni Flash — has audio (~7–12 credits/clip)</option>
-          <option value="veo-3.1-lite">Veo 3.1 Lite — cheapest Veo</option>
-          <option value="veo-3.1-fast">Veo 3.1 Fast (~20 credits/clip)</option>
-          <option value="veo-3.1-quality">Veo 3.1 Quality (~100 credits/clip)</option>
-        </select>
-        <div class="hint">All video models cost credits. Image-to-video: animates the scene's image with its motion prompt. Saves the clip to “11 Video Assets” or Downloads.</div>
-      </div>
-      <div class="field">
-        <span class="label">Scene video — image source</span>
-        <select id="videoSource">
-          <option value="existing">Animate the existing scene image</option>
-          <option value="generate">Generate a fresh image on Flow first</option>
-        </select>
-        <div class="hint">“Existing” uploads {scene_id}.png from Story Studio. “Generate” makes a new image (from the visual prompt) then animates it.</div>
-      </div>
     </section>
 
     <section class="card">
@@ -269,6 +251,11 @@
       <div class="field">
         <span class="label">Machine name (unique per machine)</span>
         <input type="text" id="fleetAgentName" placeholder="Mac Mini A" />
+      </div>
+      <div class="field">
+        <span class="label">Shared control secret</span>
+        <input type="password" id="fleetSharedSecret" autocomplete="new-password" placeholder="same secret configured on the Fleet Hub" />
+        <div class="hint">Stored locally, never synced. Without a matching secret this extension ignores every command returned by the hub.</div>
       </div>
     </section>
 

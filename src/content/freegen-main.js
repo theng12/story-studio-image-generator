@@ -3,8 +3,6 @@
 // never be mistaken for a completed generation.
 
 (() => {
-  const REQ = 'STUDIO_FREEGEN_REQ';
-  const RES = 'STUDIO_FREEGEN_RES';
   const PROMPT_SELECTOR = '#prompt';
   const RATIO_SELECTOR = '#aspectRatioSelect';
   const GENERATE_SELECTOR = '#generateBtn';
@@ -104,15 +102,8 @@
   }
 
   const handlers = { getContext, generateImage };
-  window.addEventListener('message', async (event) => {
-    if (event.source !== window || event.data?.kind !== REQ) return;
-    const { id, op, payload } = event.data;
-    try {
-      if (!handlers[op]) throw new Error(`Unknown FreeGen operation: ${op}`);
-      const result = await handlers[op](payload || {});
-      window.postMessage({ kind: RES, id, ok: true, result }, '*');
-    } catch (error) {
-      window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
-    }
-  });
+  globalThis.__STORY_STUDIO_FREEGEN_CALL__ = async (op, payload = {}) => {
+    if (!handlers[op]) throw new Error(`Unknown FreeGen operation: ${op}`);
+    return handlers[op](payload);
+  };
 })();

@@ -31,8 +31,7 @@ export const DEFAULTS = {
   // character. When off, no reference is applied even if one is selected.
   characterRefEnabled: true,
 
-  // Generation provider. All providers use their visible web session/UI; only
-  // Flow supports video in addition to image generation.
+  // Generation provider. Every provider in this extension is image-only.
   provider: 'flow',
 
   // Pollinations: a keyless image URL API (image.pollinations.ai). It needs no
@@ -44,7 +43,6 @@ export const DEFAULTS = {
   // rate limit.
   pollinationsModel: 'flux',
   pollinationsSeed: '',
-  pollinationsToken: '',
 
   // PicLumen (piclumen.com) — API-driven, ~10 free "Lumens"/day (1 per image).
   // Default model is "PicLumen Art V1"; its id is sent to /api/gen/create.
@@ -113,14 +111,6 @@ export const DEFAULTS = {
   imageModel: 'nano-banana-2', // -> internal "NARWHAL"
   aspectRatio: '16:9',
 
-  // Video model (Veo). Costs credits. Used when the panel makes "Scene video".
-  videoModel: 'veo-3.1-fast', // -> internal "veo_3_1_i2v_fast"
-
-  // How scene video gets its still image to animate:
-  //   "existing" — upload the scene's already-generated {scene_id}.png to Flow.
-  //   "generate" — generate a fresh image on Flow first, then animate it.
-  videoSource: 'existing',
-
   // Where generated scene images go:
   //   "project"  — POST back to Story Studio so the file lands in the episode's
   //                real "05 Scene Images" folder with the canonical name and the
@@ -137,8 +127,7 @@ export const DEFAULTS = {
   // Filename template (extension appended automatically).
   filenameTemplate: '{episodeCode}_{sceneId}',
 
-  // Re-generate scenes that already have an image? Off by default (saves work
-  // and, for video, credits). Scene-level (within a loaded episode).
+  // Re-generate scenes that already have an image? Off by default.
   includeExisting: false,
 
   // Episode-list filter: 'todo' (still need scene images — the default so the
@@ -159,6 +148,7 @@ export const DEFAULTS = {
 };
 
 const STORAGE_KEY = 'settings';
+const PROVIDER_SECRETS_KEY = 'providerSecrets';
 const QWEN_ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4']);
 
 function normalizeDelay(value, fallback) {
@@ -243,19 +233,55 @@ export function normalizeFlowProjectId(value) {
 }
 
 export async function getSettings() {
-  const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  const original = { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
-  const next = normalizeSettings({ ...original });
-  if (JSON.stringify(next) !== JSON.stringify(original)) {
-    await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  const [synced, local] = await Promise.all([
+    chrome.storage.sync.get(STORAGE_KEY),
+    chrome.storage.local.get(PROVIDER_SECRETS_KEY),
+  ]);
+  const storedSettings = { ...(synced[STORAGE_KEY] || {}) };
+  const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
+  // One-time migration: older releases placed the Pollinations bearer token in
+  // the synced settings blob. Copy locally first, then scrub the synced value.
+  if (storedSettings.pollinationsToken && !secrets.pollinationsToken) {
+    secrets.pollinationsToken = storedSettings.pollinationsToken;
+    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
   }
-  return next;
+  delete storedSettings.pollinationsToken;
+  delete storedSettings.fleetSharedSecret;
+  const next = normalizeSettings({ ...DEFAULTS, ...storedSettings });
+  const syncNext = { ...next };
+  if (JSON.stringify(syncNext) !== JSON.stringify(synced[STORAGE_KEY] || {})) {
+    await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
+  }
+  return {
+    ...next,
+    pollinationsToken: secrets.pollinationsToken || '',
+    fleetSharedSecret: secrets.fleetSharedSecret || '',
+  };
 }
 
 export async function saveSettings(patch) {
   const current = await getSettings();
   const next = normalizeSettings({ ...current, ...patch });
-  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  if (Object.prototype.hasOwnProperty.call(patch, 'pollinationsToken')) {
+    const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
+    const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
+    const token = String(patch.pollinationsToken || '').trim();
+    if (token) secrets.pollinationsToken = token;
+    else delete secrets.pollinationsToken;
+    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'fleetSharedSecret')) {
+    const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
+    const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
+    const secret = String(patch.fleetSharedSecret || '').trim();
+    if (secret) secrets.fleetSharedSecret = secret;
+    else delete secrets.fleetSharedSecret;
+    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
+  }
+  const syncNext = { ...next };
+  delete syncNext.pollinationsToken;
+  delete syncNext.fleetSharedSecret;
+  await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   return next;
 }
 

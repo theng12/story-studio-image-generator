@@ -9,8 +9,6 @@
 // AI Studio's free daily image quota. Verified live 2026-07-05.
 
 (() => {
-  const REQ = 'STUDIO_AISTUDIO_REQ';
-  const RES = 'STUDIO_AISTUDIO_RES';
   // Bare descriptions get refused; an explicit instruction triggers generation,
   // and the ratio is reinforced in words (AI Studio has no ratio control here).
   const RATIO_PHRASE = {
@@ -182,15 +180,8 @@
   }
 
   const handlers = { getContext, generateImage };
-  window.addEventListener('message', async (event) => {
-    if (event.source !== window || event.data?.kind !== REQ) return;
-    const { id, op, payload } = event.data;
-    try {
-      if (!handlers[op]) throw new Error(`Unknown AI Studio operation: ${op}`);
-      const result = await handlers[op](payload || {});
-      window.postMessage({ kind: RES, id, ok: true, result }, '*');
-    } catch (error) {
-      window.postMessage({ kind: RES, id, ok: false, error: String(error.message || error), limit: !!error.limit }, '*');
-    }
-  });
+  globalThis.__STORY_STUDIO_AISTUDIO_CALL__ = async (op, payload = {}) => {
+    if (!handlers[op]) throw new Error(`Unknown AI Studio operation: ${op}`);
+    return handlers[op](payload);
+  };
 })();
