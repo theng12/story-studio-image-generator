@@ -203,6 +203,36 @@ async function grantAccess() {
   }
 }
 
+async function testConnection() {
+  const url = $('studioBaseUrl').value.trim();
+  const status = $('testStatus');
+  status.textContent = 'Testing connection…';
+  status.style.color = 'var(--muted)';
+  if (!url) {
+    status.textContent = 'Enter a Server URL first.';
+    status.style.color = 'var(--err)';
+    return;
+  }
+  if (!isLocalUrl(url)) {
+    const pat = originPattern(url);
+    const granted = pat && await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
+    if (!granted) {
+      status.textContent = 'Grant access to this server first, then test again.';
+      status.style.color = 'var(--warn)';
+      return;
+    }
+  }
+  try {
+    const projects = await new StudioClient(url).listProjects();
+    const count = Array.isArray(projects) ? projects.length : (projects?.projects || []).length;
+    status.textContent = `✓ Connected — ${count} project${count === 1 ? '' : 's'} found.`;
+    status.style.color = 'var(--ok)';
+  } catch (error) {
+    status.textContent = `Couldn’t connect: ${error.message}. ${isLocalUrl(url) ? 'Is Story Studio running?' : 'Check the server, access grant, and sign-in.'}`;
+    status.style.color = 'var(--err)';
+  }
+}
+
 async function refreshFleetGrant() {
   const el = $('fleetGrantStatus');
   const url = $('fleetHubUrl').value.trim();
@@ -244,6 +274,7 @@ async function grantFleet() {
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
+$('testConnection').onclick = testConnection;
 $('grantFleet').onclick = grantFleet;
 $('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('refreshLeonardoModels').onclick = refreshLeonardoModels;

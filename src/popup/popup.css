@@ -612,6 +612,8 @@ select, input[type="text"], input[type="password"], input[type="number"] {
 .studio-connection[data-state="connected"] .connection-status { color: var(--ok); }
 .studio-connection[data-state="failed"] .connection-status { color: var(--danger); }
 .connection-test { flex: none; border-color: var(--accent); color: var(--link); font-weight: 600; }
+.studio-connection-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.connection-fix { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); color: var(--danger); }
 
 @media (max-width: 340px) {
   .asset-settings, .active-controls { grid-template-columns: 1fr; }
