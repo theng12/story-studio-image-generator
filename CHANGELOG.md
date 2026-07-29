@@ -2,6 +2,11 @@
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
 
+## 0.46.3 — Active batch side-panel workflow
+- The side panel now starts with a live **Active batch** view: its status, current scene, provider/model details, progress, compact queue, and queue controls are together at the top.
+- Active generation receives a subtle moving spectrum edge and multicolor progress line. Waiting/cooldown, successful completion, and failures use distinct blue, green, and red states without changing the queue behavior.
+- Provider options, pacing, cooldown, and Fleet Hub are collapsed by default so project and scene selection stay focused. Added quick actions to queue the loaded episode or all pending scenes.
+
 ## 0.46.2 — Clear Flow reference fetch errors
 - Flow character-reference failures now report the exact Story Studio project, character id, and filename that could not be served. This makes stale/missing Story Studio reference-image routes distinguishable from Flow upload/generation failures.
 

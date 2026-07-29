@@ -13,10 +13,40 @@
         <span id="extensionVersion" class="version-badge" title="Installed extension version"></span>
       </div>
       <div class="header-actions">
-        <button id="whatsNew" class="link small whats-new" title="What changed recently">✨ What's new<span id="whatsNewDot" class="ndot hidden"></span></button>
+        <button id="whatsNew" class="link small whats-new" title="What changed recently">What's new<span id="whatsNewDot" class="ndot hidden"></span></button>
         <button id="openOptions" class="link settings-gear" title="Open settings" aria-label="Open settings">⚙</button>
       </div>
     </header>
+
+    <!-- The live queue stays first: it is the only part of the panel that needs
+         attention while a batch is running. -->
+    <section id="activeBatch" class="active-batch idle" aria-live="polite">
+      <div class="active-batch-heading">
+        <span>Active batch</span>
+        <span id="batchStatePill" class="batch-state-pill">Idle</span>
+      </div>
+      <div id="genStatusBar" class="genstatus idle">
+        <span class="gs-state"><span class="gs-dot"></span><span id="gsStateText">Idle</span></span>
+        <span class="gs-counts hidden">
+          <span class="gs-done" id="gsDone">0 done</span>
+          <span class="gs-failed" id="gsFailed">0 failed</span>
+          <span class="gs-left" id="gsLeft">0 left</span>
+        </span>
+      </div>
+      <div id="activeTask" class="active-task muted">No batch is running.</div>
+      <div id="activeMeta" class="active-meta hidden"></div>
+      <div class="batch-progress" aria-label="Batch progress"><span id="batchProgressFill"></span></div>
+      <div class="active-controls">
+        <button id="pauseQueue" class="btn small hidden">❚❚ Pause</button>
+        <button id="retryFailed" class="btn small">↻ Retry failed</button>
+        <button id="clearQueue" class="btn small danger">× Clear pending</button>
+      </div>
+      <div id="status" class="status"></div>
+      <div id="appliedSettings" class="applied-settings"></div>
+      <div id="tabReminder" class="reminder hidden"></div>
+      <div id="queueTiming" class="queue-timing muted small"></div>
+      <div id="queue" class="queue"></div>
+    </section>
 
     <!-- Start here: pick the provider, what to make, and where to save. -->
     <section class="card" id="assetSettingsCard">
@@ -55,6 +85,8 @@
       <div class="row open-provider-row">
         <button id="openProviderPage" class="link small" title="Open this provider's generation page in a tab">↗ Open provider</button>
       </div>
+      <details class="provider-options" id="providerOptions">
+        <summary><span id="providerOptionsTitle">Google Flow options</span><span id="providerOptionsHint" class="summary-hint">Model · ratio · reference</span></summary>
       <div id="leonardoCard" class="leo hidden">
         <div class="row between leo-heading">
           <div class="label">Leonardo options</div>
@@ -308,9 +340,12 @@
         </div>
         <div class="hint" id="charRefHint"></div>
       </div>
+      </details>
     </section>
 
-    <section class="card" id="flowProjectCard">
+    <details class="advanced-card" id="flowProjectCard">
+      <summary>Provider settings</summary>
+      <div class="advanced-card-body">
       <div class="row between">
         <div>
           <div class="label">Flow project</div>
@@ -329,15 +364,17 @@
         <span class="small">images</span>
         <span id="flowProjectCount" class="muted small"></span>
       </label>
-    </section>
+      </div>
+    </details>
 
-    <section class="card pace-card">
+    <details class="advanced-card pace-card">
+      <summary>Human pace <span id="humanPaceState" class="pace-state" aria-live="polite"></span></summary>
+      <div class="advanced-card-body">
       <div class="row between pace-heading">
         <div>
           <div class="label">Human pace</div>
           <div class="muted small">Delay between provider requests</div>
         </div>
-        <span id="humanPaceState" class="pace-state" aria-live="polite"></span>
       </div>
       <label class="pace-preset">
         <span class="mini">Suggested pace</span>
@@ -361,15 +398,17 @@
         </label>
       </div>
       <div class="hint">The next queue gap uses this setting. A wait already in progress keeps its chosen time.</div>
-    </section>
+      </div>
+    </details>
 
-    <section class="card" id="cooldownCard">
+    <details class="advanced-card" id="cooldownCard">
+      <summary>Provider cooldown <span id="cooldownState" class="pace-state" aria-live="polite"></span></summary>
+      <div class="advanced-card-body">
       <div class="row between pace-heading">
         <div>
           <div class="label">Provider cooldown</div>
           <div class="muted small" id="cooldownProviderName">—</div>
         </div>
-        <span id="cooldownState" class="pace-state" aria-live="polite"></span>
       </div>
       <label class="checkbox small">
         <input type="checkbox" id="cooldownAutoResume" />
@@ -401,7 +440,13 @@
         <div class="hint">Off = the queue pauses on a limit and waits for you to press Resume (default). On = it waits the chosen time, then resumes on its own — press Resume any time to override. Qwen uses its own stated wait when it gives one.</div>
       </div>
       <div id="cooldownUnsupported" class="muted small hidden">This provider has no automatic limit detection — it just stops on error.</div>
-    </section>
+      </div>
+    </details>
+
+    <details class="advanced-card fleet-card">
+      <summary>Fleet Hub <span class="summary-hint">Optional coordination</span></summary>
+      <div class="advanced-card-body muted small">Manage Fleet Hub connection and agent settings from <button type="button" class="link small open-options-link">Provider settings</button>.</div>
+    </details>
 
     <section class="card">
       <div class="row between">
@@ -436,7 +481,7 @@
       </div>
       <div class="row">
         <button id="loadScenes" class="btn">Load scenes</button>
-        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending…</button>
+        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending</button>
       </div>
     </section>
 
@@ -466,31 +511,10 @@
       </div>
       <div id="scenes" class="scenes"></div>
       <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
-    </section>
-
-    <div id="genStatusBar" class="genstatus idle">
-      <span class="gs-state"><span class="gs-dot"></span><span id="gsStateText">Idle</span></span>
-      <span class="gs-counts hidden">
-        <span class="gs-done" id="gsDone">0 done</span>
-        <span class="gs-failed" id="gsFailed">0 failed</span>
-        <span class="gs-left" id="gsLeft">0 left</span>
-      </span>
-    </div>
-
-    <section class="card">
-      <div class="row between">
-        <div class="label">Queue</div>
-        <div class="row">
-          <button id="pauseQueue" class="link small hidden">Pause</button>
-          <button id="retryFailed" class="link small">Retry failed</button>
-          <button id="clearQueue" class="link small">Clear pending</button>
-        </div>
+      <div class="episode-queue-actions">
+        <button id="queueEpisode" class="link small">Queue this episode</button>
+        <button id="queueAllPendingSecondary" class="link small">Queue all pending</button>
       </div>
-      <div id="status" class="status"></div>
-      <div id="appliedSettings" class="applied-settings"></div>
-      <div id="tabReminder" class="reminder hidden"></div>
-      <div id="queueTiming" class="queue-timing muted small"></div>
-      <div id="queue" class="queue"></div>
     </section>
 
     <!-- Confirmation dialog (avoid wasting work/credits on an accidental batch) -->

@@ -268,6 +268,9 @@ async function init() {
 
 function wire() {
   $('openOptions').onclick = () => chrome.runtime.openOptionsPage();
+  document.querySelectorAll('.open-options-link').forEach((button) => {
+    button.onclick = () => chrome.runtime.openOptionsPage();
+  });
   $('humanPacePreset').onchange = selectHumanPacePreset;
   $('humanPaceMin').onchange = saveCustomHumanPace;
   $('humanPaceMax').onchange = saveCustomHumanPace;
@@ -297,13 +300,23 @@ function wire() {
   $('sceneSearch').oninput = filterScenesList;
   $('selectFailed').onclick = selectFailedScenes;
   $('queueAllPending').onclick = queueAllPending;
+  $('queueAllPendingSecondary').onclick = queueAllPending;
+  $('queueEpisode').onclick = () => {
+    if (!currentEpisode || !currentScenes.length) {
+      setStatus('Load this episode’s scenes first.', 'info');
+      return;
+    }
+    selectRemaining();
+    if (selectedScenes().length) confirmQueue();
+    else setStatus('No missing scenes in this episode.', 'info');
+  };
   $('queueSelected').onclick = confirmQueue;
   $('clearQueue').onclick = async () => {
     await chrome.runtime.sendMessage({ type: 'clearQueue' });
     pollQueue();
   };
   $('pauseQueue').onclick = async () => {
-    const resuming = $('pauseQueue').textContent === 'Resume';
+    const resuming = $('pauseQueue').dataset.paused === 'true';
     await chrome.runtime.sendMessage({ type: resuming ? 'resumeQueue' : 'pauseQueue' });
     pollQueue();
   };
@@ -1273,6 +1286,12 @@ function onProviderChange() {
   const hasPage = provider !== 'pollinations';
   openBtn.classList.toggle('hidden', !hasPage);
   openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
+  $('providerOptionsTitle').textContent = `${PROVIDER_LABEL[provider] || provider} options`;
+  $('providerOptionsHint').textContent = provider === 'flow'
+    ? 'Model · ratio · reference'
+    : provider === 'leonardo'
+      ? 'Model · style · reference'
+      : 'Generation preferences';
   const wantsChar = provider === 'flow' || provider === 'qwen' || provider === 'chatgpt' || provider === 'aistudio';
   $('charRefCard').classList.toggle('hidden', !wantsChar);
   if (wantsChar)
@@ -1509,33 +1528,68 @@ function renderQueueTiming(queue) {
   el.textContent = parts.join(' · ');
 }
 
-// Prominent generation status above the Queue: green + glowing while running,
-// orange while paused, with running success/failed/remaining counts.
+// The active-batch card is the panel's live operational view. Its state classes
+// deliberately distinguish work in flight, human pacing/cooldown, completion,
+// and failure; CSS applies the restrained spectrum sweep only to active work.
 function updateGenStatus(queue, paused) {
   const bar = $('genStatusBar');
   if (!bar) return;
+  const panel = $('activeBatch');
   const done = queue.filter((i) => i.status === 'done').length;
   const failed = queue.filter((i) => i.status === 'failed').length;
   const left = queue.filter((i) => i.status === 'pending' || i.status === 'running').length;
-  const running = queue.some((i) => i.status === 'running');
+  const active = queue.find((i) => i.status === 'running');
+  const running = !!active;
+  const pending = queue.find((i) => i.status === 'pending');
+  const displayItem = active || pending;
   let state = 'Idle';
   let cls = 'idle';
   if (paused) {
     state = 'Paused';
     cls = 'paused';
   } else if (left > 0) {
-    state = running ? 'Generating' : 'Queued';
-    cls = 'running';
+    state = running
+      ? `Generating ${active.assetType === 'video' ? 'scene video' : 'scene images'}`
+      : 'Waiting for human pace';
+    cls = running ? 'running' : 'waiting';
   } else if (queue.length) {
-    state = 'Finished';
-    cls = 'done';
+    state = failed ? 'Finished with failures' : 'Batch complete';
+    cls = failed ? 'failed' : 'done';
   }
   bar.className = 'genstatus ' + cls;
+  panel.className = 'active-batch ' + cls;
   $('gsStateText').textContent = state;
   $('gsDone').textContent = `${done} done`;
   $('gsFailed').textContent = `${failed} failed`;
   $('gsLeft').textContent = `${left} left`;
   bar.querySelector('.gs-counts').classList.toggle('hidden', queue.length === 0);
+
+  const pill = $('batchStatePill');
+  pill.textContent = running ? 'Live' : paused ? 'Paused' : left ? 'Waiting' : failed ? 'Needs review' : queue.length ? 'Complete' : 'Idle';
+  const task = $('activeTask');
+  task.textContent = active
+    ? `Generating ${active.label}`
+    : pending
+      ? `Up next — ${pending.label}`
+      : queue.length
+        ? (failed ? 'Review failed scenes or retry them.' : 'All queued assets are saved.')
+        : 'No batch is running.';
+  task.classList.toggle('muted', !displayItem);
+  const meta = $('activeMeta');
+  if (displayItem) {
+    const provider = PROVIDER_LABEL[displayItem.provider] || displayItem.provider || 'Google Flow';
+    const model = displayItem.assetType === 'video'
+      ? (settings?.videoModel || 'Veo')
+      : (displayItem.provider === 'flow' ? (settings?.imageModel || 'Nano Banana 2').replaceAll('-', ' ') : 'Scene image');
+    const ratio = settings?.aspectRatio || '16:9';
+    meta.textContent = `${provider} · ${model.replace(/\b\w/g, (c) => c.toUpperCase())} · ${ratio}`;
+    meta.classList.remove('hidden');
+  } else {
+    meta.classList.add('hidden');
+  }
+  const total = queue.length;
+  const progress = total ? Math.round(((done + failed + (running ? .35 : 0)) / total) * 100) : 0;
+  $('batchProgressFill').style.width = `${Math.min(100, Math.max(0, progress))}%`;
 }
 
 let lastQueueSig = '';
@@ -1555,7 +1609,8 @@ async function pollQueue() {
   const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
   const pause = $('pauseQueue');
   pause.classList.toggle('hidden', !hasWork && !paused);
-  pause.textContent = paused ? 'Resume' : 'Pause';
+  pause.dataset.paused = String(paused);
+  pause.textContent = paused ? '▶ Resume' : '❚❚ Pause';
   updateGenStatus(queue, paused);
   // Live per-scene status + tab-visibility reminder — run every tick, even when
   // the queue-list DOM itself is unchanged.
