@@ -405,6 +405,7 @@ function renderStudioConnection() {
   const state = studioConnection?.state || 'untested';
   card.dataset.state = state;
   $('openStudioSettings').classList.toggle('hidden', state !== 'failed');
+  out.title = '';
   if (state === 'testing') {
     out.textContent = 'Testing Story Studio…';
     return;
@@ -418,7 +419,7 @@ function renderStudioConnection() {
     out.title = studioConnection.message || '';
     return;
   }
-  out.textContent = 'Not tested yet';
+  out.textContent = '';
 }
 
 async function saveStudioConnection(next) {

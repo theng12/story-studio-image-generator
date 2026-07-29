@@ -728,3 +728,25 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
 .scenes { border-radius: 8px; }
 .scene { padding: 10px; font-size: 13px; }
 .scene .idx, .scene .prompt { font-size: 13px; }
+
+/* Match Video's compact connection action row. The result is still visible,
+   but connection recovery is no longer framed as a separate settings card. */
+#studioWorkflow .studio-connection {
+  min-height: var(--utility-height);
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+#studioWorkflow .connection-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  text-align: right;
+}
+#studioWorkflow .connection-status:empty { display: none; }
+#studioWorkflow .studio-connection-actions { margin-left: auto; }

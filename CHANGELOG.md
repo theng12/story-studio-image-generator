@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.20 — Compact Studio test action
+
+- Replaced Image Generator's boxed Studio status with the shared compact test
+  action row; the recovery action appears only after a failed test.
+
 ## 0.47.19 — Connection-card consistency
 
 - Standardized the Story Studio connection guidance, actions, credentials, and
