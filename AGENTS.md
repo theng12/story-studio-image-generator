@@ -7,7 +7,7 @@ working in this extension.
 
 This Manifest V3 Chrome extension reads scene and thumbnail prompts from Story
 Studio KH, generates assets through web providers, and saves them back to the
-episode or to Downloads with canonical filenames.
+episode with canonical filenames.
 
 Supported providers:
 
@@ -25,11 +25,10 @@ extension. Do not add Veo, clip, or video queue paths back to Image Generator.
 
 - `manifest.json`: permissions, provider hosts, content-script pairs, version.
 - `src/background.js`: persistent queue, provider tabs, generation dispatch,
-  retry policy, Story Studio ingestion, and Downloads.
+  retry policy, and Story Studio ingestion.
 - `src/popup/`: side-panel project/episode selection and queue controls.
-- `src/options/`: Story Studio, image-provider, model, and naming settings.
+- `src/options/`: Story Studio, image-provider, and model settings.
 - `src/lib/config.js`: settings defaults and storage boundary.
-- `src/lib/naming.js`: canonical download naming contract.
 - `src/lib/story-studio.js`: Story Studio REST client.
 - `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands.
 - `src/content/grok-main.js` + `grok.js`: Grok MAIN/isolated-world pair.
@@ -105,7 +104,7 @@ Before handing off changes:
 2. Parse `manifest.json` and confirm every declared content script exists.
 3. Run `git diff --check`.
 4. Test the changed provider in Chrome with one image before a batch.
-5. Verify both Story Studio ingestion and Downloads when save behavior changes.
+5. Verify Story Studio ingestion when save behavior changes.
 6. Bump `manifest.json` for user-facing changes.
 7. Commit verified work and push it to the tracked GitHub branch unless the
    user explicitly asks to keep the changes local or separate the commit.

@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.13 — Story Studio KH only
+
+- Removed standalone prompts and the Downloads save path.
+- Image generation now requires a Story Studio KH project and saves back to its
+  episode.
+
 ## 0.47.12 — Workspace action
 
 - Standardized the right-aligned **Open workspace** button in the setup area.

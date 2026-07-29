@@ -22,15 +22,6 @@
 
     <div id="appliedSettings" class="applied-settings" aria-live="polite"></div>
 
-    <section class="work-mode" aria-label="Working mode">
-      <span class="mode-label">Mode</span>
-      <div class="segmented mode-switch" role="group" aria-label="Choose working mode">
-        <button type="button" class="seg" data-mode="studio">Story Studio</button>
-        <button type="button" class="seg" data-mode="standalone">Standalone</button>
-      </div>
-      <span id="modeDescription" class="mode-description"></span>
-    </section>
-
     <!-- The live queue stays first: it is the only part of the panel that needs
          attention while a batch is running. -->
     <section id="activeBatch" class="active-batch idle" aria-live="polite">
@@ -90,13 +81,10 @@
             <option value="thumbnail-image">Thumbnail images</option>
           </select>
         </label>
-        <label class="asset-setting">
+        <div class="asset-setting">
           <span class="mini">Save to</span>
-          <select id="saveTarget">
-            <option value="project">Story Studio folder</option>
-            <option value="download">Downloads</option>
-          </select>
-        </label>
+          <div class="fixed-destination">Story Studio KH</div>
+        </div>
       </div>
       <div class="row open-provider-row">
         <button id="openProviderPage" class="btn small workspace-open" title="Open this provider's generation workspace in a tab">↗ Open workspace</button>
@@ -485,26 +473,6 @@
         <button id="loadScenes" class="btn">Load scenes</button>
         <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending</button>
       </div>
-    </section>
-
-    <section class="card standalone-workflow hidden" id="standaloneWorkflow">
-      <div class="standalone-heading">
-        <div>
-          <div class="label">Standalone prompt</div>
-          <div class="muted small">Generate one image from locally pasted text.</div>
-        </div>
-        <span class="mode-badge">Downloads</span>
-      </div>
-      <label>
-        <span class="mini">Prompt</span>
-        <textarea id="standalonePrompt" rows="7" placeholder="Paste an image prompt…"></textarea>
-      </label>
-      <label>
-        <span class="mini">File label <span class="muted">(optional)</span></span>
-        <input id="standaloneLabel" type="text" maxlength="80" placeholder="e.g. market-at-dawn" />
-      </label>
-      <div class="standalone-save muted small">Saves to Downloads/StoryStudioImages/Standalone.</div>
-      <button id="queueStandalone" class="btn primary">Generate &amp; save</button>
     </section>
 
     <section class="card" id="scenesCard">

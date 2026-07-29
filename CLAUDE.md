@@ -2,7 +2,7 @@
 
 MV3 image-only extension: generates Story Studio KH scene images and thumbnails
 through supported image providers, including **Google Flow** and **Grok
-Imagine**, then saves them back into the episode or Downloads. Video generation
+Imagine**, then saves them back into the episode. Video generation
 lives in the sibling `../story-studio-video-generator` extension. Sibling to
 `story-studio-audio-generator` — same architecture (see parent `../CLAUDE.md`). Full
 writeup in `README.md`.
@@ -38,7 +38,6 @@ Fully API-driven from a logged-in `labs.google/fx` tab:
   `{ data_base64 }` → Story Studio writes `{sceneId}.png` into the **"05 Scene
   Images"** folder and updates `scene_plan.json`. No Story Studio code changes
   needed — that route already existed.
-- Alternative save target: Downloads (per-project/episode subfolder, scene-derived name).
 
 ## Running unattended (tab visibility)
 
@@ -60,7 +59,7 @@ web session — it can't be made fully headless.
 - `src/lib/flow-exec.js` — narrowly scoped Flow image operations, executed in
   the logged-in Flow tab.
 - `src/content/{grok,grok-main}.js` — Grok Imagine pair.
-- `src/lib/{naming,config,story-studio}.js` — shared with the sibling extension.
+- `src/lib/{config,story-studio}.js` — shared with the sibling extension.
 - `src/popup/` side panel, `src/options/` settings.
 
 ## Gotchas
