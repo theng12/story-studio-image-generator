@@ -1314,11 +1314,11 @@ function onProviderChange() {
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
   $('piclumenCard').classList.toggle('hidden', provider !== 'piclumen');
   $('chatgptCard').classList.toggle('hidden', provider !== 'chatgpt');
-  // "↗ Open provider" shortcut — hidden for tabless providers (no page).
+  // Workspace shortcut — hidden for providers with no browser workspace.
   const openBtn = $('openProviderPage');
   const hasPage = provider !== 'pollinations';
   openBtn.classList.toggle('hidden', !hasPage);
-  openBtn.textContent = `↗ Open ${PROVIDER_LABEL[provider] || provider}`;
+  openBtn.textContent = '↗ Open workspace';
   $('providerOptionsTitle').textContent = 'Provider settings';
   $('providerOptionsHint').textContent = provider === 'flow'
     ? 'Model · ratio · reference'

@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.12 — Workspace action
+
+- Standardized the right-aligned **Open workspace** button in the setup area.
+
 ## 0.47.11 — Working modes
 
 - Added an explicit Story Studio / Standalone mode switch, defaulting to the
