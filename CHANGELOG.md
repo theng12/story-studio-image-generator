@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.47.23 — Standalone batch review
+
+- Reworked standalone prompt entry into a full-width paste surface.
+- Split non-empty prompt lines into reviewable image tasks before queue approval.
+
 ## 0.47.22 — Standalone mode
 
 - Restored local-prompt generation with completed images saved to Downloads.

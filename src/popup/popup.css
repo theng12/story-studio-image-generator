@@ -760,3 +760,56 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
 }
 #studioWorkflow .connection-status:empty { display: none; }
 #studioWorkflow .studio-connection-actions { margin-left: auto; }
+
+/* Standalone batch authoring is a two-step surface: paste, review, approve. */
+.standalone-workflow { gap: 0; }
+.standalone-editor { display: grid; gap: 12px; }
+.standalone-field { display: grid; gap: 5px; min-width: 0; }
+.standalone-field .label { margin: 0; }
+.standalone-field textarea,
+.standalone-field input {
+  width: 100%;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  background: var(--input-bg);
+  font: inherit;
+}
+.standalone-field textarea {
+  min-height: 168px;
+  padding: 10px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.standalone-field input { min-height: var(--control-height); padding: 8px 10px; }
+.standalone-hint { font-size: 12px; line-height: 1.45; }
+.standalone-editor .primary,
+.standalone-review-actions .primary { min-height: var(--primary-height); }
+.standalone-review { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.standalone-review-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--control-height);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.standalone-review-list { max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.standalone-review-list li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.standalone-review-list li:last-child { border-bottom: 0; }
+.standalone-review-index { color: var(--muted); font-variant-numeric: tabular-nums; }
+.standalone-review-prompt { overflow-wrap: anywhere; }
+.standalone-review-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px; padding: 12px; border-top: 1px solid var(--divider); }

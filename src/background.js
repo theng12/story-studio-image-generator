@@ -1016,9 +1016,12 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   return enqueue(items);
 }
 
-async function enqueueStandalone({ prompt, label, provider }) {
-  const text = String(prompt || '').trim();
-  if (!text) throw new Error('Add an image prompt first.');
+async function enqueueStandalone({ prompts, prompt, label, provider }) {
+  const texts = (Array.isArray(prompts) ? prompts : [prompt])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!texts.length) throw new Error('Add at least one image prompt first.');
+  if (texts.length > 100) throw new Error('Queue up to 100 standalone prompts at a time.');
   const settings = await getSettings();
   const prov = provider || settings.provider || 'flow';
   const safeLabel = String(label || 'image')
@@ -1027,29 +1030,33 @@ async function enqueueStandalone({ prompt, label, provider }) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'image';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const sceneKey = `standalone_${stamp}_${safeLabel}`;
-  return enqueue([mkItem({
-    source: 'standalone',
-    kind: 'scene',
-    key: sceneKey,
-    sceneKey,
-    slug: 'standalone',
-    episodeCode: 'Standalone',
-    episodeTitle: '',
-    prompt: text,
-    provider: prov,
-    target: 'download',
-    projectId: normalizeFlowProjectId(settings.flowProjectId),
-    model: settings.imageModel,
-    aspectRatio:
-      prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
-        : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
-          : prov === 'chatgpt' ? settings.chatgptAspectRatio || '16:9'
-            : settings.aspectRatio,
-    label: `Standalone — ${safeLabel}`,
-    project: 'Standalone',
-    downloadPath: `StoryStudioImages/Standalone/${stamp}_${safeLabel}.png`,
-  })]);
+  const items = texts.map((text, index) => {
+    const sequence = String(index + 1).padStart(2, '0');
+    const sceneKey = `standalone_${stamp}_${sequence}_${safeLabel}`;
+    return mkItem({
+      source: 'standalone',
+      kind: 'scene',
+      key: sceneKey,
+      sceneKey,
+      slug: 'standalone',
+      episodeCode: 'Standalone',
+      episodeTitle: '',
+      prompt: text,
+      provider: prov,
+      target: 'download',
+      projectId: normalizeFlowProjectId(settings.flowProjectId),
+      model: settings.imageModel,
+      aspectRatio:
+        prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
+          : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
+            : prov === 'chatgpt' ? settings.chatgptAspectRatio || '16:9'
+              : settings.aspectRatio,
+      label: `Standalone ${sequence}/${texts.length} — ${safeLabel}`,
+      project: 'Standalone',
+      downloadPath: `StoryStudioImages/Standalone/${stamp}_${sequence}_${safeLabel}.png`,
+    });
+  });
+  return enqueue(items);
 }
 
 async function processQueue() {
