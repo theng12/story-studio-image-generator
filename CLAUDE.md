@@ -1,4 +1,4 @@
-# Story Studio Bulk Asset (`story-studio-bulk-asset`)
+# Story Studio Image Generator (`story-studio-bulk-asset`)
 
 MV3 image-only extension: generates Story Studio KH scene images and thumbnails
 through supported image providers, including **Google Flow** and **Grok

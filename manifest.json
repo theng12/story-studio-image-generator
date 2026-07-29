@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Story Studio Bulk Asset",
-  "version": "0.47.0",
+  "name": "Story Studio Image Generator",
+  "version": "0.47.1",
   "description": "Generate Story Studio KH scene and thumbnail images through Google Flow, Google AI Studio, Qwen, Grok, Perchance, FreeGen, Leonardo, Pollinations, PicLumen, and ChatGPT, then save each image with the correct name.",
   "permissions": [
     "downloads",
@@ -45,7 +45,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Story Studio Bulk Asset (click to open side panel)"
+    "default_title": "Story Studio Image Generator (click to open side panel)"
   },
   "side_panel": {
     "default_path": "src/popup/popup.html"

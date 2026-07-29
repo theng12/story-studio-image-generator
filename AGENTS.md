@@ -1,4 +1,4 @@
-# Story Studio Bulk Asset extension
+# Story Studio Image Generator extension
 
 This file supplements the monorepo-level `../AGENTS.md`. Follow both when
 working in this extension.
@@ -19,7 +19,7 @@ Supported providers:
 - Leonardo AI: image only; drives the logged-in website and spends web tokens.
 
 Video generation belongs in the sibling `story-studio-video-generator`
-extension. Do not add Veo, clip, or video queue paths back to Bulk Asset.
+extension. Do not add Veo, clip, or video queue paths back to Image Generator.
 
 ## Architecture
 

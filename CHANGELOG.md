@@ -1,6 +1,9 @@
-# What's new — Story Studio Bulk Asset
+# What's new — Story Studio Image Generator
 
 Most recent first. Reload the extension (`chrome://extensions` → Reload) to pick up a new version.
+
+## 0.47.1 — Story Studio Image Generator
+- Renamed from **Story Studio Bulk Asset** to **Story Studio Image Generator**. The extension remains image-only; its repository and existing installed-extension identity stay the same.
 
 ## 0.47.0 — Image-only product split and security cleanup
 - Bulk Asset is now image-only. Flow/Veo video UI, settings, queue lifecycle, adapter commands, and Story Studio clip APIs moved to the sibling Story Studio Video Generator extension.

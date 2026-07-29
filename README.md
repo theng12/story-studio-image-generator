@@ -1,4 +1,4 @@
-# Story Studio Bulk Asset
+# Story Studio Image Generator
 
 Image-only Manifest V3 extension for Story Studio KH. It reads scene and
 thumbnail prompts, generates images sequentially through the selected provider,

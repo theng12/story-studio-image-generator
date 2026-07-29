@@ -460,7 +460,7 @@ async function pollinationsGenerate(item, settings) {
     width: String(width),
     height: String(height),
     nologo: 'true',
-    referrer: 'story-studio-bulk-asset',
+    referrer: 'story-studio-image-generator',
   });
   const seed = String(settings.pollinationsSeed || '').trim();
   if (seed) params.set('seed', seed);
