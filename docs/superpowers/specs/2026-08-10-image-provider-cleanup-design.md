@@ -59,6 +59,37 @@ The other four providers use only the settings they need:
 No dependency, generic plugin loader, runtime manifest generator, or remote provider
 configuration is introduced.
 
+## Story Studio Reference Assets
+
+Replace the single-character/single-file queue input with an automatic reference
+resolver backed by Story Studio's existing APIs:
+
+- `GET /api/projects/:slug/continuity/:episodeId` for reference-source choices and
+  anchor character IDs;
+- `GET /api/projects/:slug/episodes/:episodeId/img2img-references` for master,
+  thumbnail, style, composition, and per-scene assets;
+- `GET /api/projects/:slug/characters` for every registered character image;
+- the existing character and episode reference file routes for raw image bytes.
+
+When **Use Story Studio references** is enabled, resolve an ordered, de-duplicated
+list for each queued asset: thumbnail reference for thumbnails; then episode master,
+the matching scene reference, matching/anchor character images, composition, and
+style for scenes. Respect saved continuity toggles when present. Missing optional
+assets are skipped; an asset advertised by Story Studio but failing to download is an
+actionable generation failure rather than a silent text-only fallback.
+
+Provider capabilities declare a tested maximum reference count. The resolver truncates
+to that count before provider submission and records the selected asset labels in the
+queue item for status/error reporting. Flow, AI Studio, and ChatGPT accept bounded
+multi-reference arrays. Qwen remains capped at one until its composer is verified with
+multiple attachments. Leonardo keeps its provider-page reference because its current
+adapter can detect but cannot safely upload Story Studio files.
+
+Reference bytes are fetched lazily by the worker and cached by stable Story Studio URL.
+Queue items store descriptors, never base64 payloads, so persistent queue storage stays
+small. Existing single `characterRef` queue items remain readable and are normalized
+into a one-element descriptor list during queue migration.
+
 ## Model Discovery
 
 Model behavior is explicit per provider:
@@ -79,7 +110,8 @@ Manifest V3 host permissions and content scripts are static.
 
 Queue persistence, sequential processing, deduplication, pacing, cooldown behavior,
 Fleet Hub reporting, Story Studio ingestion, standalone downloads, and character
-reference behavior remain unchanged for maintained providers.
+reference behavior remain unchanged for maintained providers except for the explicit
+multi-reference expansion above.
 
 Settings normalization removes obsolete provider defaults and cooldown entries while
 preserving all maintained settings. Existing stored selections for a removed provider
@@ -99,6 +131,11 @@ capabilities, so unsupported settings are absent rather than hidden through repe
 provider-specific checks. Leonardo's custom sync panel remains visible only for
 Leonardo.
 
+The prior character dropdown becomes one **Use Story Studio references** checkbox and
+a concise resolved-source summary. Story Studio remains the source of truth for which
+characters and episode reference assets exist; the extension does not duplicate an
+asset manager.
+
 The visual layout and established Story Studio styling remain unchanged. This is a
 behavioral and maintenance cleanup, not a redesign.
 
@@ -112,6 +149,10 @@ Add dependency-free tests using Node's built-in test runner for:
 - preservation of maintained provider settings;
 - explicit, idempotent rejection of pending and interrupted removed-provider items;
 - preservation of completed and existing failed queue history;
+- deterministic reference ordering, de-duplication, provider caps, and legacy
+  `characterRef` normalization;
+- Story Studio continuity/reference response normalization;
+- multi-reference attachment behavior for Flow, AI Studio, and ChatGPT;
 - manifest absence of removed hosts and content scripts;
 - manifest presence of every required maintained provider script.
 
