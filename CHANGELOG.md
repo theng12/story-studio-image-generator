@@ -3,6 +3,19 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.49.0 - Simplified providers and Story Studio references
+
+- Reduced the maintained catalog to Google Flow, Google AI Studio, Qwen Studio,
+  Leonardo AI, and ChatGPT; retired-provider jobs now fail safely instead of
+  retrying on an unsupported adapter.
+- Centralized provider capabilities and reference limits in the provider
+  registry.
+- Added Story Studio multi-reference ingestion with per-provider caps: Flow,
+  AI Studio, and ChatGPT accept up to four references; Qwen accepts one;
+  Leonardo remains manually managed in its provider tab.
+- Replaced the character picker with the single **Use Story Studio references**
+  setting.
+
 ## 0.47.24 — Mode control consistency
 
 - Replaced Image Generator's segmented mode switch with the shared Story Studio / Standalone dropdown.

@@ -120,7 +120,7 @@
           <span id="leoRefState" class="muted small grow">—</span>
         </div>
         <div class="hint" id="leoRefHint">
-          Attach a reference in your Leonardo tab (under the prompt → “Add reference to generation”). It applies to every scene until you remove it. Models without reference support ignore it.
+          Story Studio auto-ingest is unavailable for Leonardo. Attach references in your Leonardo tab (under the prompt → “Add reference to generation”); they apply until removed. Models without reference support ignore them.
         </div>
         <div id="leoStatus" class="muted small"></div>
       </div>
@@ -170,7 +170,7 @@
           Open <b>aistudio.google.com</b> in <b>image mode</b> (pick an image model, e.g. Nano Banana 2 Lite) and keep that tab visible. The extension sends “Create a &lt;ratio&gt; image of …”, runs it, and reads the result; ratio is best-effort via the prompt. Uses your <b>free daily image quota</b>; when it's exhausted the queue pauses until you press Resume after the reset.
         </div>
         <div class="hint">
-          Character reference (img2img) is supported: pick a character below and its sheet is pasted into AI Studio before each character scene.
+          Story Studio references are pasted into AI Studio before each image (up to 4), then checked before generation.
         </div>
       </div>
       <div id="chatgptCard" class="leo hidden">
@@ -192,7 +192,7 @@
           </label>
         </div>
         <div class="hint">
-          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b> (a hidden/minimized tab gets its timers throttled and generation crawls). Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> (a full page load) — ChatGPT stalls if a 2nd image is requested in the same page session, and a fresh load is what clears it. The wait is <b>progress-aware</b>: it keeps waiting while ChatGPT is actively generating and only gives up if it goes quiet with no image; <b>Max wait</b> is the hard ceiling for a slow-but-working image. Character reference (img2img) is supported — pick a character below and its sheet is pasted into the composer before each character scene. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
+          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b> (a hidden/minimized tab gets its timers throttled and generation crawls). Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> (a full page load) — ChatGPT stalls if a 2nd image is requested in the same page session, and a fresh load is what clears it. The wait is <b>progress-aware</b>: it keeps waiting while ChatGPT is actively generating and only gives up if it goes quiet with no image; <b>Max wait</b> is the hard ceiling for a slow-but-working image. Story Studio can paste up to 4 references into the composer before each image. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
         </div>
       </div>
       <div id="qwenCard" class="leo hidden">
@@ -213,22 +213,14 @@
           Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen limits ~30 images per window; how a quota hit is handled (pause vs. auto-resume) is set in the <b>Provider cooldown</b> card above.
         </div>
         <div class="hint">
-          Character reference (img2img) is supported: pick a character above and its sheet is dropped into the composer before each character scene. Qwen consumes it per generation, so it re-attaches every time.
+          Story Studio can attach one reference before each image. Qwen consumes it per generation, so it re-attaches every time.
         </div>
       </div>
       <div id="charRefCard" class="leo hidden">
-        <label class="checkbox small charref-toggle">
-          <input type="checkbox" id="charRefEnabled" /> <span>Use character reference this run</span>
+        <label class="checkbox small charref-toggle" for="storyStudioReferencesEnabled">
+          <input type="checkbox" id="storyStudioReferencesEnabled" /> <span>Use Story Studio references</span>
         </label>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Character reference (character scenes only)</span>
-            <select id="flowCharacterRef">
-              <option value="">None</option>
-            </select>
-          </label>
-        </div>
-        <div class="hint" id="charRefHint"></div>
+        <div class="hint" id="storyStudioReferencesHint"></div>
       </div>
       </details>
     </section>

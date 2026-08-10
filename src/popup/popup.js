@@ -252,8 +252,7 @@ async function init() {
   client = new StudioClient(settings.studioBaseUrl);
   populateProviderSelect(settings.provider || 'flow');
   $('includeExisting').checked = !!settings.includeExisting;
-  $('charRefEnabled').checked = settings.characterRefEnabled !== false;
-  $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
+  $('storyStudioReferencesEnabled').checked = settings.storyStudioReferencesEnabled !== false;
   setEpisodeFilterUI(settings.episodeFilter || 'todo');
   const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorStudioConnection']);
   settingsSource = localState.settingsSource || {};
@@ -373,10 +372,9 @@ function wire() {
     settings = await saveSettings({ flowRecaptchaMaxAttempts: $('flowRecaptchaMaxAttempts').value });
     $('flowRecaptchaMaxAttempts').value = settings.flowRecaptchaMaxAttempts;
   };
-  $('flowCharacterRef').onchange = async () => (settings = await saveSettings({ characterRefId: $('flowCharacterRef').value }));
-  $('charRefEnabled').onchange = async () => {
-    settings = await saveSettings({ characterRefEnabled: $('charRefEnabled').checked });
-    $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
+  $('storyStudioReferencesEnabled').onchange = async () => {
+    settings = await saveSettings({ storyStudioReferencesEnabled: $('storyStudioReferencesEnabled').checked });
+    flashSaved();
   };
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
@@ -795,7 +793,6 @@ async function queueAllPending() {
             kind: 'scene',
             target,
             provider,
-            characterRef: getCharacterRef(),
           },
         });
         if (res?.ok) {
@@ -840,49 +837,9 @@ async function onProjectChange() {
     applyEpisodeFilter();
     if (settings.lastEpisode && [...esel.options].some((o) => o.value === settings.lastEpisode)) esel.value = settings.lastEpisode;
     fetchEpisodeCounts(slug, allEpisodes.map((e) => e.code));
-    loadCharacters(slug);
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
-}
-
-// Populate the Flow "Character reference" dropdown from the project's characters
-// (only those that actually have a reference image). Selection persists.
-async function loadCharacters(slug) {
-  const sel = $('flowCharacterRef');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">None</option>';
-  if (!slug) return;
-  try {
-    const data = await client.listCharacters(slug);
-    const list = Array.isArray(data) ? data : data.characters || [];
-    for (const c of list) {
-      const imgs = (c.references && c.references.images) || c.reference_images || [];
-      const first = imgs[0];
-      const filename = typeof first === 'string' ? first : first?.filename || first?.name;
-      if (!filename) continue; // skip characters with no reference sheet
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.dataset.filename = filename;
-      opt.textContent = c.name || c.id;
-      sel.appendChild(opt);
-    }
-    if (settings.characterRefId && [...sel.options].some((o) => o.value === settings.characterRefId)) {
-      sel.value = settings.characterRefId;
-    }
-  } catch {
-    /* characters are optional — leave "None" */
-  }
-}
-
-// The current character reference selection → { characterId, filename } or null.
-function getCharacterRef() {
-  if (!$('charRefEnabled')?.checked) return null; // per-run off toggle
-  const sel = $('flowCharacterRef');
-  if (!sel || !sel.value) return null;
-  const opt = sel.selectedOptions[0];
-  const filename = opt?.dataset.filename;
-  return filename ? { characterId: sel.value, filename } : null;
 }
 
 // ── scenes ──────────────────────────────────────────────────────────────────
@@ -1343,17 +1300,13 @@ function onProviderChange() {
     : provider === 'leonardo'
       ? 'Model · style · reference'
       : 'Generation preferences';
-  const wantsChar = provider === 'flow' || provider === 'qwen' || provider === 'chatgpt' || provider === 'aistudio';
-  $('charRefCard').classList.toggle('hidden', !wantsChar);
-  if (wantsChar)
-    $('charRefHint').textContent =
-      provider === 'qwen'
-        ? 'Uploaded to Qwen as an img2img reference before each character scene — Qwen consumes it per generation, so it re-uploads every time.'
-        : provider === 'chatgpt'
-          ? 'Pasted into the ChatGPT composer as a reference before each character scene — re-attached every time.'
-          : provider === 'aistudio'
-            ? 'Pasted into AI Studio as an img2img reference before each character scene — re-attached every time.'
-          : 'Uploaded to Flow once and applied as a reference on character scenes.';
+  const referenceCapability = getProvider(provider)?.capabilities;
+  const canUseStoryStudioReferences = !!referenceCapability?.storyStudioReferences;
+  $('charRefCard').classList.remove('hidden');
+  $('storyStudioReferencesEnabled').disabled = !canUseStoryStudioReferences;
+  $('storyStudioReferencesHint').textContent = canUseStoryStudioReferences
+    ? `Uses Story Studio episode, scene, character, composition, and style assets when available (up to ${referenceCapability.maxReferences} per image).`
+    : 'Story Studio auto-ingest is unavailable for Leonardo. Manage references directly in its generator tab.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
   if (provider === 'qwen') qwenPopulate();
@@ -1476,7 +1429,6 @@ async function doEnqueue(scenes, target, provider, kind) {
         kind,
         target,
         provider,
-        characterRef: getCharacterRef(),
       },
     });
     if (!res?.ok) throw new Error(res?.error || 'enqueue failed');

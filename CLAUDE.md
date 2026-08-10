@@ -1,9 +1,9 @@
 # Story Studio Image Generator (`story-studio-image-generator`)
 
 MV3 image-only extension: generates Story Studio KH scene images and thumbnails
-through supported image providers, including **Google Flow** and **Grok
-Imagine**, then saves them back into the episode. Video generation
-lives in the sibling `../story-studio-video-generator` extension. Sibling to
+through Google Flow, Google AI Studio, Qwen Studio, Leonardo AI, and ChatGPT,
+then saves them back into the episode. Video generation lives in the sibling
+`../story-studio-video-generator` extension. Sibling to
 `story-studio-audio-generator` — same architecture (see parent `../CLAUDE.md`). Full
 writeup in `README.md`.
 
@@ -58,7 +58,11 @@ web session — it can't be made fully headless.
 - `src/background.js` — the resumable queue (chrome.storage + chrome.alarms, dedupe).
 - `src/lib/flow-exec.js` — narrowly scoped Flow image operations, executed in
   the logged-in Flow tab.
-- `src/content/{grok,grok-main}.js` — Grok Imagine pair.
+- `src/lib/providers.js` — maintained provider registry and capability limits.
+- `src/lib/reference-assets.js` — lazy Story Studio reference descriptors.
+- `src/content/{aistudio,qwen,leonardo,chatgpt}-main.js` — web-provider UI
+  adapters; AI Studio and ChatGPT verify bounded multi-reference attachments,
+  Qwen retains one-reference safety, and Leonardo references stay page-managed.
 - `src/lib/{config,story-studio}.js` — shared with the sibling extension.
 - `src/popup/` side panel, `src/options/` settings.
 

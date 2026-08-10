@@ -102,3 +102,10 @@ export function normalizeSelectedProvider(id) {
 export function getProvider(id) {
   return PROVIDERS.find((provider) => provider.id === id);
 }
+
+// Keep provider limits at the worker boundary: no adapter should receive, or
+// trigger downloads for, more Story Studio references than it can handle.
+export function limitProviderReferences(id, references) {
+  const maxReferences = getProvider(id)?.capabilities?.maxReferences || 0;
+  return Array.isArray(references) ? references.slice(0, maxReferences) : [];
+}

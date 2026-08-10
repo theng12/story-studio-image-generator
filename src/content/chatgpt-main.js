@@ -279,10 +279,8 @@
     }
   }
 
-  async function attachReference(ref) {
+  async function attachReference(ref, expectedCount) {
     if (!ref || !ref.base64) return;
-    await clearReferences(); // never let attachments stack across scenes
-    await sleep(300);
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -299,7 +297,7 @@
     const waitForChip = async (ms) => {
       const t0 = Date.now();
       while (Date.now() - t0 < ms) {
-        if (refChips().length) return true;
+        if (refChips().length >= expectedCount) return true;
         await sleep(300);
       }
       return false;
@@ -310,16 +308,23 @@
     pasteFile();
     let attached = await waitForChip(25000);
     if (!attached) {
-      await clearReferences();
       await sleep(500);
       pasteFile();
       attached = await waitForChip(25000);
     }
-    if (!attached) throw new Error('ChatGPT did not accept the reference image (attachment never appeared).');
-    await sleep(1200); // let the upload finish + any stray second chip appear
-    for (let guard = 0; guard < 8 && refChips().length > 1; guard++) {
-      refChips()[refChips().length - 1].click();
-      await sleep(350);
+    if (!attached) throw new Error('ChatGPT did not accept a Story Studio reference image (attachment never appeared).');
+    await sleep(1200);
+  }
+
+  async function attachReferences(references) {
+    const valid = Array.isArray(references) ? references.filter((reference) => reference?.base64) : [];
+    await clearReferences();
+    if (refChips().length) throw new Error('ChatGPT could not clear previous attachments. Remove them in the tab, then retry.');
+    for (const reference of valid) {
+      await attachReference(reference, refChips().length + 1);
+    }
+    if (refChips().length !== valid.length) {
+      throw new Error(`ChatGPT attachment count mismatch: expected ${valid.length}, found ${refChips().length}.`);
     }
   }
 
@@ -342,11 +347,14 @@
     let el = composer();
     if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com, sign in, and wait for the prompt box.');
 
-    // Character reference (img2img): attach the sheet BEFORE typing so ChatGPT
-    // uses it. When present, phrase the instruction to key off the attachment.
-    if (params.reference) {
-      postProgress('uploading reference');
-      await attachReference(params.reference);
+    // Attach Story Studio references before typing so the generated image can
+    // use the bounded reference set for visual continuity.
+    const references = Array.isArray(params.references) ? params.references : [];
+    if (references.length) {
+      postProgress('uploading references');
+    }
+    await attachReferences(references);
+    if (references.length) {
       await sleep(800);
       el = composer() || el; // the composer node can be replaced after an attach
     }
@@ -357,9 +365,8 @@
     const base = /^(generate|create|make|draw|render|design)\b/i.test(prompt)
       ? `${prompt} (as a ${phrase} image)`
       : `Create a ${phrase} image of ${prompt}`;
-    // The attached image is the character to keep consistent — say so explicitly.
-    const instruction = params.reference
-      ? `Using the attached image as the reference for the main character (keep the same character design), ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+    const instruction = references.length
+      ? `Use the attached Story Studio reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
       : base;
 
     const beforeImages = new Set(assistantImageSrcs());

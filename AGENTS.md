@@ -12,11 +12,10 @@ episode with canonical filenames.
 Supported providers:
 
 - Google Flow: image only; uses the logged-in Flow web session.
+- Google AI Studio: image only; drives the signed-in image-mode UI.
 - Qwen Studio: image only; drives the signed-in conversational image workflow.
-- Grok Imagine: image only; capture-and-replay adapter.
-- Perchance: image only; drives the visible generator controls.
-- FreeGen: image only; drives the visible generator controls.
 - Leonardo AI: image only; drives the logged-in website and spends web tokens.
+- ChatGPT: image only; drives the signed-in conversational image workflow.
 
 Video generation belongs in the sibling `story-studio-video-generator`
 extension. Do not add Veo, clip, or video queue paths back to Image Generator.
@@ -29,18 +28,20 @@ extension. Do not add Veo, clip, or video queue paths back to Image Generator.
 - `src/popup/`: side-panel project/episode selection and queue controls.
 - `src/options/`: Story Studio, image-provider, and model settings.
 - `src/lib/config.js`: settings defaults and storage boundary.
+- `src/lib/providers.js`: maintained provider registry and capabilities.
+- `src/lib/reference-assets.js`: Story Studio reference normalization and
+  descriptor resolution.
 - `src/lib/story-studio.js`: Story Studio REST client.
 - `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands.
-- `src/content/grok-main.js` + `grok.js`: Grok MAIN/isolated-world pair.
+- `src/content/aistudio-main.js` + `aistudio.js`: AI Studio conversational
+  image pair using prompt, attachment, run, and output contracts.
 - `src/content/qwen-main.js` + `qwen.js`: Qwen Studio conversational image
   pair using the prompt, send, assistant-response, and qwen-image contracts.
-- `src/content/perchance-main.js` + `perchance.js`: Perchance generator-frame
-  pair with explicit style, shape, and quantity controls.
-- `src/content/freegen-main.js` + `freegen.js`: FreeGen-specific visible-UI
-  pair using its stable prompt, aspect-ratio, result, and error contracts.
 - `src/content/leonardo-main.js` + `leonardo.js`: Leonardo-specific visible-UI
   pair with explicit model, style, mode, ratio, size, and background-safe
   MutationObserver result-card handling.
+- `src/content/chatgpt-main.js` + `chatgpt.js`: ChatGPT conversational image
+  pair using a fresh chat, verified attachments, and output contracts.
 
 MAIN-world scripts may access page JavaScript, auth state, and controls. Their
 isolated-world partner is the only layer that talks to `chrome.runtime`. Keep
@@ -80,8 +81,16 @@ For visible-UI adapters:
 - Keep selectors specific where verified and provide careful semantic fallbacks.
 - Treat quota signals as a pause, not a failed batch.
 
-Grok uses capture-and-replay because its requests are signed. Never persist
-captured request headers; session-bound headers stay in page memory only.
+Story Studio references are descriptor-only queue data. Bound reference bytes
+before adapters receive them: Flow, AI Studio, and ChatGPT support at most four;
+Qwen supports one; Leonardo is provider-page-managed and never auto-ingests
+Story Studio references. AI Studio and ChatGPT must clear old attachments, paste
+each bounded reference sequentially, and verify the final count. Qwen must keep
+its one-chip safety check.
+
+The provider registry is released with the extension; new providers need a code
+and manifest update. Leonardo model discovery is intentionally live from the
+signed-in page, so its newly available models appear after a model refresh.
 
 ## Story Studio contract
 
@@ -92,6 +101,11 @@ runtime-granted host permission.
 Do not casually change filenames or ingest routes. Story Studio depends on the
 scene and thumbnail naming scheme. Keep generated credentials, request
 templates, and API keys in local Chrome storage only.
+
+When references are enabled, resolve Story Studio's episode, matching scene,
+character, composition, and style assets into bounded descriptors at enqueue,
+then fetch bytes lazily in the worker. Do not store base64 payloads in queue
+storage.
 
 ## Development and verification
 
