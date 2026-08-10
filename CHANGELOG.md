@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.49.3 - Aggregate episode image progress
+
+- Replaced one Scene Review request per episode with Story Studio's aggregate
+  planned-image progress from the `/episodes` response.
+- Episode filtering, progress labels, and Queue all pending now use the same
+  completion rule: every planned image exists, independent of review approval.
+
 ## 0.49.2 - Scene Plan safety
 
 - Prevented project scene jobs without stable Scene Plan IDs from reaching an
