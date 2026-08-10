@@ -16,11 +16,11 @@ test('exposes the maintained providers in the required order', () => {
   assert.equal(PROVIDERS.length, PROVIDER_IDS.length);
 });
 
-test('falls back to Flow for unknown or retired provider selections', () => {
+test('normalizes stored selections to Flow but rejects invalid registry lookups', () => {
   assert.equal(normalizeSelectedProvider('grok'), 'flow');
   assert.equal(normalizeSelectedProvider('not-a-provider'), 'flow');
-  assert.equal(getProvider('grok').id, 'flow');
-  assert.equal(getProvider('not-a-provider').id, 'flow');
+  assert.equal(getProvider('grok'), undefined);
+  assert.equal(getProvider('not-a-provider'), undefined);
   assert.equal(isMaintainedProvider('flow'), true);
   assert.equal(isMaintainedProvider('grok'), false);
 });

@@ -164,6 +164,7 @@ function normalizeProviderCooldowns(settings) {
 }
 
 export function normalizeSettings(settings) {
+  settings = { ...settings };
   settings.provider = normalizeSelectedProvider(settings.provider);
   if (settings.characterRefEnabled === false) settings.storyStudioReferencesEnabled = false;
   else if (settings.storyStudioReferencesEnabled !== false) settings.storyStudioReferencesEnabled = true;
@@ -215,6 +216,10 @@ export async function getSettings() {
   ]);
   const storedSettings = { ...(synced[STORAGE_KEY] || {}) };
   const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
+  if (Object.hasOwn(secrets, 'pollinationsToken')) {
+    delete secrets.pollinationsToken;
+    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
+  }
   delete storedSettings.fleetSharedSecret;
   const next = normalizeSettings({ ...DEFAULTS, ...storedSettings });
   const syncNext = { ...next };
