@@ -812,8 +812,8 @@ async function onProjectChange() {
       opt.textContent = `${e.code}${e.title ? ' — ' + e.title : ''} · ${e.present}/${e.total}${e.done ? ' ✓' : ''}`;
       esel.appendChild(opt);
     }
-    applyEpisodeFilter();
     if (settings.lastEpisode && allEpisodes.some((e) => e.code === settings.lastEpisode)) esel.value = settings.lastEpisode;
+    applyEpisodeFilter();
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }

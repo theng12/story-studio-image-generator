@@ -176,6 +176,10 @@ test('episode loading uses Story Studio aggregate scene progress instead of reco
   assert.doesNotMatch(projectChange, /client\.sceneReview/);
   assert.doesNotMatch(projectChange, /fetchEpisodeCounts|episodeCountRun/);
   assert.equal((projectChange.match(/applyEpisodeFilter\(\)/g) || []).length, 1);
+  assert.ok(
+    projectChange.indexOf('settings.lastEpisode') < projectChange.indexOf('applyEpisodeFilter()'),
+    'the active filter must validate the restored episode selection',
+  );
   assert.doesNotMatch(popup, /async function fetchEpisodeCounts|episodeCountRun|allEpisodes\.find|setTimeout\(r, 120\)/);
 });
 
