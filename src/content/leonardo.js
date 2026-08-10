@@ -23,7 +23,12 @@ if (!globalThis.__STORY_STUDIO_LEONARDO_BRIDGE__) {
     callAdapter(op, message.params || {})
       .then((result) => sendResponse({ ok: true, ...result, result }))
       .catch((error) =>
-        sendResponse({ ok: false, error: String(error.message || error), limit: !!error.limit })
+        sendResponse({
+          ok: false,
+          error: String(error.message || error),
+          limit: !!error.limit,
+          submitted: error.submitted === true ? true : error.submitted === false ? false : null,
+        })
       );
     return true;
   });

@@ -16,6 +16,12 @@ import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
 import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
+import {
+  ambiguousLeonardoQueueItem,
+  isAmbiguousLeonardoFailure,
+  isKnownPreSubmitLimit,
+  providerLabelForItem,
+} from './lib/failure-policy.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
@@ -342,6 +348,7 @@ async function send(tabId, message) {
       if (!res || !res.ok)
         throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), {
           limit: !!res?.limit,
+          submitted: res?.submitted,
         });
       return res;
     } catch (error) {
@@ -648,7 +655,7 @@ function isFlowRecaptchaFailure(error, item) {
 function diagnoseFailure(error, item = {}) {
   const raw = String(error?.message || error || 'Unknown error');
   const text = raw.toLowerCase();
-  const provider = PROVIDER_NAME[item.provider] || 'Flow';
+  const provider = providerLabelForItem(item);
   const match = (pattern) => pattern.test(text);
 
   if (error?.code === 'provider-removed' || match(/provider (?:was )?removed|provider is not supported/))
@@ -1134,13 +1141,13 @@ async function processQueue() {
         }
       } catch (e) {
         const cd = providerCooldown(settings, provider);
-        // A provider limit (or Flow giving up on reCAPTCHA) doesn't fail the
-        // batch: re-pend the item. With this provider's auto-resume on, schedule
+        // A known pre-submit provider limit (or Flow giving up on reCAPTCHA)
+        // doesn't fail the batch: re-pend the item. With auto-resume on, schedule
         // a per-provider cooldown — the provider's own stated wait when it gives
         // one (Qwen), else the configured minutes — and let the queue resume
         // itself, re-arming if it's still limited. With auto-resume off, hard-
         // pause until the user presses Resume (the prior default behavior).
-        if ((e && e.limit) || isFlowRecaptchaFailure(e, item)) {
+        if (isKnownPreSubmitLimit(provider, e) || isFlowRecaptchaFailure(e, item)) {
           q = await getQueue();
           const it = q.find((i) => i.id === item.id);
           if (it) {
@@ -1173,6 +1180,17 @@ async function processQueue() {
             alarmClear();
           }
           return;
+        }
+        if (isAmbiguousLeonardoFailure(provider, providerAttempted, e)) {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) Object.assign(it, ambiguousLeonardoQueueItem(it, e));
+          await setQueue(q);
+          await writeStatus(
+            'Leonardo AI submission outcome is unknown — inspect the Leonardo tab before manually retrying.',
+            'err'
+          );
+          continue;
         }
         // A page reload is a transport interruption, not a generation result.
         // Put safe/resumable work back at the front and let the alarm wake it

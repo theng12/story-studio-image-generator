@@ -41,8 +41,34 @@ test('preserves legacy provider-less items and is idempotent', () => {
   assert.deepEqual(twice, once);
 });
 
+test('defaults only an absent legacy provider and fails every explicit invalid provider idempotently', () => {
+  const queue = [
+    { id: 'legacy', status: 'pending' },
+    { id: 'empty', provider: '', status: 'pending' },
+    { id: 'null', provider: null, status: 'running', startedAt: NOW - 500 },
+    { id: 'false', provider: false, status: 'pending' },
+    { id: 'unknown', provider: 'not-installed', status: 'pending' },
+  ];
+
+  const once = migrateQueue(queue, NOW);
+  const twice = migrateQueue(once, NOW + 1);
+
+  assert.deepEqual(once[0], queue[0]);
+  for (const item of once.slice(1)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'provider-removed');
+    assert.equal(item.fleetRetrySafe, false);
+    assert.equal(canRetryItem(item), false);
+  }
+  assert.deepEqual(twice, once);
+});
+
 test('rejects local retries for removed or unknown provider queue items', () => {
   assert.equal(canRetryItem({ provider: 'flow', status: 'failed' }), true);
+  assert.equal(canRetryItem({ status: 'failed' }), true);
+  assert.equal(canRetryItem({ provider: '', status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: null, status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: false, status: 'failed' }), false);
   assert.equal(canRetryItem({ provider: 'grok', status: 'failed', failure: { code: 'provider-removed' } }), false);
   assert.equal(canRetryItem({ provider: 'unknown', status: 'failed' }), false);
   assert.equal(canRetryItem({ provider: 'flow', status: 'done' }), false);
