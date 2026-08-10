@@ -166,7 +166,12 @@ export class StudioClient {
         ? characterResponse.characters
         : [];
     const characters = rawCharacters.map((character) => {
-      const images = (character?.references?.images || character?.reference_images || []).map((image) => {
+      const rawImages = Array.isArray(character?.references?.images)
+        ? character.references.images
+        : Array.isArray(character?.reference_images)
+          ? character.reference_images
+          : [];
+      const images = rawImages.map((image) => {
         const filename = referenceFileName(image);
         return filename
           ? {
