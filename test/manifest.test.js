@@ -9,6 +9,12 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
+test('release version includes the Scene Plan safety fix', () => {
+  const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+  assert.equal(manifest.version, '0.49.2');
+  assert.match(changelog, /## 0\.49\.2 - Scene Plan safety/);
+});
+
 test('manifest contains no retired provider hosts or content scripts', () => {
   assert.equal(JSON.stringify(manifest).match(removed), null);
 });

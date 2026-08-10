@@ -14,7 +14,12 @@ import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } f
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
-import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
+import {
+  assertSupportedProjectScene,
+  canRetryItem,
+  migrateQueue,
+  unsupportedSceneQueueItem,
+} from './lib/queue-migration.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 import {
   ambiguousLeonardoQueueItem,
@@ -468,6 +473,7 @@ async function resolveReferenceMediaIds(item, settings, tab) {
 }
 
 async function generateAndSave(item, settings, tab) {
+  assertSupportedProjectScene(item);
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const provider = item.provider || DEFAULT_PROVIDER_ID;
   const handlers = {
@@ -561,10 +567,6 @@ async function generateAndSave(item, settings, tab) {
     if (item.kind === 'thumbnail') {
       const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
       return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
-    }
-    if (item.source === 'prompts') {
-      const out = await client.ingestImage(item.slug, item.episodeCode, 'scene', item.sceneKey, base64, item.episodeTitle);
-      return { savedAs: out.saved_as || `${item.episodeCode}_Scene${pad}_v1.png`, target: 'project' };
     }
     const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
     return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
@@ -912,12 +914,13 @@ async function retryFleetSafeFailed() {
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
 async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, fleetJobId }) {
+  const src = source;
+  const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene';
+  assertSupportedProjectScene({ target: 'project', kind: akind, source: src });
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
   const providerConfig = getProvider(prov);
-  const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
-  const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene'; // asset kind
   const effTarget = 'project';
   const maxReferences = providerConfig?.capabilities?.maxReferences || 0;
 
@@ -936,8 +939,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   // Character reference (Flow / Qwen / ChatGPT images). Gate by scene_type so the
   // sheet only lands on character scenes — read the raw scene plan (scene-review
   // doesn't expose scene_type). Untagged scenes count as character (matches SS's
-  // renderer). Non-plan sources have no scene_type, so the reference applies to
-  // all of them.
+  // renderer).
   const wantLegacyCharacterRef =
     providerConfig?.capabilities?.characterReferences &&
     akind === 'scene' &&
@@ -953,7 +955,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   }
   const appliesLegacyCharacterRef = (key) => {
     if (!wantLegacyCharacterRef) return false;
-    if (src !== 'plan' || !sceneTypeById) return true;
+    if (!sceneTypeById) return true;
     const t = sceneTypeById.get(key);
     return t === 'character' || t == null;
   };
@@ -992,7 +994,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       slug,
       episodeCode,
       episodeTitle: episodeTitle || '',
-      sceneKey: s.key, // scene_plan id (string) OR scene/thumb prompts number
+      sceneKey: s.key, // stable scene-plan id or thumbnail prompt number
       sceneNumber: Number.isFinite(sceneNumber) ? sceneNumber : undefined,
       prompt: s.prompt,
       target: effTarget,
@@ -1102,6 +1104,7 @@ async function processQueue() {
       await writeStatus(`${runStatusPrefix}…`, 'running');
       let providerAttempted = false;
       try {
+        assertSupportedProjectScene(item);
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
         if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
@@ -1141,6 +1144,14 @@ async function processQueue() {
         }
       } catch (e) {
         const cd = providerCooldown(settings, provider);
+        if (e?.code === 'scene-source-retired') {
+          q = await getQueue();
+          const it = q.find((i) => i.id === item.id);
+          if (it) Object.assign(it, unsupportedSceneQueueItem(it));
+          await setQueue(q);
+          await writeStatus(String(e.message || e), 'err');
+          continue;
+        }
         // A known pre-submit provider limit (or Flow giving up on reCAPTCHA)
         // doesn't fail the batch: re-pend the item. With auto-resume on, schedule
         // a per-provider cooldown — the provider's own stated wait when it gives

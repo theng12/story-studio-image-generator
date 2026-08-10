@@ -3,6 +3,15 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.49.2 - Scene Plan safety
+
+- Prevented project scene jobs without stable Scene Plan IDs from reaching an
+  image provider or the retired scene image-ingest endpoint.
+- Retired persisted Scene Prompts jobs safely and blocked them from local or
+  Fleet retries while preserving completed history.
+- Removed Scene Prompts fallback from current-episode and project-wide scene
+  discovery; thumbnails continue to use Image Prompts.
+
 ## 0.49.1 - Safer queue recovery
 
 - Prevented Leonardo jobs with unknown or post-submit outcomes from spending
