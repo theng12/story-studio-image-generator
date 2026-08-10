@@ -197,7 +197,6 @@
 
   async function attachReference(ref) {
     if (!ref || !ref.base64) return;
-    await requireReferencesCleared('preparing the reference upload');
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -224,15 +223,15 @@
       }
       return false;
     };
-    // Verify the zero baseline immediately before every paste. A slow upload
-    // can still add a chip late, so the settled result must be exactly one.
-    const baseline = await requireReferencesCleared('pasting the reference');
+    // Finish any deliberate settling before the zero check. Once the baseline
+    // is verified, paste synchronously so no stale chip can race in between.
     await sleep(500);
+    const baseline = await requireReferencesCleared('pasting the reference');
     pasteFile();
     let attached = await waitForChip(25000, baseline);
     if (!attached) {
-      const retryBaseline = await requireReferencesCleared('retrying the reference upload');
       await sleep(600);
+      const retryBaseline = await requireReferencesCleared('retrying the reference upload');
       pasteFile();
       attached = await waitForChip(25000, retryBaseline);
     }

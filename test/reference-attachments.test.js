@@ -57,6 +57,9 @@ test('Qwen accepts only the first bounded reference and retains its one-chip gua
 function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false } = {}) {
   let sendClicks = 0;
   let pasteEvents = 0;
+  let chipsAtSend = null;
+  let generatedImage = null;
+  let clock = 0;
   const visible = { getBoundingClientRect: () => ({ width: 100, height: 30 }) };
   const chips = [...initialChips];
   const makeChip = (removable = true) => {
@@ -102,6 +105,8 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     classList: { contains: () => false },
     click() {
       sendClicks++;
+      chipsAtSend = chips.length;
+      generatedImage = { src: 'https://cdn.qwenlm.ai/generated.png', currentSrc: 'https://cdn.qwenlm.ai/generated.png' };
     },
   };
   Object.defineProperty(sendButton, 'disabled', { get: () => sendChecks++ === 0 });
@@ -113,6 +118,7 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     querySelectorAll(selector) {
       if (selector === '.vision-item-container') return chips;
       if (selector === 'button.send-button') return [sendButton];
+      if (selector === 'img.qwen-image') return generatedImage ? [generatedImage] : [];
       return [];
     },
   };
@@ -137,11 +143,14 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     },
     atob,
     URL,
-    Date,
+    Date: { now: () => clock },
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     setTimeout(callback, ms) {
-      onSleep?.(ms, chips, makeChip);
-      if (ms < 2000) queueMicrotask(callback);
+      if (ms < 2000) {
+        clock += ms;
+        onSleep?.(ms, chips, makeChip);
+        queueMicrotask(callback);
+      }
       return 0;
     },
     clearTimeout() {},
@@ -157,6 +166,7 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     generate: (params) => context.__STORY_STUDIO_QWEN_CALL__('generateImage', params),
     sendClicks: () => sendClicks,
     pasteEvents: () => pasteEvents,
+    chipsAtSend: () => chipsAtSend,
   };
 }
 
@@ -212,4 +222,38 @@ test('Qwen rejects an unremovable stale chip before pasting a reference', async 
   assert.match(outcome.error.message, /could not clear.*reference/i);
   assert.equal(adapter.pasteEvents(), 0);
   assert.equal(adapter.sendClicks(), 0);
+});
+
+test('Qwen uploads one reference and sends one generated image', async () => {
+  const adapter = qwenAdapterHarness();
+  const result = await adapter.generate({
+    prompt: 'A cave at dusk',
+    references: [{ base64: 'aGVsbG8=', mime: 'image/png', name: 'reference.png' }],
+  });
+
+  assert.equal(result.imageUrl, 'https://cdn.qwenlm.ai/generated.png');
+  assert.equal(adapter.pasteEvents(), 1);
+  assert.equal(adapter.sendClicks(), 1);
+  assert.equal(adapter.chipsAtSend(), 1);
+});
+
+test('Qwen clears a stale chip added during pre-paste settling before its immediate paste', async () => {
+  let addedStaleChip = false;
+  const adapter = qwenAdapterHarness({
+    onSleep(ms, chips, makeChip) {
+      if (ms === 500 && !addedStaleChip) {
+        addedStaleChip = true;
+        chips.push(makeChip(true));
+      }
+    },
+  });
+  const result = await adapter.generate({
+    prompt: 'A cave at dusk',
+    references: [{ base64: 'aGVsbG8=', mime: 'image/png', name: 'reference.png' }],
+  });
+
+  assert.equal(result.imageUrl, 'https://cdn.qwenlm.ai/generated.png');
+  assert.equal(adapter.pasteEvents(), 1);
+  assert.equal(adapter.sendClicks(), 1);
+  assert.equal(adapter.chipsAtSend(), 1);
 });
