@@ -7,11 +7,11 @@ const NOW = 1_723_000_000_000;
 
 test('fails pending and running work for retired providers without changing retained history', () => {
   const queue = [
-    { id: 'grok-pending', provider: 'grok', status: 'pending' },
-    { id: 'piclumen-running', provider: 'piclumen', status: 'running', startedAt: NOW - 2000 },
+    { id: 'grok-pending', provider: 'grok', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'piclumen-running', provider: 'piclumen', kind: 'scene', source: 'plan', status: 'running', startedAt: NOW - 2000 },
     { id: 'grok-done', provider: 'grok', status: 'done', savedAs: 'kept.png' },
     { id: 'grok-failed', provider: 'grok', status: 'failed', failure: { code: 'quota' } },
-    { id: 'flow-running', provider: 'flow', status: 'running', startedAt: NOW - 1000 },
+    { id: 'flow-running', provider: 'flow', kind: 'scene', source: 'plan', status: 'running', startedAt: NOW - 1000 },
   ];
 
   const migrated = migrateQueue(queue, NOW);
@@ -25,13 +25,13 @@ test('fails pending and running work for retired providers without changing reta
   assert.deepEqual(migrated[2], queue[2]);
   assert.deepEqual(migrated[3], queue[3]);
   assert.deepEqual(migrated[4], queue[4]);
-  assert.deepEqual(queue[0], { id: 'grok-pending', provider: 'grok', status: 'pending' });
+  assert.deepEqual(queue[0], { id: 'grok-pending', provider: 'grok', kind: 'scene', source: 'plan', status: 'pending' });
 });
 
 test('preserves legacy provider-less items and is idempotent', () => {
   const queue = [
-    { id: 'legacy', status: 'pending' },
-    { id: 'freegen', provider: 'freegen', status: 'pending' },
+    { id: 'legacy', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'freegen', provider: 'freegen', kind: 'scene', source: 'plan', status: 'pending' },
   ];
 
   const once = migrateQueue(queue, NOW);
@@ -43,11 +43,11 @@ test('preserves legacy provider-less items and is idempotent', () => {
 
 test('defaults only an absent legacy provider and fails every explicit invalid provider idempotently', () => {
   const queue = [
-    { id: 'legacy', status: 'pending' },
-    { id: 'empty', provider: '', status: 'pending' },
-    { id: 'null', provider: null, status: 'running', startedAt: NOW - 500 },
-    { id: 'false', provider: false, status: 'pending' },
-    { id: 'unknown', provider: 'not-installed', status: 'pending' },
+    { id: 'legacy', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'empty', provider: '', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'null', provider: null, kind: 'scene', source: 'plan', status: 'running', startedAt: NOW - 500 },
+    { id: 'false', provider: false, kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'unknown', provider: 'not-installed', kind: 'scene', source: 'plan', status: 'pending' },
   ];
 
   const once = migrateQueue(queue, NOW);
@@ -64,14 +64,14 @@ test('defaults only an absent legacy provider and fails every explicit invalid p
 });
 
 test('rejects local retries for removed or unknown provider queue items', () => {
-  assert.equal(canRetryItem({ provider: 'flow', status: 'failed' }), true);
-  assert.equal(canRetryItem({ status: 'failed' }), true);
-  assert.equal(canRetryItem({ provider: '', status: 'failed' }), false);
-  assert.equal(canRetryItem({ provider: null, status: 'failed' }), false);
-  assert.equal(canRetryItem({ provider: false, status: 'failed' }), false);
-  assert.equal(canRetryItem({ provider: 'grok', status: 'failed', failure: { code: 'provider-removed' } }), false);
-  assert.equal(canRetryItem({ provider: 'unknown', status: 'failed' }), false);
-  assert.equal(canRetryItem({ provider: 'flow', status: 'done' }), false);
+  assert.equal(canRetryItem({ provider: 'flow', kind: 'scene', source: 'plan', status: 'failed' }), true);
+  assert.equal(canRetryItem({ kind: 'scene', source: 'plan', status: 'failed' }), true);
+  assert.equal(canRetryItem({ provider: '', kind: 'scene', source: 'plan', status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: null, kind: 'scene', source: 'plan', status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: false, kind: 'scene', source: 'plan', status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: 'grok', kind: 'scene', source: 'plan', status: 'failed', failure: { code: 'provider-removed' } }), false);
+  assert.equal(canRetryItem({ provider: 'unknown', kind: 'scene', source: 'plan', status: 'failed' }), false);
+  assert.equal(canRetryItem({ provider: 'flow', kind: 'scene', source: 'plan', status: 'done' }), false);
 });
 
 test('migrates a legacy character reference into one descriptor without changing completed history', () => {
@@ -99,6 +99,9 @@ test('migrates retryable failed maintained-provider character references without
     id: 'legacy-failed',
     slug: 'project',
     provider: 'flow',
+    target: 'project',
+    kind: 'scene',
+    source: 'plan',
     status: 'failed',
     characterRef: { characterId: 'aria', filename: 'sheet.png' },
     failure: { code: 'network', title: 'Network error' },
@@ -153,4 +156,39 @@ test('legacy failed non-plan project scenes cannot retry and migration is idempo
   assert.equal(canRetryItem(queue[0]), false);
   const once = migrateQueue(queue, NOW);
   assert.deepEqual(migrateQueue(once, NOW + 1), once);
+});
+
+test('terminalizes legacy non-download scenes with omitted, null, or empty targets', () => {
+  const queue = [
+    { id: 'omitted-prompt', provider: 'flow', kind: 'scene', source: 'prompts', status: 'pending' },
+    { id: 'null-prompt', provider: 'qwen', target: null, kind: 'scene', source: 'prompts', status: 'running', startedAt: NOW - 100 },
+    { id: 'empty-missing-source', provider: 'chatgpt', target: '', kind: 'scene', status: 'pending' },
+    { id: 'omitted-target-source', provider: 'aistudio', kind: 'scene', status: 'running', startedAt: NOW - 200 },
+    { id: 'omitted-plan', provider: 'flow', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'omitted-thumbnail', provider: 'flow', kind: 'thumbnail', source: 'prompts', status: 'pending' },
+    { id: 'download-prompt', provider: 'flow', target: 'download', kind: 'scene', source: 'prompts', status: 'pending' },
+    { id: 'download-missing-source', provider: 'flow', target: 'download', kind: 'scene', status: 'pending' },
+  ];
+
+  const once = migrateQueue(queue, NOW);
+
+  for (const item of once.slice(0, 4)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'scene-source-retired');
+    assert.equal(item.fleetRetrySafe, false);
+    assert.equal(item.finishedAt, NOW);
+  }
+  assert.deepEqual(once.slice(4), queue.slice(4));
+  assert.deepEqual(migrateQueue(once, NOW + 1), once);
+});
+
+test('failed legacy scenes with omitted targets cannot retry locally', () => {
+  const failed = [
+    { provider: 'flow', kind: 'scene', source: 'prompts', status: 'failed', failure: { code: 'network' } },
+    { provider: 'flow', kind: 'scene', status: 'failed', failure: { code: 'network' } },
+    { provider: 'flow', target: null, kind: 'scene', source: 'prompts', status: 'failed', failure: { code: 'network' } },
+    { provider: 'flow', target: '', kind: 'scene', status: 'failed', failure: { code: 'network' } },
+  ];
+
+  for (const item of failed) assert.equal(canRetryItem(item), false);
 });

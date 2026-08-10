@@ -16,7 +16,7 @@ function queueProvider(item) {
 }
 
 export function isUnsupportedProjectScene(item) {
-  return item?.target === 'project' && item?.kind !== 'thumbnail' && item?.source !== 'plan';
+  return item?.target !== 'download' && item?.kind !== 'thumbnail' && item?.source !== 'plan';
 }
 
 function sceneSourceFailure() {

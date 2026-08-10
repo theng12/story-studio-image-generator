@@ -104,7 +104,8 @@ templates, and API keys in local Chrome storage only.
 
 Project scene images require `source: 'plan'` and stable Scene Review IDs, and
 must save through the Scene Review upload route. Image Prompts ingestion is
-thumbnail-only; never spend provider work for non-plan project scene jobs.
+thumbnail-only; only an explicit `target: 'download'` bypasses project-scene
+safety. Never spend provider work for non-plan project scene jobs.
 
 When references are enabled, resolve Story Studio's episode, matching scene,
 character, composition, and style assets into bounded descriptors at enqueue,
