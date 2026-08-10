@@ -7,6 +7,7 @@
 // click can't burn work/credits.
 
 import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels, providerCooldown } from '../lib/config.js';
+import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 
@@ -98,7 +99,7 @@ async function saveCustomHumanPace() {
 // Auto-resume defaults off (manual Resume); when on, a recommended-but-editable
 // cooldown + retries apply for that provider only.
 const COOLDOWN_PRESETS = [15, 30, 60, 480, 720, 1440];
-const COOLDOWN_SUPPORTED = new Set(['flow', 'qwen', 'aistudio', 'grok', 'leonardo', 'freegen', 'piclumen', 'chatgpt']);
+const COOLDOWN_SUPPORTED = new Set(PROVIDERS.filter(({ capabilities }) => capabilities.cooldown).map(({ id }) => id));
 
 const cooldownProviderKey = () => ($('provider') ? $('provider').value : 'flow');
 
@@ -249,7 +250,7 @@ async function init() {
   initWhatsNew(manifest.version);
   settings = await getSettings();
   client = new StudioClient(settings.studioBaseUrl);
-  $('provider').value = settings.provider || 'flow';
+  populateProviderSelect(settings.provider || 'flow');
   $('includeExisting').checked = !!settings.includeExisting;
   $('charRefEnabled').checked = settings.characterRefEnabled !== false;
   $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
@@ -272,6 +273,19 @@ async function init() {
   pollQueue();
   setInterval(pollQueue, 1500);
   setInterval(renderLiveStatus, 250);
+}
+
+function populateProviderSelect(selected) {
+  const select = $('provider');
+  select.replaceChildren(
+    ...PROVIDERS.map(({ id, label }) => {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = label;
+      return option;
+    })
+  );
+  select.value = getProvider(selected) ? selected : 'flow';
 }
 
 function wire() {
@@ -364,13 +378,6 @@ function wire() {
     settings = await saveSettings({ characterRefEnabled: $('charRefEnabled').checked });
     $('flowCharacterRef').disabled = !$('charRefEnabled').checked;
   };
-  $('freegenAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('freegenAspect').value }));
-  $('perchanceStyleInput').onchange = async () => (settings = await saveSettings({ perchanceStyle: $('perchanceStyleInput').value.trim() || 'No style' }));
-  $('perchanceAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('perchanceAspect').value }));
-  $('perchanceCount').onchange = async () => (settings = await saveSettings({ perchanceCount: Number($('perchanceCount').value) }));
-  $('pollModel').onchange = async () => (settings = await saveSettings({ pollinationsModel: $('pollModel').value.trim() || 'flux' }));
-  $('pollSeed').onchange = async () => (settings = await saveSettings({ pollinationsSeed: $('pollSeed').value.replace(/[^0-9]/g, '') }));
-  $('pollToken').onchange = async () => (settings = await saveSettings({ pollinationsToken: $('pollToken').value.trim() }));
   $('qwenAspect').onchange = async () => (settings = await saveSettings({ qwenAspectRatio: $('qwenAspect').value }));
   $('aistudioAspect').onchange = async () => (settings = await saveSettings({ aistudioAspectRatio: $('aistudioAspect').value }));
   $('chatgptAspect').onchange = async () => (settings = await saveSettings({ chatgptAspectRatio: $('chatgptAspect').value }));
@@ -999,18 +1006,7 @@ async function loadScenesFromEither(slug, ep) {
   };
 }
 
-const PROVIDER_LABEL = {
-  flow: 'Google Flow',
-  aistudio: 'AI Studio',
-  qwen: 'Qwen Studio',
-  grok: 'Grok',
-  perchance: 'Perchance',
-  freegen: 'FreeGen',
-  leonardo: 'Leonardo',
-  pollinations: 'Pollinations',
-  piclumen: 'PicLumen',
-  chatgpt: 'ChatGPT',
-};
+const PROVIDER_LABEL = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, label }) => [id, label])));
 
 // Double-click a prompt to edit it in place; the edit is used when queued.
 function startEditPrompt(prm, scene) {
@@ -1314,24 +1310,8 @@ function flowPopulate() {
   $('flowRecaptchaMaxAttempts').value = settings.flowRecaptchaMaxAttempts || 4;
 }
 
-function freegenPopulate() {
-  $('freegenAspect').value = settings.aspectRatio || '16:9';
-}
-
-function pollinationsPopulate() {
-  $('pollModel').value = settings.pollinationsModel || 'flux';
-  $('pollSeed').value = settings.pollinationsSeed || '';
-  $('pollToken').value = settings.pollinationsToken || '';
-}
-
 function qwenPopulate() {
   $('qwenAspect').value = settings.qwenAspectRatio || '16:9';
-}
-
-function perchancePopulate() {
-  $('perchanceStyleInput').value = settings.perchanceStyle || 'No style';
-  $('perchanceAspect').value = settings.aspectRatio || '16:9';
-  $('perchanceCount').value = String(settings.perchanceCount || 1);
 }
 
 function aistudioPopulate() {
@@ -1348,19 +1328,12 @@ function onProviderChange() {
   saveSettings({ provider });
   $('flowProjectCard').classList.toggle('hidden', provider !== 'flow');
   $('flowOptsCard').classList.toggle('hidden', provider !== 'flow');
-  $('freegenCard').classList.toggle('hidden', provider !== 'freegen');
-  $('perchanceCard').classList.toggle('hidden', provider !== 'perchance');
-  $('grokCard').classList.toggle('hidden', provider !== 'grok');
   $('aistudioCard').classList.toggle('hidden', provider !== 'aistudio');
   $('qwenCard').classList.toggle('hidden', provider !== 'qwen');
-  $('pollinationsCard').classList.toggle('hidden', provider !== 'pollinations');
   $('leonardoCard').classList.toggle('hidden', provider !== 'leonardo');
-  $('piclumenCard').classList.toggle('hidden', provider !== 'piclumen');
   $('chatgptCard').classList.toggle('hidden', provider !== 'chatgpt');
-  // Workspace shortcut — hidden for providers with no browser workspace.
   const openBtn = $('openProviderPage');
-  const hasPage = provider !== 'pollinations';
-  openBtn.classList.toggle('hidden', !hasPage);
+  openBtn.classList.remove('hidden');
   openBtn.textContent = '↗ Open workspace';
   $('providerOptionsTitle').textContent = 'Provider settings';
   $('providerOptionsHint').textContent = provider === 'flow'
@@ -1381,38 +1354,18 @@ function onProviderChange() {
           : 'Uploaded to Flow once and applied as a reference on character scenes.';
   if (provider === 'leonardo') leoPopulate();
   if (provider === 'flow') flowPopulate();
-  if (provider === 'freegen') freegenPopulate();
-  if (provider === 'perchance') perchancePopulate();
-  if (provider === 'pollinations') pollinationsPopulate();
   if (provider === 'qwen') qwenPopulate();
   if (provider === 'aistudio') aistudioPopulate();
   if (provider === 'chatgpt') chatgptPopulate();
   renderCooldownCard();
   renderAppliedSettings();
   onMediaTypeChange();
-  if (provider === 'grok') checkGrok();
-  else if (provider === 'pollinations') setStatus('Pollinations runs in the background — no tab needed.', 'info');
-  else if (provider !== 'flow') checkWebGenerator(provider);
+  if (provider !== 'flow') checkWebGenerator(provider);
   else setStatus('', 'info');
 }
 
-async function checkGrok() {
-  setStatus('Checking Grok…', 'running');
-  try {
-    const ctx = await chrome.runtime.sendMessage({ type: 'grokContext' });
-    if (!ctx?.ok) throw new Error(ctx?.error || 'no Grok tab');
-    if (!ctx.signedIn) setStatus('Grok: not signed in — open grok.com and sign in.', 'err');
-    else if (!ctx.hasTemplate)
-      setStatus('Grok: sign-in OK. Generate ONE image at grok.com/imagine (free daily quota) so the extension can learn the API, then batch here.', 'err');
-    else setStatus('Grok ready (template captured). A daily-limit message pauses the queue until you Resume.', 'done');
-  } catch (e) {
-    setStatus(`Grok check failed: ${e.message}`, 'err');
-  }
-}
-
 async function checkWebGenerator(provider) {
-  const names = { aistudio: 'AI Studio', qwen: 'Qwen Studio', perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI', piclumen: 'PicLumen', chatgpt: 'ChatGPT' };
-  const name = names[provider] || provider;
+  const name = PROVIDER_LABEL[provider] || provider;
   setStatus(`Checking ${name}…`, 'running');
   try {
     const ctx = await chrome.runtime.sendMessage({ type: 'webGeneratorContext', provider });
@@ -1449,7 +1402,6 @@ function confirmQueue() {
   const scenes = selectedScenes();
   if (!scenes.length) return;
   const provider = $('provider').value;
-  const isGrok = provider === 'grok';
   const isFlow = provider === 'flow';
   const kind = currentKind();
   const noun = kind === 'thumbnail' ? 'thumbnail' : 'scene';
@@ -1461,14 +1413,7 @@ function confirmQueue() {
     return;
   }
   const n = `${scenes.length} ${noun}${scenes.length > 1 ? 's' : ''}`;
-  if (isGrok) {
-    $('confirmTitle').textContent = `Queue these ${noun}s on Grok?`;
-    $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via Grok Imagine → ` +
-      `Story Studio ${folder}. Free tier has a DAILY LIMIT — ` +
-      `the queue pauses when it's hit; press Resume after it resets. ${humanDelayLabel()} between each. Continue?`;
-    $('confirmOk').textContent = 'Queue on Grok';
-  } else if (isFlow) {
+  if (isFlow) {
     $('confirmTitle').textContent = `Queue these ${noun}s?`;
     $('confirmBody').textContent =
       `${n} from ${currentEpisode.code} → ` +
@@ -1491,17 +1436,8 @@ function confirmQueue() {
       `Qwen uses one submission per scene, ratio is best-effort, and explicit usage limits pause the queue. ` +
       `${humanDelayLabel()} between each. Continue?`;
     $('confirmOk').textContent = 'Queue on Qwen';
-  } else if (provider === 'pollinations') {
-    $('confirmTitle').textContent = `Queue these ${noun}s on Pollinations?`;
-    $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via Pollinations (${settings.pollinationsModel || 'flux'}) → ` +
-      `Story Studio ${folder}. ` +
-      `Runs in the background — no tab needed. One at a time with a ${humanDelayLabel()} gap` +
-      `${settings.pollinationsToken ? '' : ' (free tier is watermarked and rate-limited ~1 image/15s)'}.`;
-    $('confirmOk').textContent = 'Queue on Pollinations';
   } else {
-    const names = { perchance: 'Perchance', freegen: 'FreeGen', leonardo: 'Leonardo AI', piclumen: 'PicLumen', chatgpt: 'ChatGPT' };
-    const name = names[provider] || provider;
+    const name = PROVIDER_LABEL[provider] || provider;
     const ratioNote =
       provider === 'aistudio'
         ? ` Ratio ${settings.aistudioAspectRatio || '16:9'} (via the prompt).`
@@ -1681,7 +1617,7 @@ async function pollQueue() {
   // the queue-list DOM itself is unchanged.
   updateSceneQueueStatus(queue);
   const prov = $('provider').value;
-  const needsTab = hasWork && prov !== 'pollinations';
+  const needsTab = hasWork;
   $('tabReminder').classList.toggle('hidden', !needsTab);
   if (needsTab)
     $('tabReminder').textContent = `Keep the ${PROVIDER_LABEL[prov] || prov} tab visible (active tab, not minimized) while this runs — hidden tabs get throttled.`;

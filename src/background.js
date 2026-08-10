@@ -13,57 +13,23 @@
 import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
+import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider } from './lib/providers.js';
+import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
-const PROVIDER = {
-  flow: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
-  aistudio: { url: 'https://aistudio.google.com/prompts/new_chat', match: 'https://aistudio.google.com/*' },
-  qwen: { url: 'https://chat.qwen.ai/', match: 'https://chat.qwen.ai/*' },
-  grok: { url: 'https://grok.com/imagine', match: 'https://grok.com/*' },
-  perchance: { url: 'https://perchance.org/ai-text-to-image-generator', match: 'https://perchance.org/*' },
-  freegen: { url: 'https://freegen.app/', match: 'https://freegen.app/*' },
-  leonardo: { url: 'https://app.leonardo.ai/generate', match: 'https://app.leonardo.ai/*' },
-  piclumen: { url: 'https://www.piclumen.com/ai-image/', match: 'https://www.piclumen.com/*' },
-  chatgpt: { url: 'https://chatgpt.com/', match: 'https://chatgpt.com/*' },
-};
-const PROVIDER_NAME = {
-  flow: 'Flow',
-  aistudio: 'AI Studio',
-  qwen: 'Qwen Studio',
-  grok: 'Grok',
-  perchance: 'Perchance',
-  freegen: 'FreeGen',
-  leonardo: 'Leonardo AI',
-  pollinations: 'Pollinations',
-  piclumen: 'PicLumen',
-  chatgpt: 'ChatGPT',
-};
-const PROVIDER_SCRIPTS = {
-  leonardo: {
-    main: 'src/content/leonardo-main.js',
-    isolated: 'src/content/leonardo.js',
-    mainWorld: false,
-  },
-  qwen: {
-    main: 'src/content/qwen-main.js',
-    isolated: 'src/content/qwen.js',
-    mainWorld: false,
-  },
-  piclumen: {
-    main: 'src/content/piclumen-main.js',
-    isolated: 'src/content/piclumen.js',
-    mainWorld: true,
-  },
-  chatgpt: {
-    main: 'src/content/chatgpt-main.js',
-    isolated: 'src/content/chatgpt.js',
-    mainWorld: false,
-  },
-};
-// Providers that need no browser tab — generated directly from the worker.
-const TABLESS = new Set(['pollinations']);
+const PROVIDER = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, workspace }) => [id, workspace])));
+const PROVIDER_NAME = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, label }) => [id, label])));
+const PROVIDER_SCRIPTS = Object.freeze(
+  Object.fromEntries(PROVIDERS.filter(({ scripts }) => scripts).map(({ id, scripts }) => [id, scripts]))
+);
+
+function providerRemovedError(provider) {
+  const error = new Error(`The ${provider || 'unknown'} provider is not supported by this extension.`);
+  error.code = 'provider-removed';
+  return error;
+}
 const QUEUE_KEY = 'queue';
 // User-requested pause: the current item finishes, then the loop stops before
 // the next one starts. Persisted so it survives service-worker death.
@@ -124,7 +90,8 @@ try {
 
 // ── provider tab plumbing ────────────────────────────────────────────────────
 async function ensureProviderTab(provider = 'flow') {
-  const cfg = PROVIDER[provider] || PROVIDER.flow;
+  const cfg = PROVIDER[provider];
+  if (!cfg) throw providerRemovedError(provider);
   const tabs = await chrome.tabs.query({ url: cfg.match });
   const ready = tabs.find((t) => t.status === 'complete');
   if (ready) {
@@ -200,10 +167,10 @@ async function startNewFlowProject(reason) {
 }
 
 // Panel "↗ Open provider" click: focus an existing tab for the provider's
-// generation page, or open a new active one. Tabless providers have no page.
+// generation page, or open a new active one.
 async function openProviderPage(provider) {
   const cfg = PROVIDER[provider];
-  if (!cfg) return { ok: false, error: 'This provider has no page to open.' };
+  if (!cfg) return { ok: false, error: providerRemovedError(provider).message };
   const tabs = await chrome.tabs.query({ url: cfg.match });
   if (tabs[0]) {
     await chrome.tabs.update(tabs[0].id, { active: true });
@@ -359,8 +326,6 @@ async function send(tabId, message) {
     'flow:generateImage',
     'flow:uploadImage',
     'flow:getContext',
-    'freegen:getContext',
-    'piclumen:getContext',
     'chatgpt:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
@@ -411,8 +376,6 @@ const IMAGE_DOWNLOAD_HOSTS = {
   chatgpt: ['oaiusercontent.com'],
   qwen: ['cdn.qwenlm.ai'],
   leonardo: ['leonardo.ai'],
-  perchance: ['perchance.org'],
-  freegen: ['freegen.app'],
 };
 
 function hostnameAllowed(hostname, suffixes) {
@@ -437,56 +400,6 @@ async function fetchImagePayload(provider, imageUrl) {
   const length = Number(response.headers.get('content-length')) || 0;
   if (length > 50 * 1024 * 1024) throw new Error('Generated image exceeded 50 MB.');
   return responseToPayload(response);
-}
-
-// Pollinations is keyless and tabless: build the image URL and fetch it in the
-// background worker. No content script, no visible tab. Anonymous tier is rate
-// limited (~1 req/15s), so back off and retry on 429/5xx.
-function ratioToDims(ratio) {
-  switch (ratio) {
-    case '1:1':
-      return { width: 1024, height: 1024 };
-    case '9:16':
-      return { width: 768, height: 1344 };
-    case '4:3':
-      return { width: 1152, height: 896 };
-    case '3:4':
-      return { width: 896, height: 1152 };
-    default:
-      return { width: 1344, height: 768 }; // 16:9
-  }
-}
-
-async function pollinationsGenerate(item, settings) {
-  const { width, height } = ratioToDims(item.aspectRatio || settings.aspectRatio);
-  const params = new URLSearchParams({
-    model: settings.pollinationsModel || 'flux',
-    width: String(width),
-    height: String(height),
-    nologo: 'true',
-    referrer: 'story-studio-image-generator',
-  });
-  const seed = String(settings.pollinationsSeed || '').trim();
-  if (seed) params.set('seed', seed);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(item.prompt.trim())}?${params}`;
-  const headers = {};
-  const token = String(settings.pollinationsToken || '').trim();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const r = await fetch(url, { headers });
-    if (r.ok) return responseToPayload(r);
-    if ((r.status === 429 || r.status >= 500) && attempt < 3) {
-      await writeStatus('Pollinations is rate-limiting — waiting 16s…', 'running');
-      await sleep(16000);
-      continue;
-    }
-    if (r.status === 429) {
-      const e = new Error('Pollinations rate limit — slow down (register at auth.pollinations.ai for a faster tier).');
-      e.limit = true;
-      throw e;
-    }
-    throw new Error(`Pollinations generation failed (${r.status}).`);
-  }
 }
 
 // Generate one scene's image and save it to Story Studio.
@@ -529,119 +442,91 @@ async function resolveCharacterRefMediaId(item, settings, tab) {
 
 async function generateAndSave(item, settings, tab) {
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
-  const provider = item.provider || 'flow';
-
-  let base64, mime;
-  if (provider === 'pollinations') {
-    const payload = await pollinationsGenerate(item, settings);
-    base64 = payload.base64;
-    mime = payload.mime;
-  } else if (provider === 'grok') {
-    const r = await send(tab.id, {
-      type: 'grok:generateImage',
-      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio },
-    });
-    base64 = r.base64;
-    mime = r.mime;
-  } else if (provider === 'piclumen') {
-    const r = await send(tab.id, {
-      type: 'piclumen:generateImage',
-      params: { prompt: item.prompt, aspectRatio: item.aspectRatio || settings.aspectRatio, model: settings.piclumenModel },
-    });
-    base64 = r.base64;
-    mime = r.mime;
-  } else if (provider === 'chatgpt') {
-    // Character reference (img2img): fetch the sheet bytes so the content script
-    // can paste it into the composer before generating (character scenes only).
-    const reference =
-      item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
-    const r = await send(tab.id, {
-      type: 'chatgpt:generateImage',
-      params: {
+  const provider = item.provider || DEFAULT_PROVIDER_ID;
+  const handlers = {
+    chatgpt: async () => {
+      // Character reference (img2img): fetch the sheet bytes so the content script
+      // can paste it into the composer before generating (character scenes only).
+      const reference =
+        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      const r = await send(tab.id, {
+        type: 'chatgpt:generateImage',
+        params: {
+          prompt: item.prompt,
+          aspectRatio: item.aspectRatio || settings.aspectRatio,
+          reference,
+          maxWaitSec: settings.chatgptMaxWaitSec,
+        },
+      });
+      // The adapter returns in-page PNG bytes when it can, else a URL for the
+      // worker to fetch (oaiusercontent can be CORS-locked in the page).
+      return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
+    },
+    aistudio: async () => {
+      // Character reference (img2img): fetch the sheet bytes so the content script
+      // can paste it into AI Studio before generating (character scenes only).
+      const reference =
+        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      return send(tab.id, {
+        type: 'aistudio:generateImage',
+        params: {
+          prompt: item.prompt,
+          aspectRatio: item.aspectRatio || settings.aistudioAspectRatio || settings.aspectRatio,
+          reference,
+        },
+      });
+    },
+    flow: async () => {
+      const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
+      if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
+      const params = {
+        projectId,
         prompt: item.prompt,
+        model: item.model || settings.imageModel,
         aspectRatio: item.aspectRatio || settings.aspectRatio,
-        reference,
-        maxWaitSec: settings.chatgptMaxWaitSec,
-      },
-    });
-    // The adapter returns in-page PNG bytes when it can, else a URL for the
-    // worker to fetch (oaiusercontent can be CORS-locked in the page).
-    const payload = r.base64 ? r : await fetchImagePayload(provider, r.imageUrl);
-    base64 = payload.base64;
-    mime = payload.mime;
-  } else if (provider === 'aistudio') {
-    // Character reference (img2img): fetch the sheet bytes so the content script
-    // can paste it into AI Studio before generating (character scenes only).
-    const reference =
-      item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
-    const r = await send(tab.id, {
-      type: 'aistudio:generateImage',
-      params: {
-        prompt: item.prompt,
-        aspectRatio: item.aspectRatio || settings.aistudioAspectRatio || settings.aspectRatio,
-        reference,
-      },
-    });
-    base64 = r.base64;
-    mime = r.mime;
-  } else if (provider === 'flow') {
-    const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
-    if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
-    const params = {
-      projectId,
-      prompt: item.prompt,
-      model: item.model || settings.imageModel,
-      aspectRatio: item.aspectRatio || settings.aspectRatio,
-      recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
-    };
-    // Character reference — only on scenes flagged as character scenes at enqueue.
-    if (item.applyRef && item.characterRef) {
-      const refId = await resolveCharacterRefMediaId(item, settings, tab);
-      if (refId) params.imageInputs = [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: refId }];
-    }
-    const r = await send(tab.id, { type: 'flow:generateImage', params });
-    base64 = r.base64;
-    mime = r.mime;
-  } else {
-    const messageType =
-      provider === 'perchance'
-        ? 'perchance:generateImage'
-        : provider === 'freegen'
-          ? 'freegen:generateImage'
-          : provider === 'qwen'
-              ? 'qwen:generateImage'
-              : 'leonardo:generateImage';
-    // Qwen img2img: fetch the character sheet bytes so the content script can
-    // upload it into the Qwen composer before generating (character scenes only).
-    const reference =
-      provider === 'qwen' && item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
-    const r = await send(tab.id, {
-      type: messageType,
-      params: {
-        prompt: item.prompt,
-        aspectRatio: item.aspectRatio || settings.aspectRatio,
-        reference: provider === 'qwen' ? reference : undefined,
-        style:
-          provider === 'perchance'
-            ? settings.perchanceStyle
-            : provider === 'leonardo'
-              ? settings.leonardoStyle
-              : undefined,
-        model: provider === 'leonardo' ? settings.leonardoModel : undefined,
-        mode: provider === 'leonardo' ? settings.leonardoMode : undefined,
-        size: provider === 'leonardo' ? settings.leonardoSize : undefined,
-        count:
-          provider === 'leonardo'
-            ? settings.leonardoCount
-            : provider === 'perchance'
-              ? settings.perchanceCount
-              : undefined,
-      },
-    });
-    const payload = r.base64 ? r : await fetchImagePayload(provider, r.imageUrl);
-    base64 = payload.base64;
-    mime = payload.mime;
-  }
+        recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
+      };
+      // Character reference — only on scenes flagged as character scenes at enqueue.
+      if (item.applyRef && item.characterRef) {
+        const refId = await resolveCharacterRefMediaId(item, settings, tab);
+        if (refId) params.imageInputs = [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: refId }];
+      }
+      return send(tab.id, { type: 'flow:generateImage', params });
+    },
+    qwen: async () => {
+      // Qwen img2img: fetch the character sheet bytes so the content script can
+      // upload it into the Qwen composer before generating (character scenes only).
+      const reference =
+        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      const r = await send(tab.id, {
+        type: 'qwen:generateImage',
+        params: {
+          prompt: item.prompt,
+          aspectRatio: item.aspectRatio || settings.aspectRatio,
+          reference,
+        },
+      });
+      return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
+    },
+    leonardo: async () => {
+      const r = await send(tab.id, {
+        type: 'leonardo:generateImage',
+        params: {
+          prompt: item.prompt,
+          aspectRatio: item.aspectRatio || settings.aspectRatio,
+          style: settings.leonardoStyle,
+          model: settings.leonardoModel,
+          mode: settings.leonardoMode,
+          size: settings.leonardoSize,
+          count: settings.leonardoCount,
+        },
+      });
+      return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
+    },
+  };
+  const handler = handlers[provider];
+  if (!handler) throw providerRemovedError(provider);
+  const { base64, mime } = await handler();
   if (item.target === 'download') {
     const ext = mime.includes('webp') ? 'webp' : mime.includes('jpeg') ? 'jpg' : 'png';
     const filename = `${String(item.downloadPath || 'StoryStudioImages/Standalone/image.png').replace(/\.(png|jpg|jpeg|webp)$/i, '')}.${ext}`;
@@ -759,6 +644,14 @@ function diagnoseFailure(error, item = {}) {
   const provider = PROVIDER_NAME[item.provider] || 'Flow';
   const match = (pattern) => pattern.test(text);
 
+  if (error?.code === 'provider-removed' || match(/provider (?:was )?removed|provider is not supported/))
+    return {
+      code: 'provider-removed',
+      title: 'Provider removed from Story Studio Image Generator',
+      hint: 'Choose a maintained provider and queue this asset again. Jobs are never redirected automatically.',
+      raw,
+    };
+
   if (match(/story studio save failed|story studio rejected|scene image not found|scene image is empty/))
     return {
       code: 'save',
@@ -860,8 +753,8 @@ function diagnoseFailure(error, item = {}) {
 
 async function getQueue() {
   const { queue: storedQueue = [] } = await chrome.storage.local.get(QUEUE_KEY);
-  const queue = storedQueue;
-  let changed = false;
+  const queue = migrateQueue(storedQueue, Date.now());
+  let changed = JSON.stringify(queue) !== JSON.stringify(storedQueue);
   for (const item of queue) {
     if (item.status === 'failed' && item.error && !item.failure) {
       item.failure = diagnoseFailure(item.error, item);
@@ -952,7 +845,7 @@ async function retryFailed(id = null) {
   const q = await getQueue();
   let retried = 0;
   for (const item of q) {
-    if (item.status !== 'failed' || (id && item.id !== id)) continue;
+    if (!canRetryItem(item) || (id && item.id !== id)) continue;
     item.status = 'pending';
     delete item.error;
     delete item.failure;
@@ -975,7 +868,7 @@ async function retryFailed(id = null) {
 // button. A remote command cannot inspect a provider tab, so it may only retry
 // an item explicitly marked safe by the local queue in a future adapter.
 function isFleetRetrySafe(item) {
-  return item?.status === 'failed' && item.fleetRetrySafe === true && item.failure?.code !== 'ambiguous';
+  return canRetryItem(item) && item.fleetRetrySafe === true && item.failure?.code !== 'ambiguous';
 }
 
 async function retryFleetSafeFailed() {
@@ -1006,7 +899,8 @@ async function retryFleetSafeFailed() {
 // the panel stays snappy and dedupe is centralised.
 async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, fleetJobId }) {
   const settings = await getSettings();
-  const prov = provider || settings.provider || 'flow';
+  const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
+  if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
   const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene'; // asset kind
   const effTarget = 'project';
@@ -1074,7 +968,8 @@ async function enqueueStandalone({ prompts, prompt, label, provider }) {
   if (!texts.length) throw new Error('Add at least one image prompt first.');
   if (texts.length > 100) throw new Error('Queue up to 100 standalone prompts at a time.');
   const settings = await getSettings();
-  const prov = provider || settings.provider || 'flow';
+  const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
+  if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
   const safeLabel = String(label || 'image')
     .trim()
     .replace(/[^a-z0-9_-]+/gi, '-')
@@ -1127,7 +1022,8 @@ async function processQueue() {
       if (idx < 0) break;
       // Only a cooldown for the *next item's* provider should hold the queue —
       // one provider's cooldown must never block a pending item for another.
-      const nextProvider = q[idx].provider || 'flow';
+      const nextProvider = q[idx].provider || DEFAULT_PROVIDER_ID;
+      if (!isMaintainedProvider(nextProvider)) throw providerRemovedError(nextProvider);
       if (await holdForCooldown(nextProvider, settings)) return;
       const pendingId = q[idx].id;
       await waitForNextProviderRun(q[idx]);
@@ -1146,14 +1042,14 @@ async function processQueue() {
       delete q[currentIdx].durationMs;
       await setQueue(q);
       const item = q[currentIdx];
-      const provider = item.provider || 'flow';
+      const provider = item.provider || DEFAULT_PROVIDER_ID;
       const pos = q.filter((i) => i.status === 'done' || i.status === 'failed').length + 1;
       // Prefix reused by live sub-phase progress (e.g. Qwen upload → generate).
       runStatusPrefix = `(${pos}/${q.length}) ${item.label}`;
       await writeStatus(`${runStatusPrefix}…`, 'running');
       let providerAttempted = false;
       try {
-        if (!TABLESS.has(provider) && !tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
+        if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
         if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
         await setNextProviderRun(settings);
@@ -1630,31 +1526,11 @@ async function flowContext() {
   return { ok: true, ...r.result };
 }
 
-// Probe Grok: signed in? has a captured request template (needed to generate)?
-async function grokContext() {
-  const tab = await ensureProviderTab('grok');
-  const r = await send(tab.id, { type: 'grok:getContext' });
-  return { ok: true, ...r.result };
-}
-
 async function webGeneratorContext(provider) {
-  if (!PROVIDER[provider] || provider === 'flow' || provider === 'grok') throw new Error('Unknown web generator.');
+  const config = getProvider(provider);
+  if (!config || provider === 'flow') throw providerRemovedError(provider);
   const tab = await ensureProviderTab(provider);
-  const messageType =
-    provider === 'perchance'
-      ? 'perchance:getContext'
-      : provider === 'freegen'
-        ? 'freegen:getContext'
-        : provider === 'aistudio'
-          ? 'aistudio:getContext'
-          : provider === 'qwen'
-            ? 'qwen:getContext'
-            : provider === 'piclumen'
-              ? 'piclumen:getContext'
-              : provider === 'chatgpt'
-                ? 'chatgpt:getContext'
-                : 'leonardo:getContext';
-  const r = await send(tab.id, { type: messageType });
+  const r = await send(tab.id, { type: config.contextMessage });
   return { ok: true, ...r.result };
 }
 
@@ -1674,7 +1550,7 @@ async function leonardoModelControls(model) {
   return { ok: true, ...r.result };
 }
 
-// Resume a paused/pending queue (user pause, or e.g. a Grok daily-limit pause).
+// Resume a paused/pending queue after a user pause or provider limit.
 async function resumeQueue() {
   // Manual resume overrides any provider's cooldown — clear them all.
   await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY]);
@@ -1755,9 +1631,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'flowContext':
       reply(flowContext());
-      return true;
-    case 'grokContext':
-      reply(grokContext());
       return true;
     case 'openProviderPage':
       reply(openProviderPage(msg.provider));

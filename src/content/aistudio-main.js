@@ -3,7 +3,7 @@
 // AI Studio's image API (MakerSuiteService/GenerateContent) uses SAPISIDHASH
 // cookie auth + a protojson positional-array body and runs on a transport that
 // bypasses fetch/XHR hooks — impractical to replay. So we drive the UI, like the
-// Perchance/Leonardo providers: reuse the current image chat, phrase the prompt as an
+// The conversational providers reuse the current image chat and phrase the prompt as an
 // instruction ("Generate an image of …" — a BARE description 403s / returns text),
 // click Run, and read the resulting inline data: image out of the DOM. This uses
 // AI Studio's free daily image quota. Verified live 2026-07-05.
