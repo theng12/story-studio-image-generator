@@ -20,6 +20,28 @@ A Chrome extension for creating and organizing scene images for Story Studio pro
 
 Image generation uses a compatible signed-in browser session. Available settings, capacity, and limits depend on the session you are using.
 
+## Providers And References
+
+The maintained image providers are Google Flow, Google AI Studio, Qwen Studio,
+Leonardo AI, and ChatGPT. The extension keeps its provider catalog in one
+registry so removed providers never receive new work or retries.
+
+- Google Flow accepts up to 4 Story Studio references per image.
+- Google AI Studio and ChatGPT each paste and verify up to 4 references.
+- Qwen Studio uses the first reference only and keeps its one-attachment safety
+  check.
+- Leonardo AI does not support Story Studio auto-ingest. Attach references in
+  the Leonardo page when needed.
+
+Enable **Use Story Studio references** in the side panel to pull available
+episode, scene, character, composition, and style assets. The queue stores
+only reference descriptors and downloads the bounded image bytes when a job
+runs.
+
+New provider integrations and most new provider models require an extension
+update. Leonardo is the exception: its model list is read from the signed-in
+Leonardo page when you refresh models in the side panel.
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.

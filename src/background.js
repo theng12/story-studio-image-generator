@@ -13,7 +13,7 @@
 import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
-import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider } from './lib/providers.js';
+import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
 import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 
@@ -406,8 +406,12 @@ async function fetchImagePayload(provider, imageUrl) {
 // Reference descriptors persist as small URLs. Image bytes are fetched only
 // when a job runs and cached for this worker lifetime, never in queue storage.
 const refImageCache = new Map();
-async function resolveReferenceImages(item, settings) {
-  const descriptors = Array.isArray(item.referenceDescriptors) ? item.referenceDescriptors : [];
+async function resolveReferenceImages(item, settings, provider) {
+  const references = limitProviderReferences(
+    provider,
+    Array.isArray(item.referenceDescriptors) ? item.referenceDescriptors : []
+  );
+  const descriptors = references;
   if (!descriptors.length) return [];
   const client = new StudioClient(settings.studioBaseUrl);
   return Promise.all(descriptors.map(async (descriptor, index) => {
@@ -436,7 +440,7 @@ async function resolveReferenceImages(item, settings) {
 
 const refMediaCache = new Map();
 async function resolveReferenceMediaIds(item, settings, tab) {
-  const references = await resolveReferenceImages(item, settings);
+  const references = await resolveReferenceImages(item, settings, 'flow');
   if (!references.length) return [];
   const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
   const mediaIds = [];
@@ -461,13 +465,12 @@ async function generateAndSave(item, settings, tab) {
   const provider = item.provider || DEFAULT_PROVIDER_ID;
   const handlers = {
     chatgpt: async () => {
-      const reference = (await resolveReferenceImages(item, settings))[0];
       const r = await send(tab.id, {
         type: 'chatgpt:generateImage',
         params: {
           prompt: item.prompt,
           aspectRatio: item.aspectRatio || settings.aspectRatio,
-          reference,
+          references: await resolveReferenceImages(item, settings, provider),
           maxWaitSec: settings.chatgptMaxWaitSec,
         },
       });
@@ -476,13 +479,12 @@ async function generateAndSave(item, settings, tab) {
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     aistudio: async () => {
-      const reference = (await resolveReferenceImages(item, settings))[0];
       return send(tab.id, {
         type: 'aistudio:generateImage',
         params: {
           prompt: item.prompt,
           aspectRatio: item.aspectRatio || settings.aistudioAspectRatio || settings.aspectRatio,
-          reference,
+          references: await resolveReferenceImages(item, settings, provider),
         },
       });
     },
@@ -503,13 +505,12 @@ async function generateAndSave(item, settings, tab) {
       return send(tab.id, { type: 'flow:generateImage', params });
     },
     qwen: async () => {
-      const reference = (await resolveReferenceImages(item, settings))[0];
       const r = await send(tab.id, {
         type: 'qwen:generateImage',
         params: {
           prompt: item.prompt,
           aspectRatio: item.aspectRatio || settings.aspectRatio,
-          reference,
+          references: await resolveReferenceImages(item, settings, provider),
         },
       });
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);

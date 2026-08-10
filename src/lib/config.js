@@ -29,9 +29,6 @@ export const DEFAULTS = {
   flowAutoNewProject: false,
   flowNewProjectEvery: 300,
 
-  // Selected character whose reference sheet is attached to Flow character-scene
-  // image generations (imageInputs REFERENCE). '' = none. Per project.
-  characterRefId: '',
   // Use the Story Studio reference resolver for queued image generations.
   storyStudioReferencesEnabled: true,
 
@@ -169,6 +166,7 @@ export function normalizeSettings(settings) {
   if (settings.characterRefEnabled === false) settings.storyStudioReferencesEnabled = false;
   else if (settings.storyStudioReferencesEnabled !== false) settings.storyStudioReferencesEnabled = true;
   delete settings.characterRefEnabled;
+  delete settings.characterRefId;
   delete settings.pollinationsToken;
   delete settings.pollinationsModel;
   delete settings.pollinationsSeed;

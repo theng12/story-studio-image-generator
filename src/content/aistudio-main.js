@@ -57,12 +57,10 @@
     }
   }
 
-  async function attachReference(ref) {
+  async function attachReference(ref, expectedCount) {
     if (!ref || !ref.base64) return;
     const ta = promptInput();
     if (!ta) throw new Error('AI Studio prompt box not found before reference upload.');
-    await clearReferences();
-    await sleep(300);
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -80,7 +78,7 @@
       const t0 = Date.now();
       while (Date.now() - t0 < ms) {
         const text = norm(document.body.innerText);
-        if (refChips().length) return true;
+        if (refChips().length >= expectedCount) return true;
         if (dataImages().length > beforeImages) return true;
         if (text !== beforeText && /\b(upload|attached|remove|image|file)\b/i.test(text)) return true;
         await sleep(300);
@@ -92,15 +90,26 @@
     pasteFile();
     let attached = await waitForAttachment(20000, beforeText, beforeImages);
     if (!attached) {
-      await clearReferences();
       await sleep(500);
       const retryText = norm(document.body.innerText);
       const retryImages = dataImages().length;
       pasteFile();
       attached = await waitForAttachment(20000, retryText, retryImages);
     }
-    if (!attached) throw new Error('AI Studio did not accept the character reference image.');
+    if (!attached) throw new Error('AI Studio did not accept a Story Studio reference image.');
     await sleep(1200);
+  }
+
+  async function attachReferences(references) {
+    const valid = Array.isArray(references) ? references.filter((reference) => reference?.base64) : [];
+    await clearReferences();
+    if (refChips().length) throw new Error('AI Studio could not clear previous attachments. Remove them in the tab, then retry.');
+    for (const reference of valid) {
+      await attachReference(reference, refChips().length + 1);
+    }
+    if (refChips().length !== valid.length) {
+      throw new Error(`AI Studio attachment count mismatch: expected ${valid.length}, found ${refChips().length}.`);
+    }
   }
 
   function currentErrorText() {
@@ -161,15 +170,16 @@
     if (!params.prompt || !params.prompt.trim()) throw new Error('Empty image prompt.');
     const ta = promptInput();
     if (!ta) throw new Error('AI Studio prompt box not found — open aistudio.google.com in image mode.');
-    if (params.reference) await attachReference(params.reference);
+    const references = Array.isArray(params.references) ? params.references : [];
+    await attachReferences(references);
     const before = new Set(dataImages());
     // Wrap as an explicit generate instruction with the ratio in words; don't
     // double-wrap if the prompt already starts with a generate/create verb.
     const p = params.prompt.trim();
     const phrase = RATIO_PHRASE[String(params.aspectRatio || '16:9')] || `${params.aspectRatio} aspect ratio`;
     const base = /^(generate|create|make|draw|render|design)\b/i.test(p) ? p : `Create a ${phrase} image of ${p}`;
-    const text = params.reference
-      ? `Using the attached image as the reference for the main character (keep the same character design), ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+    const text = references.length
+      ? `Use the attached Story Studio reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
       : base;
     setTextarea(ta, text);
     await sleep(250);

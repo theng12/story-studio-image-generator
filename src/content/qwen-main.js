@@ -257,10 +257,13 @@
     const textarea = promptInput();
     if (!textarea) throw new Error('Qwen Studio prompt box was not found. Open chat.qwen.ai and sign in.');
 
-    if (params.reference) {
+    const reference = Array.isArray(params.references) ? params.references[0] : null;
+    if (reference) {
       postProgress('uploading reference');
-      await attachReference(params.reference);
+      await attachReference(reference);
       await sleep(1200); // leeway: let the upload fully settle before typing
+    } else {
+      await clearReferences();
     }
 
     const beforeImages = new Set(imageUrls());
@@ -272,7 +275,7 @@
 
     // Last-line guard: a stray second reference chip can appear late — trim to
     // exactly one right before sending so Qwen never generates with a double.
-    if (params.reference) {
+    if (reference) {
       for (let guard = 0; guard < 6 && refChips().length > 1; guard++) {
         refChips()[refChips().length - 1].querySelector('.close-button')?.click();
         await sleep(400);
