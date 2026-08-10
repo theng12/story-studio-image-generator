@@ -20,19 +20,8 @@
     "https://cdn.qwenlm.ai/*",
     "https://aisandbox-pa.googleapis.com/*",
     "https://flow-content.google/*",
-    "https://grok.com/*",
-    "https://*.grok.com/*",
-    "https://perchance.org/*",
-    "https://*.perchance.org/*",
-    "https://freegen.app/*",
-    "https://*.freegen.app/*",
     "https://app.leonardo.ai/*",
     "https://*.leonardo.ai/*",
-    "https://image.pollinations.ai/*",
-    "https://*.pollinations.ai/*",
-    "https://www.piclumen.com/*",
-    "https://api.piclumen.com/*",
-    "https://images.piclumen.com/*",
     "https://chatgpt.com/*",
     "https://*.oaiusercontent.com/*"
   ],
@@ -74,81 +63,11 @@
     },
     {
       "matches": [
-        "https://grok.com/*"
-      ],
-      "js": [
-        "src/content/grok-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://grok.com/*"
-      ],
-      "js": [
-        "src/content/grok.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://app.leonardo.ai/*"
       ],
       "js": [
         "src/content/leonardo-main.js",
         "src/content/leonardo.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://freegen.app/*"
-      ],
-      "js": [
-        "src/content/freegen-main.js",
-        "src/content/freegen.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://*.perchance.org/ai-text-to-image-generator*",
-        "https://image-generation.perchance.org/embed*"
-      ],
-      "js": [
-        "src/content/perchance-main.js"
-      ],
-      "world": "MAIN",
-      "all_frames": true,
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://*.perchance.org/ai-text-to-image-generator*"
-      ],
-      "js": [
-        "src/content/perchance.js"
-      ],
-      "all_frames": true,
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.piclumen.com/*"
-      ],
-      "js": [
-        "src/content/piclumen-main.js"
-      ],
-      "world": "MAIN",
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.piclumen.com/*"
-      ],
-      "js": [
-        "src/content/piclumen.js"
       ],
       "run_at": "document_idle"
     },

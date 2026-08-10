@@ -67,18 +67,7 @@
       <div class="asset-settings">
         <label class="asset-setting">
           <span class="mini">Provider</span>
-          <select id="provider">
-            <option value="flow">Google Flow</option>
-            <option value="aistudio">Google AI Studio</option>
-            <option value="qwen">Qwen Studio</option>
-            <option value="grok">Grok Imagine</option>
-            <option value="perchance">Perchance</option>
-            <option value="freegen">FreeGen</option>
-            <option value="leonardo">Leonardo AI</option>
-            <option value="pollinations">Pollinations (no tab)</option>
-            <option value="piclumen">PicLumen</option>
-            <option value="chatgpt">ChatGPT</option>
-          </select>
+          <select id="provider"></select>
         </label>
         <label class="asset-setting">
           <span class="mini">Image</span>
@@ -163,96 +152,6 @@
           <span class="hint">Retries a fresh provider token before this image is paused for cooldown.</span>
         </label>
       </div>
-      <div id="freegenCard" class="leo hidden">
-        <div class="label">FreeGen options</div>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Aspect ratio</span>
-            <select id="freegenAspect">
-              <option value="16:9">16:9</option>
-              <option value="9:16">9:16</option>
-              <option value="1:1">1:1</option>
-              <option value="4:3">4:3</option>
-              <option value="3:4">3:4</option>
-            </select>
-          </label>
-        </div>
-      </div>
-      <div id="perchanceCard" class="leo hidden">
-        <div class="label">Perchance options</div>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Art style</span>
-            <input id="perchanceStyleInput" list="perchanceStylesList" placeholder="No style" />
-            <datalist id="perchanceStylesList">
-              <option value="No style"></option>
-              <option value="Cinematic"></option>
-              <option value="Casual Photo"></option>
-              <option value="Professional Photo"></option>
-              <option value="Digital Painting"></option>
-              <option value="Concept Art"></option>
-              <option value="Fantasy Painting"></option>
-              <option value="Illustration"></option>
-              <option value="Anime"></option>
-              <option value="Studio Ghibli"></option>
-              <option value="Watercolor"></option>
-              <option value="Pixel Art"></option>
-            </datalist>
-          </label>
-          <label class="grow">
-            <span class="mini">Aspect ratio</span>
-            <select id="perchanceAspect">
-              <option value="16:9">16:9</option>
-              <option value="9:16">9:16</option>
-              <option value="1:1">1:1</option>
-              <option value="4:3">4:3</option>
-              <option value="3:4">3:4</option>
-            </select>
-          </label>
-          <label class="grow">
-            <span class="mini">Images</span>
-            <select id="perchanceCount">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-            </select>
-          </label>
-        </div>
-      </div>
-      <div id="pollinationsCard" class="leo hidden">
-        <div class="label">Pollinations options</div>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Model</span>
-            <input id="pollModel" list="pollModelsList" placeholder="flux" />
-            <datalist id="pollModelsList">
-              <option value="flux"></option>
-              <option value="turbo"></option>
-              <option value="sana"></option>
-            </datalist>
-          </label>
-          <label class="grow">
-            <span class="mini">Seed (blank = random)</span>
-            <input id="pollSeed" inputmode="numeric" placeholder="random" />
-          </label>
-        </div>
-        <div class="row leo-grid">
-          <label class="grow">
-            <span class="mini">Token (optional)</span>
-            <input id="pollToken" placeholder="from auth.pollinations.ai — removes watermark" />
-          </label>
-        </div>
-        <div class="hint">
-          Runs in the background — <b>no tab needed</b>. Free/anonymous is rate-limited (~1 image/15s) and watermarked; register at auth.pollinations.ai and paste a token to remove the watermark and go faster. Aspect ratio follows your scene setting.
-        </div>
-      </div>
-      <div id="grokCard" class="leo hidden">
-        <div class="label">Grok Imagine options</div>
-        <div class="hint">
-          Set the image model, aspect ratio, and style on the <b>Grok Imagine page</b> — Grok saves them to your account and the extension replays your prompt with whatever you last chose there. Set them once; they apply to every scene. (Grok takes no per-request options, so there's nothing to set here.)
-        </div>
-      </div>
       <div id="aistudioCard" class="leo hidden">
         <div class="label">Google AI Studio options</div>
         <div class="row leo-grid">
@@ -294,12 +193,6 @@
         </div>
         <div class="hint">
           Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b> (a hidden/minimized tab gets its timers throttled and generation crawls). Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> (a full page load) — ChatGPT stalls if a 2nd image is requested in the same page session, and a fresh load is what clears it. The wait is <b>progress-aware</b>: it keeps waiting while ChatGPT is actively generating and only gives up if it goes quiet with no image; <b>Max wait</b> is the hard ceiling for a slow-but-working image. Character reference (img2img) is supported — pick a character below and its sheet is pasted into the composer before each character scene. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
-        </div>
-      </div>
-      <div id="piclumenCard" class="leo hidden">
-        <div class="label">PicLumen options</div>
-        <div class="hint">
-          Uses your signed-in <b>piclumen.com</b> session (model <b>PicLumen Art V1</b>) through its API. Free tier is ~10 <b>Lumens</b>/day (1 per image); aspect ratio follows the scene setting. When the free quota runs out the queue pauses so you can rotate providers — enable auto-resume in the Provider cooldown card to retry after the daily reset instead. Character-reference img2img is coming later.
         </div>
       </div>
       <div id="qwenCard" class="leo hidden">
