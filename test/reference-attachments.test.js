@@ -54,39 +54,64 @@ test('Qwen accepts only the first bounded reference and retains its one-chip gua
   assert.match(adapter, /settleToOneChip/);
 });
 
-function qwenAdapterWithUnremovableChip() {
+function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false } = {}) {
   let sendClicks = 0;
+  let pasteEvents = 0;
   const visible = { getBoundingClientRect: () => ({ width: 100, height: 30 }) };
-  const closeButton = { click() {} };
-  const staleChip = { ...visible, querySelector: (selector) => (selector === '.close-button' ? closeButton : null) };
+  const chips = [...initialChips];
+  const makeChip = (removable = true) => {
+    const chip = { ...visible };
+    chip.querySelector = (selector) => {
+      if (selector !== '.close-button') return null;
+      return {
+        click() {
+          if (removable) chips.splice(chips.indexOf(chip), 1);
+        },
+      };
+    };
+    return chip;
+  };
+  for (let index = 0; index < chips.length; index++) chips[index] = makeChip(chips[index]);
   class FakeTextarea {
     constructor() {
-      this.value = '';
+      this._value = '';
       this.placeholder = '';
     }
 
+    get value() {
+      return this._value;
+    }
+    set value(value) {
+      this._value = value;
+    }
     focus() {}
-    dispatchEvent() {}
+    dispatchEvent(event) {
+      if (event?.type !== 'paste') return;
+      pasteEvents++;
+      if (throwOnPaste) throw new Error('paste should not run');
+      chips.push(makeChip(true));
+    }
     getBoundingClientRect() {
       return { width: 100, height: 30 };
     }
   }
   const textarea = new FakeTextarea();
+  let sendChecks = 0;
   const sendButton = {
     ...visible,
-    disabled: false,
     classList: { contains: () => false },
     click() {
       sendClicks++;
     },
   };
+  Object.defineProperty(sendButton, 'disabled', { get: () => sendChecks++ === 0 });
   const document = {
     body: {},
     querySelector(selector) {
       return selector === 'textarea.message-input-textarea' ? textarea : null;
     },
     querySelectorAll(selector) {
-      if (selector === '.vision-item-container') return [staleChip];
+      if (selector === '.vision-item-container') return chips;
       if (selector === 'button.send-button') return [sendButton];
       return [];
     },
@@ -95,14 +120,27 @@ function qwenAdapterWithUnremovableChip() {
     document,
     HTMLTextAreaElement: FakeTextarea,
     Event: class Event {},
+    File: class File {},
+    DataTransfer: class DataTransfer {
+      constructor() {
+        this.items = { add() {} };
+      }
+    },
+    ClipboardEvent: class ClipboardEvent {
+      constructor(type) {
+        this.type = type;
+      }
+    },
     MutationObserver: class MutationObserver {
       observe() {}
       disconnect() {}
     },
+    atob,
     URL,
     Date,
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     setTimeout(callback, ms) {
+      onSleep?.(ms, chips, makeChip);
       if (ms < 2000) queueMicrotask(callback);
       return 0;
     },
@@ -118,11 +156,12 @@ function qwenAdapterWithUnremovableChip() {
   return {
     generate: (params) => context.__STORY_STUDIO_QWEN_CALL__('generateImage', params),
     sendClicks: () => sendClicks,
+    pasteEvents: () => pasteEvents,
   };
 }
 
 test('Qwen rejects an unremovable stale chip before sending a no-reference generation', async () => {
-  const adapter = qwenAdapterWithUnremovableChip();
+  const adapter = qwenAdapterHarness({ initialChips: [false] });
   const outcome = await Promise.race([
     adapter.generate({ prompt: 'A cave at dusk', references: [] }).then(
       () => ({ kind: 'resolved' }),
@@ -133,5 +172,44 @@ test('Qwen rejects an unremovable stale chip before sending a no-reference gener
 
   assert.equal(outcome.kind, 'rejected');
   assert.match(outcome.error.message, /could not clear.*reference/i);
+  assert.equal(adapter.sendClicks(), 0);
+});
+
+test('Qwen rejects a stale chip that appears while Send becomes ready', async () => {
+  let addedLateChip = false;
+  const adapter = qwenAdapterHarness({
+    onSleep(ms, chips, makeChip) {
+      if (ms === 300 && !addedLateChip) {
+        addedLateChip = true;
+        chips.push(makeChip(false));
+      }
+    },
+  });
+  const outcome = await Promise.race([
+    adapter.generate({ prompt: 'A cave at dusk', references: [] }).then(
+      () => ({ kind: 'resolved' }),
+      (error) => ({ kind: 'rejected', error })
+    ),
+    delay(100).then(() => ({ kind: 'timed-out' })),
+  ]);
+
+  assert.equal(outcome.kind, 'rejected');
+  assert.match(outcome.error.message, /attachment count mismatch/i);
+  assert.equal(adapter.sendClicks(), 0);
+});
+
+test('Qwen rejects an unremovable stale chip before pasting a reference', async () => {
+  const adapter = qwenAdapterHarness({ initialChips: [false], throwOnPaste: true });
+  const outcome = await Promise.race([
+    adapter.generate({ prompt: 'A cave at dusk', references: [{ base64: 'aGVsbG8=', mime: 'image/png', name: 'reference.png' }] }).then(
+      () => ({ kind: 'resolved' }),
+      (error) => ({ kind: 'rejected', error })
+    ),
+    delay(100).then(() => ({ kind: 'timed-out' })),
+  ]);
+
+  assert.equal(outcome.kind, 'rejected');
+  assert.match(outcome.error.message, /could not clear.*reference/i);
+  assert.equal(adapter.pasteEvents(), 0);
   assert.equal(adapter.sendClicks(), 0);
 });

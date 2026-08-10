@@ -167,8 +167,17 @@
     return refChips().length;
   }
 
-  // Wait for the reference chip count to stop changing (a slow upload can add its
-  // chip late, or a stray second one can appear), then trim to exactly one.
+  async function requireReferencesCleared(stage) {
+    const remaining = await clearReferences();
+    if (remaining !== 0) {
+      throw new Error(`Qwen Studio could not clear stale reference attachments before ${stage} (${remaining} remain). Remove them in the tab, then retry.`);
+    }
+    return remaining;
+  }
+
+  // Wait for the post-paste chip count to settle. The verified-zero baseline
+  // means one chip is the only safe accepted result; never guess which extra
+  // chip is stale by deleting it.
   async function settleToOneChip(timeoutMs = 8000) {
     let last = -1;
     let stableSince = Date.now();
@@ -183,16 +192,12 @@
       }
       await sleep(300);
     }
-    for (let guard = 0; guard < 8 && refChips().length > 1; guard++) {
-      refChips()[refChips().length - 1].querySelector('.close-button')?.click();
-      await sleep(400);
-    }
     return refChips().length;
   }
 
   async function attachReference(ref) {
     if (!ref || !ref.base64) return;
-    await clearReferences(); // don't let attachments stack across scenes
+    await requireReferencesCleared('preparing the reference upload');
     const bin = atob(ref.base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -210,28 +215,26 @@
       Object.defineProperty(event, 'clipboardData', { value: dt });
       ta.dispatchEvent(event);
     };
-    const waitForChip = async (ms) => {
+    const waitForChip = async (ms, baseline) => {
+      if (baseline !== 0) throw new Error('Qwen Studio reference upload requires a zero-attachment baseline.');
       const t0 = Date.now();
       while (Date.now() - t0 < ms) {
-        if (refChips().length) return true;
+        if (refChips().length > baseline) return true;
         await sleep(300);
       }
       return false;
     };
-    // One paste, then wait GENEROUSLY — a large sheet can take a long time to
-    // register, and retrying too soon fires a SECOND paste while the first is
-    // still in flight, ending up with two references (which stalls the job).
-    // So wait up to 25s before any retry, then let the count settle and trim to
-    // exactly one.
-    await clearReferences();
+    // Verify the zero baseline immediately before every paste. A slow upload
+    // can still add a chip late, so the settled result must be exactly one.
+    const baseline = await requireReferencesCleared('pasting the reference');
     await sleep(500);
     pasteFile();
-    let attached = await waitForChip(25000);
+    let attached = await waitForChip(25000, baseline);
     if (!attached) {
-      await clearReferences();
+      const retryBaseline = await requireReferencesCleared('retrying the reference upload');
       await sleep(600);
       pasteFile();
-      attached = await waitForChip(25000);
+      attached = await waitForChip(25000, retryBaseline);
     }
     if (!attached) throw new Error('Qwen Studio did not accept the reference image upload.');
     // Let the upload finish + any stray second chip appear, then trim to one.
@@ -264,10 +267,7 @@
       await attachReference(reference);
       await sleep(1200); // leeway: let the upload fully settle before typing
     } else {
-      const remaining = await clearReferences();
-      if (remaining !== 0) {
-        throw new Error(`Qwen Studio could not clear stale reference attachments (${remaining} remain). Remove them in the tab, then retry.`);
-      }
+      await requireReferencesCleared('starting a no-reference generation');
     }
 
     const beforeImages = new Set(imageUrls());
@@ -276,14 +276,6 @@
     const ratioInstruction = RATIO_INSTRUCTIONS[ratio] || `Create an image with an exact ${ratio} aspect ratio`;
     setTextarea(textarea, `${ratioInstruction}. Compose all content inside that format. Image prompt: ${prompt}`);
     await sleep(800); // leeway: let the prompt register before sending
-
-    // A late chip can appear after upload. Require the exact safe state before
-    // Qwen receives the prompt: one reference when requested, otherwise none.
-    const expectedChipCount = reference ? 1 : 0;
-    const finalChipCount = refChips().length;
-    if (finalChipCount !== expectedChipCount) {
-      throw new Error(`Qwen Studio reference attachment count mismatch: expected ${expectedChipCount}, found ${finalChipCount}. Remove stale attachments in the tab, then retry.`);
-    }
 
     // Wait for Send to actually be ready (present, visible, enabled) rather than
     // a one-shot check — after an attachment it can take a beat to enable.
@@ -299,6 +291,13 @@
     }
     if (!send) throw new Error('Qwen Studio Send button did not become available. Check the tab for a sign-in or verification prompt.');
     await sleep(400); // small settle so the click lands after the composer is stable
+    // A chip can appear while Send becomes ready. Make the exact-state check the
+    // final operation before clicking so no stale attachment reaches Qwen.
+    const expectedChipCount = reference ? 1 : 0;
+    const finalChipCount = refChips().length;
+    if (finalChipCount !== expectedChipCount) {
+      throw new Error(`Qwen Studio reference attachment count mismatch: expected ${expectedChipCount}, found ${finalChipCount}. Remove stale attachments in the tab, then retry.`);
+    }
     send.click();
     postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);
