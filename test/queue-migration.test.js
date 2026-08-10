@@ -47,3 +47,23 @@ test('rejects local retries for removed or unknown provider queue items', () => 
   assert.equal(canRetryItem({ provider: 'unknown', status: 'failed' }), false);
   assert.equal(canRetryItem({ provider: 'flow', status: 'done' }), false);
 });
+
+test('migrates a legacy character reference into one descriptor without changing completed history', () => {
+  const queue = [
+    { id: 'legacy-pending', slug: 'project', status: 'pending', characterRef: { characterId: 'aria', filename: 'sheet.png' } },
+    { id: 'legacy-done', slug: 'project', status: 'done', characterRef: { characterId: 'aria', filename: 'sheet.png' } },
+  ];
+
+  const migrated = migrateQueue(queue, NOW);
+
+  assert.deepEqual(migrated[0].referenceDescriptors, [{
+    source: 'character',
+    label: 'Character reference: aria',
+    url: '/api/projects/project/characters/aria/reference-image/sheet.png',
+    characterId: 'aria',
+    filename: 'sheet.png',
+  }]);
+  assert.equal(migrated[0].characterRef, undefined);
+  assert.deepEqual(migrated[1], queue[1]);
+  assert.deepEqual(queue[0].characterRef, { characterId: 'aria', filename: 'sheet.png' });
+});

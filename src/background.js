@@ -15,6 +15,7 @@ import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider } from './lib/providers.js';
 import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
+import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, resolveReferenceDescriptors } from './lib/reference-assets.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
@@ -402,42 +403,57 @@ async function fetchImagePayload(provider, imageUrl) {
   return responseToPayload(response);
 }
 
-// Generate one scene's image and save it to Story Studio.
-// Character reference: upload the chosen character's sheet to Flow ONCE per
-// (project, character, file) and cache the returned mediaId, so every character
-// scene in the batch reuses it. Runs through the Flow content-script tab.
-// For content-script providers (Qwen) the character sheet is uploaded into the
-// site's own composer each generation, so we just need its raw bytes. Cache the
-// Story Studio fetch per (project, character, file) — the content script
-// re-uploads from these bytes every scene (Qwen consumes the image each time).
+// Reference descriptors persist as small URLs. Image bytes are fetched only
+// when a job runs and cached for this worker lifetime, never in queue storage.
 const refImageCache = new Map();
-async function resolveCharacterRefImage(item, settings) {
-  const ref = item.characterRef;
-  if (!ref || !ref.characterId || !ref.filename) return null;
-  const key = `${item.slug}::${ref.characterId}::${ref.filename}`;
-  if (refImageCache.has(key)) return refImageCache.get(key);
+async function resolveReferenceImages(item, settings) {
+  const descriptors = Array.isArray(item.referenceDescriptors) ? item.referenceDescriptors : [];
+  if (!descriptors.length) return [];
   const client = new StudioClient(settings.studioBaseUrl);
-  const img = await client.characterReferenceImageBase64(item.slug, ref.characterId, ref.filename);
-  const payload = { base64: img.base64, mime: img.mime, name: `char_${ref.characterId}.png` };
-  refImageCache.set(key, payload);
-  return payload;
+  return Promise.all(descriptors.map(async (descriptor, index) => {
+    const key = String(descriptor?.url || '');
+    if (!key) throw new Error(`Story Studio reference ${descriptor?.label || index + 1} has no download URL.`);
+    let request = refImageCache.get(key);
+    if (!request) {
+      request = client.referenceAssetBase64(descriptor);
+      refImageCache.set(key, request);
+    }
+    try {
+      const image = await request;
+      return {
+        base64: image.base64,
+        mime: image.mime,
+        url: key,
+        name: descriptor.filename || `reference-${index + 1}.png`,
+        label: descriptor.label || `Reference ${index + 1}`,
+      };
+    } catch (error) {
+      refImageCache.delete(key);
+      throw error;
+    }
+  }));
 }
 
 const refMediaCache = new Map();
-async function resolveCharacterRefMediaId(item, settings, tab) {
-  const ref = item.characterRef;
-  if (!ref || !ref.characterId || !ref.filename) return null;
-  const key = `${item.slug}::${ref.characterId}::${ref.filename}`;
-  if (refMediaCache.has(key)) return refMediaCache.get(key);
-  const client = new StudioClient(settings.studioBaseUrl);
-  const img = await client.characterReferenceImageBase64(item.slug, ref.characterId, ref.filename);
+async function resolveReferenceMediaIds(item, settings, tab) {
+  const references = await resolveReferenceImages(item, settings);
+  if (!references.length) return [];
   const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
-  const up = await send(tab.id, {
-    type: 'flow:uploadImage',
-    params: { projectId, base64: img.base64, mime: img.mime, fileName: `char_${ref.characterId}.png` },
-  });
-  if (up.mediaId) refMediaCache.set(key, up.mediaId);
-  return up.mediaId;
+  const mediaIds = [];
+  for (const reference of references) {
+    const key = `${projectId}::${reference.url}`;
+    let mediaId = refMediaCache.get(key);
+    if (!mediaId) {
+      const up = await send(tab.id, {
+        type: 'flow:uploadImage',
+        params: { projectId, base64: reference.base64, mime: reference.mime, fileName: reference.name },
+      });
+      mediaId = up.mediaId;
+      if (mediaId) refMediaCache.set(key, mediaId);
+    }
+    if (mediaId) mediaIds.push(mediaId);
+  }
+  return mediaIds;
 }
 
 async function generateAndSave(item, settings, tab) {
@@ -445,10 +461,7 @@ async function generateAndSave(item, settings, tab) {
   const provider = item.provider || DEFAULT_PROVIDER_ID;
   const handlers = {
     chatgpt: async () => {
-      // Character reference (img2img): fetch the sheet bytes so the content script
-      // can paste it into the composer before generating (character scenes only).
-      const reference =
-        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      const reference = (await resolveReferenceImages(item, settings))[0];
       const r = await send(tab.id, {
         type: 'chatgpt:generateImage',
         params: {
@@ -463,10 +476,7 @@ async function generateAndSave(item, settings, tab) {
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     aistudio: async () => {
-      // Character reference (img2img): fetch the sheet bytes so the content script
-      // can paste it into AI Studio before generating (character scenes only).
-      const reference =
-        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      const reference = (await resolveReferenceImages(item, settings))[0];
       return send(tab.id, {
         type: 'aistudio:generateImage',
         params: {
@@ -486,18 +496,14 @@ async function generateAndSave(item, settings, tab) {
         aspectRatio: item.aspectRatio || settings.aspectRatio,
         recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
       };
-      // Character reference — only on scenes flagged as character scenes at enqueue.
-      if (item.applyRef && item.characterRef) {
-        const refId = await resolveCharacterRefMediaId(item, settings, tab);
-        if (refId) params.imageInputs = [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: refId }];
+      const referenceIds = await resolveReferenceMediaIds(item, settings, tab);
+      if (referenceIds.length) {
+        params.imageInputs = referenceIds.map((name) => ({ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name }));
       }
       return send(tab.id, { type: 'flow:generateImage', params });
     },
     qwen: async () => {
-      // Qwen img2img: fetch the character sheet bytes so the content script can
-      // upload it into the Qwen composer before generating (character scenes only).
-      const reference =
-        item.applyRef && item.characterRef ? await resolveCharacterRefImage(item, settings) : undefined;
+      const reference = (await resolveReferenceImages(item, settings))[0];
       const r = await send(tab.id, {
         type: 'qwen:generateImage',
         params: {
@@ -901,21 +907,35 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
+  const providerConfig = getProvider(prov);
   const src = source || 'plan'; // 'plan' (scene_plan) | 'prompts' (03/04 prompts)
   const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene'; // asset kind
   const effTarget = 'project';
+  const maxReferences = providerConfig?.capabilities?.maxReferences || 0;
+
+  // Reference metadata is read once for the complete enqueue operation. Each
+  // queued item receives only its bounded descriptors; bytes stay lazy.
+  let referenceContext = null;
+  if (settings.storyStudioReferencesEnabled !== false && providerConfig?.capabilities?.storyStudioReferences && maxReferences) {
+    try {
+      const client = new StudioClient(settings.studioBaseUrl);
+      referenceContext = normalizeReferenceContext(await client.referenceAssets(slug, episodeCode, episodeTitle || ''));
+    } catch (error) {
+      throw new Error(`Story Studio reference assets could not be read: ${String(error?.message || error)}`);
+    }
+  }
 
   // Character reference (Flow / Qwen / ChatGPT images). Gate by scene_type so the
   // sheet only lands on character scenes — read the raw scene plan (scene-review
   // doesn't expose scene_type). Untagged scenes count as character (matches SS's
   // renderer). Non-plan sources have no scene_type, so the reference applies to
   // all of them.
-  const wantRef =
-    (prov === 'flow' || prov === 'qwen' || prov === 'chatgpt' || prov === 'aistudio') &&
+  const wantLegacyCharacterRef =
+    providerConfig?.capabilities?.characterReferences &&
     akind === 'scene' &&
     !!(characterRef && characterRef.characterId && characterRef.filename);
   let sceneTypeById = null;
-  if (wantRef && src === 'plan') {
+  if (wantLegacyCharacterRef && src === 'plan') {
     try {
       const plan = await new StudioClient(settings.studioBaseUrl).scenePlan(slug, episodeCode);
       sceneTypeById = new Map((plan?.scene_plan?.scenes || []).map((s) => [s.id, s.scene_type]));
@@ -923,16 +943,39 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       sceneTypeById = null; // fail-open: if we can't read types, reference all
     }
   }
-  const appliesRef = (key) => {
-    if (!wantRef) return false;
+  const appliesLegacyCharacterRef = (key) => {
+    if (!wantLegacyCharacterRef) return false;
     if (src !== 'plan' || !sceneTypeById) return true;
     const t = sceneTypeById.get(key);
     return t === 'character' || t == null;
   };
 
+  const referencesForScene = (scene) => {
+    const automatic = referenceContext
+      ? resolveReferenceDescriptors({
+          kind: akind,
+          sceneKey: scene.key,
+          prompt: scene.prompt,
+          context: referenceContext,
+          maxReferences,
+        })
+      : [];
+    const selectedCharacter = appliesLegacyCharacterRef(scene.key)
+      ? legacyCharacterReferenceDescriptor(slug, characterRef)
+      : null;
+    const candidates = selectedCharacter ? [selectedCharacter, ...automatic] : automatic;
+    const seen = new Set();
+    return candidates.filter((descriptor) => {
+      if (!descriptor || seen.has(descriptor.url)) return false;
+      seen.add(descriptor.url);
+      return true;
+    }).slice(0, maxReferences);
+  };
+
   // scenes are normalized: { source, key, label, prompt, hasImage }
-  const items = (scenes || []).map((s) =>
-    mkItem({
+  const items = (scenes || []).map((s) => {
+    const referenceDescriptors = referencesForScene(s);
+    return mkItem({
       kind: akind, // 'scene' | 'thumbnail'
       provider: prov,
       source: src,
@@ -952,12 +995,11 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
             : prov === 'chatgpt'
               ? settings.chatgptAspectRatio || '16:9'
               : settings.aspectRatio,
-      applyRef: appliesRef(s.key),
-      characterRef: appliesRef(s.key) ? characterRef : undefined,
+      referenceDescriptors,
       fleetJobId: fleetJobId || undefined, // tag scenes dispatched by the Fleet Hub
       label: `${episodeCode} ${s.label || akind + ' ' + s.key}`,
-    })
-  );
+    });
+  });
   return enqueue(items);
 }
 

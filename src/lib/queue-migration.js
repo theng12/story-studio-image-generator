@@ -1,4 +1,5 @@
 import { DEFAULT_PROVIDER_ID, isMaintainedProvider } from './providers.js';
+import { legacyCharacterReferenceDescriptor } from './reference-assets.js';
 
 function removedFailure(provider) {
   return {
@@ -13,9 +14,17 @@ export function migrateQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
     const provider = item?.provider || DEFAULT_PROVIDER_ID;
-    if ((item?.status !== 'pending' && item?.status !== 'running') || isMaintainedProvider(provider)) return { ...item };
+    const active = item?.status === 'pending' || item?.status === 'running';
+    if (!active) return { ...item };
+    const legacyReference = !Array.isArray(item?.referenceDescriptors) && item?.applyRef !== false
+      ? legacyCharacterReferenceDescriptor(item?.slug, item?.characterRef)
+      : null;
+    const normalized = legacyReference
+      ? { ...item, referenceDescriptors: [legacyReference], characterRef: undefined }
+      : { ...item };
+    if (isMaintainedProvider(provider)) return normalized;
     return {
-      ...item,
+      ...normalized,
       status: 'failed',
       error: `The ${provider} provider was removed and this queued job cannot be run.`,
       failure: removedFailure(provider),

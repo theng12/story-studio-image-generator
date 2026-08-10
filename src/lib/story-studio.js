@@ -24,6 +24,11 @@ function abToBase64(buf) {
   return btoa(bin);
 }
 
+function referenceFileName(image) {
+  if (typeof image === 'string') return image;
+  return image?.filename || image?.name || '';
+}
+
 export class StudioClient {
   constructor(baseUrl) {
     this.base = (baseUrl || '').replace(/\/+$/, '');
@@ -141,6 +146,71 @@ export class StudioClient {
     return this._json(`/projects/${encodeURIComponent(slug)}/characters`);
   }
 
+  continuity(slug, code) {
+    return this._json(`/projects/${encodeURIComponent(slug)}/continuity/${encodeURIComponent(code)}`);
+  }
+
+  // Fetch the complete reference context once per enqueue operation. Character
+  // image URLs are attached here; the bytes stay out of the persistent queue.
+  async referenceAssets(slug, code, title = '') {
+    const query = title ? `?title=${encodeURIComponent(title)}` : '';
+    const path = `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/img2img-references${query}`;
+    const [continuity, listing, characterResponse] = await Promise.all([
+      this.continuity(slug, code),
+      this._json(path),
+      this.listCharacters(slug),
+    ]);
+    const rawCharacters = Array.isArray(characterResponse)
+      ? characterResponse
+      : Array.isArray(characterResponse?.characters)
+        ? characterResponse.characters
+        : [];
+    const characters = rawCharacters.map((character) => {
+      const images = (character?.references?.images || character?.reference_images || []).map((image) => {
+        const filename = referenceFileName(image);
+        return filename
+          ? {
+              filename,
+              url: `/api/projects/${encodeURIComponent(slug)}/characters/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}`,
+            }
+          : null;
+      }).filter(Boolean);
+      return { ...character, references: { ...(character?.references || {}), images } };
+    });
+    return { continuity, listing, characters };
+  }
+
+  async referenceAssetBase64(descriptor) {
+    const label = descriptor?.label || 'reference asset';
+    const rawUrl = typeof descriptor?.url === 'string' ? descriptor.url : '';
+    if (!rawUrl) throw new Error(`Story Studio reference ${label} has no download URL.`);
+    let assetUrl;
+    try {
+      assetUrl = new URL(rawUrl, `${this.base}/`);
+      if (assetUrl.origin !== new URL(this.base).origin || !assetUrl.pathname.startsWith('/api/projects/')) {
+        throw new Error('not a Story Studio project asset');
+      }
+    } catch {
+      throw new Error(`Story Studio reference ${label} has an invalid download URL.`);
+    }
+    const res = await fetch(assetUrl.href, { credentials: 'include' });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body?.detail ? ` ${body.detail}` : '';
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(`Story Studio could not serve ${label} (${res.status}).${detail} Open the reference in Story Studio or restore the advertised asset before retrying.`);
+    }
+    const contentType = res.headers.get('content-type') || 'image/png';
+    if (!contentType.startsWith('image/')) throw new Error(`Story Studio returned a non-image response for ${label}.`);
+    const buf = await res.arrayBuffer();
+    if (!buf.byteLength) throw new Error(`Story Studio reference ${label} is empty.`);
+    return { base64: abToBase64(buf), mime: contentType };
+  }
+
   // The raw scene plan → { scene_plan: { scenes: [{ id, scene_type, ... }] }, ... }.
   // Used to read each scene's `scene_type` (character/environment/event/…), which
   // scene-review does NOT expose — so the reference only lands on character scenes.
@@ -150,29 +220,4 @@ export class StudioClient {
     );
   }
 
-  // Fetch a character's reference-image bytes as base64 (to upload to Flow).
-  async characterReferenceImageBase64(slug, characterId, filename) {
-    const res = await fetch(
-      `${this.base}/api/projects/${encodeURIComponent(slug)}/characters/${encodeURIComponent(
-        characterId
-      )}/reference-image/${encodeURIComponent(filename)}`,
-      { credentials: 'include' }
-    );
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const body = await res.json();
-        detail = body?.detail ? ` ${body.detail}` : '';
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new Error(
-        `Story Studio could not serve character reference "${filename}" for ${slug}/${characterId} (${res.status}).${detail} ` +
-          'Open the same reference preview in Story Studio or restart/update Story Studio so its reference-image route is active.'
-      );
-    }
-    const buf = await res.arrayBuffer();
-    if (!buf.byteLength) throw new Error('Character reference image is empty.');
-    return { base64: abToBase64(buf), mime: res.headers.get('content-type') || 'image/png' };
-  }
 }
