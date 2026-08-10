@@ -181,6 +181,7 @@ test('direct enqueue rejects non-plan scenes before settings, references, or que
 
 test('worker preflight rejects unsupported scene sources before opening or submitting to providers', () => {
   const background = source('src/background.js');
+  const policy = source('src/lib/queue-migration.js');
   const queue = background.slice(background.indexOf('async function processQueue'), background.indexOf('// Drop everything not yet started'));
   const guard = queue.indexOf('assertSupportedProjectScene(item)');
   const openProvider = queue.indexOf('ensureProviderTab(provider)');
@@ -190,6 +191,8 @@ test('worker preflight rejects unsupported scene sources before opening or submi
   assert.ok(guard >= 0 && guard < openProvider);
   assert.ok(guard < generate);
   assert.ok(terminal > guard && terminal < queue.indexOf('if (isKnownPreSubmitLimit'));
+  assert.match(policy, /item\?\.target !== 'download'/);
+  assert.doesNotMatch(policy, /item\?\.target === 'project'/);
 });
 
 test('save routing keeps thumbnail ingest and Scene Review upload but removes scene image ingest', () => {
