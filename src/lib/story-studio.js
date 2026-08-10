@@ -73,9 +73,9 @@ export class StudioClient {
     return this._json('/projects');
   }
 
-  // Episode rows: { episode_code, title, status: { scene_plan, scene_review,
-  // images, ... } }. scene_plan = a scene_plan.json exists; images =
-  // every expected scene image is on disk.
+  // Episode rows include status.scene_plan and top-level scene_images:
+  // { total, present, complete }. complete means every planned image exists;
+  // Scene Review approval is intentionally independent.
   listEpisodes(slug) {
     return this._json(`/projects/${encodeURIComponent(slug)}/episodes`);
   }

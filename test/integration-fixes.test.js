@@ -161,9 +161,22 @@ test('current and queue-all scene discovery use Scene Review only and require a 
   assert.match(sceneLoader, /client\.sceneReview/);
   assert.doesNotMatch(sceneLoader, /client\.imagePrompts/);
   assert.match(sceneLoader, /Create or load a Scene Plan/i);
-  assert.match(queueAll, /st\.scene_plan/);
+  assert.match(queueAll, /\(e\.status \|\| \{\}\)\.scene_plan/);
   assert.doesNotMatch(queueAll, /st\.scene_prompts/);
+  assert.match(queueAll, /sceneImageProgress\(e\)\.complete/);
+  assert.doesNotMatch(queueAll, /status\.images/);
   assert.match(queueAll, /loadScenePlan/);
+});
+
+test('episode loading uses Story Studio aggregate scene progress instead of recounting every Scene Review', () => {
+  const popup = source('src/popup/popup.js');
+  const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
+
+  assert.match(projectChange, /sceneImageProgress\(e\)/);
+  assert.doesNotMatch(projectChange, /client\.sceneReview/);
+  assert.doesNotMatch(projectChange, /fetchEpisodeCounts|episodeCountRun/);
+  assert.equal((projectChange.match(/applyEpisodeFilter\(\)/g) || []).length, 1);
+  assert.doesNotMatch(popup, /async function fetchEpisodeCounts|episodeCountRun|allEpisodes\.find|setTimeout\(r, 120\)/);
 });
 
 test('direct enqueue rejects non-plan scenes before settings, references, or queue writes', () => {

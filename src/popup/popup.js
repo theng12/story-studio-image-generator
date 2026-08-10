@@ -11,6 +11,7 @@ import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 import { summarizeQueueAll } from '../lib/queue-all.js';
+import { sceneImageProgress } from '../lib/episode-progress.js';
 
 const $ = (id) => document.getElementById(id);
 let settings = null;
@@ -21,7 +22,7 @@ let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03/04 promp
 let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
-let allEpisodes = []; // [{ code, title, st, done: true|false|null }] — done null until counted
+let allEpisodes = []; // [{ code, title, st, total, present, done }]
 let liveStatus = null;
 let studioConnection = null;
 let workMode = 'studio';
@@ -700,8 +701,8 @@ const episodeNum = (code) => {
   return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
 };
 
-// Show/hide episode options for the active filter, using the accurate
-// done/total when known and defaulting to "show" while a count still loads.
+// Show/hide episode options for the active filter using Story Studio's
+// aggregate planned-image completion state.
 function applyEpisodeFilter() {
   const filter = settings.episodeFilter || 'todo';
   const esel = $('episode');
@@ -714,36 +715,6 @@ function applyEpisodeFilter() {
     if (show && !firstVisible) firstVisible = opt.value;
   }
   if (firstVisible && (esel.selectedOptions[0]?.hidden || !esel.value)) esel.value = firstVisible;
-}
-
-// Lazily fill in each episode's done/total count in the dropdown label, so you
-// can see progress without loading each. Throttled + abortable (a new project
-// or filter bumps the run token).
-let episodeCountRun = 0;
-async function fetchEpisodeCounts(slug, codes) {
-  const run = ++episodeCountRun;
-  for (const code of codes) {
-    if (run !== episodeCountRun) return;
-    try {
-      const data = await client.sceneReview(slug, code);
-      const scenes = data?.scenes || [];
-      if (scenes.length) {
-        const done = scenes.filter((s) => s.image_filename).length;
-        const complete = done === scenes.length;
-        const ep = allEpisodes.find((e) => e.code === code);
-        if (ep) ep.done = complete;
-        const opt = [...$('episode').options].find((o) => o.value === code);
-        if (opt) {
-          const title = opt.dataset.title || '';
-          opt.textContent = `${code}${title ? ' — ' + title : ''} · ${done}/${scenes.length}${complete ? ' ✓' : ''}`;
-        }
-        applyEpisodeFilter(); // re-hide episodes now known complete/incomplete
-      }
-    } catch {
-      /* episode without a scene plan, etc. — skip */
-    }
-    await new Promise((r) => setTimeout(r, 120));
-  }
 }
 
 // Queue every missing scene image across all pending episodes in the project.
@@ -763,10 +734,7 @@ async function queueAllPending() {
   const scenePlanEpisodes = episodes.filter((e) => !!(e.status || {}).scene_plan);
   if (!scenePlanEpisodes.length)
     return setStatus('No Scene Plans found. Create or load a Scene Plan in Story Studio, then try again.', 'err');
-  const pending = scenePlanEpisodes.filter((e) => {
-    const st = e.status || {};
-    return st.scene_plan && !st.images;
-  });
+  const pending = scenePlanEpisodes.filter((e) => !sceneImageProgress(e).complete);
   if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
   const dlg = $('confirm');
   $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[provider] || provider}?`;
@@ -826,26 +794,26 @@ async function onProjectChange() {
   await saveSettings({ lastProject: slug });
   try {
     const rows = await client.listEpisodes(slug);
-    // Every episode with a prompt source, sorted numerically by code. The filter
-    // (To do / Done / All) is then applied by hiding options — reactively, once
-    // the accurate per-scene counts load, since st.images can be stale.
+    // Normalize the aggregate row once; loading a Scene Review stays an explicit
+    // selected-episode or queue-all operation rather than a project-load cost.
     allEpisodes = (Array.isArray(rows) ? rows : rows.episodes || [])
-      .map((e) => ({ code: e.episode_code || e.code, title: e.title || '', st: e.status || {} }))
+      .map((e) => {
+        const { total, present, complete } = sceneImageProgress(e);
+        return { code: e.episode_code || e.code, title: e.title || '', st: e.status || {}, total, present, done: complete };
+      })
       .filter((e) => e.st.scene_plan || e.st.scene_prompts || e.st.thumb_prompts)
       .sort((a, b) => episodeNum(a.code) - episodeNum(b.code) || String(a.code).localeCompare(String(b.code)));
-    for (const e of allEpisodes) e.done = e.st.images ? true : null; // hint; count overrides
     const esel = $('episode');
     esel.innerHTML = '';
     for (const e of allEpisodes) {
       const opt = document.createElement('option');
       opt.value = e.code;
       opt.dataset.title = e.title;
-      opt.textContent = `${e.code}${e.title ? ' — ' + e.title : ''}${e.done ? ' ✓' : ''}`;
+      opt.textContent = `${e.code}${e.title ? ' — ' + e.title : ''} · ${e.present}/${e.total}${e.done ? ' ✓' : ''}`;
       esel.appendChild(opt);
     }
     applyEpisodeFilter();
-    if (settings.lastEpisode && [...esel.options].some((o) => o.value === settings.lastEpisode)) esel.value = settings.lastEpisode;
-    fetchEpisodeCounts(slug, allEpisodes.map((e) => e.code));
+    if (settings.lastEpisode && allEpisodes.some((e) => e.code === settings.lastEpisode)) esel.value = settings.lastEpisode;
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
