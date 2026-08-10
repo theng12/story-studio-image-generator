@@ -1,9 +1,11 @@
 // Central defaults + settings access for the extension.
 //
 // The extension reads a Story Studio episode's scene plan (the per-scene image
-// prompts) and generates one image per scene on Google Flow, then saves each
-// with the correct scene-derived name. All live values come from
+// prompts) and generates one image per scene on a maintained web provider, then
+// saves each with the correct scene-derived name. All live values come from
 // chrome.storage.sync and are edited on the Options page / side panel.
+
+import { normalizeSelectedProvider } from './providers.js';
 
 export const DEFAULTS = {
   // Shared presentation preference across the Story Studio generators.
@@ -30,26 +32,11 @@ export const DEFAULTS = {
   // Selected character whose reference sheet is attached to Flow character-scene
   // image generations (imageInputs REFERENCE). '' = none. Per project.
   characterRefId: '',
-  // Quick per-run on/off for the character reference, without losing the picked
-  // character. When off, no reference is applied even if one is selected.
-  characterRefEnabled: true,
+  // Use the Story Studio reference resolver for queued image generations.
+  storyStudioReferencesEnabled: true,
 
   // Generation provider. Every provider in this extension is image-only.
   provider: 'flow',
-
-  // Pollinations: a keyless image URL API (image.pollinations.ai). It needs no
-  // tab — the background worker fetches it directly, so it runs fully headless.
-  // Model list changes over time (see image.pollinations.ai/models); flux is the
-  // quality default and still works even when not in the anonymous list. Seed
-  // blank = random per scene; a fixed number makes results reproducible. Token
-  // (optional, from auth.pollinations.ai) removes the watermark + raises the
-  // rate limit.
-  pollinationsModel: 'flux',
-  pollinationsSeed: '',
-
-  // PicLumen (piclumen.com) — API-driven, ~10 free "Lumens"/day (1 per image).
-  // Default model is "PicLumen Art V1"; its id is sent to /api/gen/create.
-  piclumenModel: '23887bba-507e-4249-a0e3-6951e4027f2b',
 
   // Qwen has no reliable ratio control in its chat UI. Keep its preferred
   // shape separate and reinforce it with numeric + natural-language prompting.
@@ -63,14 +50,6 @@ export const DEFAULTS = {
   // progress-aware (it won't cut off while ChatGPT is actively generating), so
   // this is the hard ceiling for a genuinely slow-but-working image. Minutes ×60.
   chatgptMaxWaitSec: 480,
-
-  // Perchance remembers the last website style, which can silently contaminate
-  // a batch. Force an explicit style for every queued image instead.
-  perchanceStyle: 'No style',
-  // Images per Perchance job. We keep only the first, so 1 is fastest; Perchance
-  // is free so this is about speed, not cost. Snapped to the nearest option the
-  // site offers.
-  perchanceCount: 1,
 
   // Leonardo controls vary by model and account tier. These defaults are
   // available on the free plan and minimize token use per generated image.
@@ -103,10 +82,7 @@ export const DEFAULTS = {
     flow: { autoResume: false, minutes: 15, retries: 2 },
     qwen: { autoResume: false, minutes: 480, retries: 2 },
     aistudio: { autoResume: false, minutes: 720, retries: 2 },
-    grok: { autoResume: false, minutes: 720, retries: 2 },
     leonardo: { autoResume: false, minutes: 720, retries: 2 },
-    freegen: { autoResume: false, minutes: 60, retries: 2 },
-    piclumen: { autoResume: false, minutes: 1440, retries: 2 },
     chatgpt: { autoResume: false, minutes: 1440, retries: 2 },
   },
 
@@ -187,7 +163,17 @@ function normalizeProviderCooldowns(settings) {
   delete settings.qwenQuotaCooldownHours;
 }
 
-function normalizeSettings(settings) {
+export function normalizeSettings(settings) {
+  settings.provider = normalizeSelectedProvider(settings.provider);
+  if (settings.characterRefEnabled === false) settings.storyStudioReferencesEnabled = false;
+  else if (settings.storyStudioReferencesEnabled !== false) settings.storyStudioReferencesEnabled = true;
+  delete settings.characterRefEnabled;
+  delete settings.pollinationsToken;
+  delete settings.pollinationsModel;
+  delete settings.pollinationsSeed;
+  delete settings.piclumenModel;
+  delete settings.perchanceStyle;
+  delete settings.perchanceCount;
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.aistudioAspectRatio)) settings.aistudioAspectRatio = DEFAULTS.aistudioAspectRatio;
@@ -229,13 +215,6 @@ export async function getSettings() {
   ]);
   const storedSettings = { ...(synced[STORAGE_KEY] || {}) };
   const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
-  // One-time migration: older releases placed the Pollinations bearer token in
-  // the synced settings blob. Copy locally first, then scrub the synced value.
-  if (storedSettings.pollinationsToken && !secrets.pollinationsToken) {
-    secrets.pollinationsToken = storedSettings.pollinationsToken;
-    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
-  }
-  delete storedSettings.pollinationsToken;
   delete storedSettings.fleetSharedSecret;
   const next = normalizeSettings({ ...DEFAULTS, ...storedSettings });
   const syncNext = { ...next };
@@ -244,7 +223,6 @@ export async function getSettings() {
   }
   return {
     ...next,
-    pollinationsToken: secrets.pollinationsToken || '',
     fleetSharedSecret: secrets.fleetSharedSecret || '',
   };
 }
@@ -252,14 +230,6 @@ export async function getSettings() {
 export async function saveSettings(patch) {
   const current = await getSettings();
   const next = normalizeSettings({ ...current, ...patch });
-  if (Object.prototype.hasOwnProperty.call(patch, 'pollinationsToken')) {
-    const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
-    const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
-    const token = String(patch.pollinationsToken || '').trim();
-    if (token) secrets.pollinationsToken = token;
-    else delete secrets.pollinationsToken;
-    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
-  }
   if (Object.prototype.hasOwnProperty.call(patch, 'fleetSharedSecret')) {
     const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
     const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
@@ -269,7 +239,6 @@ export async function saveSettings(patch) {
     await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
   }
   const syncNext = { ...next };
-  delete syncNext.pollinationsToken;
   delete syncNext.fleetSharedSecret;
   await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   return next;
