@@ -2,18 +2,23 @@ import { DEFAULT_PROVIDER_ID, isMaintainedProvider } from './providers.js';
 import { legacyCharacterReferenceDescriptor } from './reference-assets.js';
 
 function removedFailure(provider) {
+  const name = String(provider ?? '').trim() || 'invalid provider ID';
   return {
     code: 'provider-removed',
     title: 'Provider removed from Story Studio Image Generator',
-    hint: `Choose a maintained provider and queue this asset again. ${provider} jobs cannot be redirected automatically.`,
-    raw: `The ${provider} provider is no longer supported.`,
+    hint: `Choose a maintained provider and queue this asset again. ${name} jobs cannot be redirected automatically.`,
+    raw: `The ${name} is no longer supported.`,
   };
+}
+
+function queueProvider(item) {
+  return item && Object.hasOwn(item, 'provider') ? item.provider : DEFAULT_PROVIDER_ID;
 }
 
 export function migrateQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
-    const provider = item?.provider || DEFAULT_PROVIDER_ID;
+    const provider = queueProvider(item);
     const active = item?.status === 'pending' || item?.status === 'running';
     const retryableFailure = canRetryItem(item);
     if (!active && !retryableFailure) return { ...item };
@@ -27,7 +32,7 @@ export function migrateQueue(queue, now = Date.now()) {
     return {
       ...normalized,
       status: 'failed',
-      error: `The ${provider} provider was removed and this queued job cannot be run.`,
+      error: removedFailure(provider).raw,
       failure: removedFailure(provider),
       fleetRetrySafe: false,
       finishedAt: now,
@@ -37,6 +42,6 @@ export function migrateQueue(queue, now = Date.now()) {
 }
 
 export function canRetryItem(item) {
-  const provider = item?.provider || DEFAULT_PROVIDER_ID;
+  const provider = queueProvider(item);
   return item?.status === 'failed' && isMaintainedProvider(provider) && item?.failure?.code !== 'provider-removed';
 }

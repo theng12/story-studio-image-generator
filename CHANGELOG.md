@@ -3,6 +3,16 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.49.1 - Safer queue recovery
+
+- Prevented Leonardo jobs with unknown or post-submit outcomes from spending
+  paid tokens again through automatic retry; the queue now asks for a manual
+  tab check first.
+- Rejected explicit invalid provider IDs instead of silently redirecting them
+  to Flow, and preserved retired provider names in failure history.
+- Fixed project-wide queueing and now reports partial per-episode failures
+  without hiding successful queue counts.
+
 ## 0.49.0 - Simplified providers and Story Studio references
 
 - Reduced the maintained catalog to Google Flow, Google AI Studio, Qwen Studio,

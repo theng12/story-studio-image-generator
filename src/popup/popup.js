@@ -10,6 +10,7 @@ import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels, provi
 import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
+import { summarizeQueueAll } from '../lib/queue-all.js';
 
 const $ = (id) => document.getElementById(id);
 let settings = null;
@@ -776,6 +777,7 @@ async function queueAllPending() {
     setStatus(`Queuing ${pending.length} episode${pending.length > 1 ? 's' : ''}…`, 'running');
     let queued = 0;
     let eps = 0;
+    const failures = [];
     for (const e of pending) {
       const code = e.episode_code || e.code;
       try {
@@ -791,19 +793,22 @@ async function queueAllPending() {
             scenes: missing,
             source: r.source,
             kind: 'scene',
-            target,
+            target: 'project',
             provider,
           },
         });
-        if (res?.ok) {
+        if (!res?.ok) {
+          failures.push({ code, error: res?.error || 'The extension did not accept this episode.' });
+        } else {
           queued += res.added || 0;
           eps++;
         }
-      } catch {
-        /* skip this episode */
+      } catch (error) {
+        failures.push({ code, error: error?.message || error });
       }
     }
-    setStatus(`Queued ${queued} scene${queued === 1 ? '' : 's'} across ${eps} episode${eps === 1 ? '' : 's'}.`, 'done');
+    const summary = summarizeQueueAll({ queued, episodes: eps, failures });
+    setStatus(summary.text, summary.kind);
     pollQueue();
   };
 }
