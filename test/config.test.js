@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, normalizeSettings } from '../src/lib/config.js';
+import { DEFAULTS, getSettings, normalizeSettings } from '../src/lib/config.js';
 
 test('normalizes removed provider selections to Flow', () => {
   const settings = normalizeSettings({ ...DEFAULTS, provider: 'piclumen' });
@@ -38,4 +38,52 @@ test('migrates the legacy character reference toggle to Story Studio references'
   assert.equal(enabled.storyStudioReferencesEnabled, true);
   assert.equal(Object.hasOwn(disabled, 'characterRefEnabled'), false);
   assert.equal(Object.hasOwn(enabled, 'characterRefEnabled'), false);
+});
+
+test('does not mutate the input settings during normalization', () => {
+  const input = structuredClone({
+    ...DEFAULTS,
+    provider: 'grok',
+    characterRefEnabled: false,
+    providerCooldowns: {
+      grok: { autoResume: true, minutes: 10, retries: 1 },
+      flow: { autoResume: true, minutes: 9999, retries: 99 },
+    },
+  });
+  const before = structuredClone(input);
+
+  const normalized = normalizeSettings(input);
+
+  assert.deepEqual(input, before);
+  assert.notEqual(normalized, input);
+  assert.equal(normalized.provider, 'flow');
+});
+
+test('removes a retired Pollinations token from local storage during settings migration', async () => {
+  const synced = { settings: { provider: 'flow' } };
+  const local = {
+    providerSecrets: { pollinationsToken: 'retired-token', fleetSharedSecret: 'keep-me' },
+  };
+  globalThis.chrome = {
+    storage: {
+      sync: {
+        get: async () => synced,
+        set: async (value) => Object.assign(synced, value),
+      },
+      local: {
+        get: async () => local,
+        set: async (value) => Object.assign(local, value),
+      },
+    },
+  };
+
+  try {
+    const settings = await getSettings();
+
+    assert.equal(settings.fleetSharedSecret, 'keep-me');
+    assert.equal(Object.hasOwn(local.providerSecrets, 'pollinationsToken'), false);
+    assert.equal(local.providerSecrets.fleetSharedSecret, 'keep-me');
+  } finally {
+    delete globalThis.chrome;
+  }
 });

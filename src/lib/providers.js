@@ -100,5 +100,5 @@ export function normalizeSelectedProvider(id) {
 }
 
 export function getProvider(id) {
-  return PROVIDERS.find((provider) => provider.id === id) || PROVIDERS[0];
+  return PROVIDERS.find((provider) => provider.id === id);
 }
