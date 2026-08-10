@@ -164,6 +164,7 @@
       refChips()[0].querySelector('.close-button')?.click();
       await sleep(400);
     }
+    return refChips().length;
   }
 
   // Wait for the reference chip count to stop changing (a slow upload can add its
@@ -236,7 +237,7 @@
     // Let the upload finish + any stray second chip appear, then trim to one.
     await sleep(1500);
     const count = await settleToOneChip();
-    if (count < 1) throw new Error('Qwen Studio reference upload did not stick — retry this scene.');
+    if (count !== 1) throw new Error(`Qwen Studio reference attachment count mismatch: expected 1, found ${count}. Remove stale attachments in the tab, then retry.`);
     await sleep(600);
   }
 
@@ -263,7 +264,10 @@
       await attachReference(reference);
       await sleep(1200); // leeway: let the upload fully settle before typing
     } else {
-      await clearReferences();
+      const remaining = await clearReferences();
+      if (remaining !== 0) {
+        throw new Error(`Qwen Studio could not clear stale reference attachments (${remaining} remain). Remove them in the tab, then retry.`);
+      }
     }
 
     const beforeImages = new Set(imageUrls());
@@ -273,13 +277,12 @@
     setTextarea(textarea, `${ratioInstruction}. Compose all content inside that format. Image prompt: ${prompt}`);
     await sleep(800); // leeway: let the prompt register before sending
 
-    // Last-line guard: a stray second reference chip can appear late — trim to
-    // exactly one right before sending so Qwen never generates with a double.
-    if (reference) {
-      for (let guard = 0; guard < 6 && refChips().length > 1; guard++) {
-        refChips()[refChips().length - 1].querySelector('.close-button')?.click();
-        await sleep(400);
-      }
+    // A late chip can appear after upload. Require the exact safe state before
+    // Qwen receives the prompt: one reference when requested, otherwise none.
+    const expectedChipCount = reference ? 1 : 0;
+    const finalChipCount = refChips().length;
+    if (finalChipCount !== expectedChipCount) {
+      throw new Error(`Qwen Studio reference attachment count mismatch: expected ${expectedChipCount}, found ${finalChipCount}. Remove stale attachments in the tab, then retry.`);
     }
 
     // Wait for Send to actually be ready (present, visible, enabled) rather than
