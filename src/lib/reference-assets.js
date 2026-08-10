@@ -37,6 +37,18 @@ function matchesName(prompt, name) {
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, 'i').test(prompt);
 }
 
+// Relative Story Studio paths are stable descriptors, but their bytes belong
+// to the configured server. Keep that server identity in worker cache keys.
+export function referenceCacheKey(baseUrl, descriptorUrl) {
+  const source = text(baseUrl);
+  const path = text(descriptorUrl);
+  try {
+    return new URL(path, source).href;
+  } catch {
+    return `${source.replace(/\/+$/, '')}::${path}`;
+  }
+}
+
 export function normalizeReferenceContext({ continuity, listing, characters } = {}) {
   const continuityRoot = record(continuity);
   const config = record(continuityRoot.config || continuityRoot);
@@ -92,7 +104,7 @@ function characterDescriptors(characters) {
   );
 }
 
-export function resolveReferenceDescriptors({ kind, sceneKey, prompt, context, maxReferences } = {}) {
+export function resolveReferenceDescriptors({ kind, sceneKey, sceneNumber, prompt, context, maxReferences } = {}) {
   const normalized = record(context).assets && Array.isArray(record(context).characters)
     ? context
     : normalizeReferenceContext(context);
@@ -101,8 +113,9 @@ export function resolveReferenceDescriptors({ kind, sceneKey, prompt, context, m
   if (kind === 'thumbnail') return normalized.assets.thumbnail ? [normalized.assets.thumbnail] : [];
   if (kind !== 'scene') return [];
 
-  const sceneNumber = Number(sceneKey);
-  const matchingScene = normalized.assets.scenes.find((scene) => scene.number === sceneNumber);
+  const suppliedSceneNumber = Number(sceneNumber);
+  const referenceSceneNumber = Number.isFinite(suppliedSceneNumber) ? suppliedSceneNumber : Number(sceneKey);
+  const matchingScene = normalized.assets.scenes.find((scene) => scene.number === referenceSceneNumber);
   const matchingCharacters = normalized.continuity.characters
     ? normalized.characters.filter((character) => matchesName(String(prompt || ''), character.name))
     : [];

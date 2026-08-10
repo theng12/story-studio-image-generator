@@ -67,3 +67,24 @@ test('migrates a legacy character reference into one descriptor without changing
   assert.deepEqual(migrated[1], queue[1]);
   assert.deepEqual(queue[0].characterRef, { characterId: 'aria', filename: 'sheet.png' });
 });
+
+test('migrates retryable failed maintained-provider character references without changing failure history', () => {
+  const queue = [{
+    id: 'legacy-failed',
+    slug: 'project',
+    provider: 'flow',
+    status: 'failed',
+    characterRef: { characterId: 'aria', filename: 'sheet.png' },
+    failure: { code: 'network', title: 'Network error' },
+    error: 'Network failed',
+    finishedAt: NOW,
+  }];
+
+  const migrated = migrateQueue(queue, NOW + 1);
+
+  assert.equal(migrated[0].status, 'failed');
+  assert.deepEqual(migrated[0].failure, queue[0].failure);
+  assert.equal(migrated[0].error, queue[0].error);
+  assert.equal(migrated[0].referenceDescriptors[0].characterId, 'aria');
+  assert.equal(migrated[0].characterRef, undefined);
+});

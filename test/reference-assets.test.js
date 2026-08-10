@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeReferenceContext, resolveReferenceDescriptors } from '../src/lib/reference-assets.js';
+import { normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from '../src/lib/reference-assets.js';
 import { StudioClient } from '../src/lib/story-studio.js';
 
 const listing = {
@@ -55,6 +55,19 @@ test('orders scene references as master, matching scene, matching and anchor cha
   ]);
 });
 
+test('resolves a numeric scene reference separately from the stable save-back scene key', () => {
+  const resolved = resolveReferenceDescriptors({
+    kind: 'scene',
+    sceneKey: 'scene-1',
+    sceneNumber: 6,
+    prompt: 'Aria explores the cave.',
+    context: context(),
+    maxReferences: 10,
+  });
+  assert.equal(resolved[1].source, 'scene');
+  assert.equal(resolved[1].url, '/refs/scene-06.png');
+});
+
 test('honors continuity reference toggles', () => {
   const disabled = context({
     continuity: { config: { anchor_character_ids: ['brick'], use_episode_sheet: false, references: { sheet: false, characters: false, style: false, composition: false } } },
@@ -103,6 +116,25 @@ test('loads one Story Studio reference context with character file URLs', async 
   }
 });
 
+test('skips malformed optional character image lists', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/continuity/')) return Response.json({ config: {} });
+    if (String(url).includes('/img2img-references')) return Response.json({ scenes: [] });
+    return Response.json([
+      { id: 'aria', name: 'Aria', references: { images: { filename: 'not-an-array.png' } } },
+      { id: 'brick', name: 'Brick', reference_images: 'not-an-array.png' },
+    ]);
+  };
+  try {
+    const raw = await new StudioClient('http://studio.test').referenceAssets('project', 'EP001');
+    const normalized = normalizeReferenceContext(raw);
+    assert.deepEqual(normalized.characters, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('makes advertised reference download failures actionable', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ detail: 'Reference not found' }, { status: 404 });
@@ -121,4 +153,9 @@ test('rejects reference descriptors outside the configured Story Studio API', as
     new StudioClient('http://studio.test').referenceAssetBase64({ label: 'Unexpected reference', url: 'https://example.com/image.png' }),
     /invalid download URL/i,
   );
+});
+
+test('includes the configured Story Studio base in cache identity', () => {
+  const descriptorUrl = '/api/projects/project/episodes/EP001/img2img-references/file/master.png';
+  assert.notEqual(referenceCacheKey('http://studio-one.test', descriptorUrl), referenceCacheKey('http://studio-two.test', descriptorUrl));
 });

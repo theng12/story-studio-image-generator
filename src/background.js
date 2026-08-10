@@ -15,7 +15,7 @@ import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider } from './lib/providers.js';
 import { canRetryItem, migrateQueue } from './lib/queue-migration.js';
-import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, resolveReferenceDescriptors } from './lib/reference-assets.js';
+import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
@@ -411,24 +411,24 @@ async function resolveReferenceImages(item, settings) {
   if (!descriptors.length) return [];
   const client = new StudioClient(settings.studioBaseUrl);
   return Promise.all(descriptors.map(async (descriptor, index) => {
-    const key = String(descriptor?.url || '');
-    if (!key) throw new Error(`Story Studio reference ${descriptor?.label || index + 1} has no download URL.`);
-    let request = refImageCache.get(key);
+    const sourceKey = referenceCacheKey(settings.studioBaseUrl, descriptor?.url);
+    if (!descriptor?.url) throw new Error(`Story Studio reference ${descriptor?.label || index + 1} has no download URL.`);
+    let request = refImageCache.get(sourceKey);
     if (!request) {
       request = client.referenceAssetBase64(descriptor);
-      refImageCache.set(key, request);
+      refImageCache.set(sourceKey, request);
     }
     try {
       const image = await request;
       return {
         base64: image.base64,
         mime: image.mime,
-        url: key,
+        sourceKey,
         name: descriptor.filename || `reference-${index + 1}.png`,
         label: descriptor.label || `Reference ${index + 1}`,
       };
     } catch (error) {
-      refImageCache.delete(key);
+      refImageCache.delete(sourceKey);
       throw error;
     }
   }));
@@ -441,7 +441,7 @@ async function resolveReferenceMediaIds(item, settings, tab) {
   const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
   const mediaIds = [];
   for (const reference of references) {
-    const key = `${projectId}::${reference.url}`;
+    const key = `${projectId}::${reference.sourceKey}`;
     let mediaId = refMediaCache.get(key);
     if (!mediaId) {
       const up = await send(tab.id, {
@@ -955,6 +955,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       ? resolveReferenceDescriptors({
           kind: akind,
           sceneKey: scene.key,
+          sceneNumber: scene.sceneNumber,
           prompt: scene.prompt,
           context: referenceContext,
           maxReferences,
@@ -975,6 +976,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   // scenes are normalized: { source, key, label, prompt, hasImage }
   const items = (scenes || []).map((s) => {
     const referenceDescriptors = referencesForScene(s);
+    const sceneNumber = Number(s.sceneNumber ?? (src === 'prompts' ? s.key : NaN));
     return mkItem({
       kind: akind, // 'scene' | 'thumbnail'
       provider: prov,
@@ -983,6 +985,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       episodeCode,
       episodeTitle: episodeTitle || '',
       sceneKey: s.key, // scene_plan id (string) OR scene/thumb prompts number
+      sceneNumber: Number.isFinite(sceneNumber) ? sceneNumber : undefined,
       prompt: s.prompt,
       target: effTarget,
       projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),

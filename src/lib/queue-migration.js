@@ -15,7 +15,8 @@ export function migrateQueue(queue, now = Date.now()) {
   return queue.map((item) => {
     const provider = item?.provider || DEFAULT_PROVIDER_ID;
     const active = item?.status === 'pending' || item?.status === 'running';
-    if (!active) return { ...item };
+    const retryableFailure = canRetryItem(item);
+    if (!active && !retryableFailure) return { ...item };
     const legacyReference = !Array.isArray(item?.referenceDescriptors) && item?.applyRef !== false
       ? legacyCharacterReferenceDescriptor(item?.slug, item?.characterRef)
       : null;
