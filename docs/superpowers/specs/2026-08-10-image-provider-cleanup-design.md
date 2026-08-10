@@ -39,13 +39,14 @@ Create `src/lib/providers.js` as the single source for maintained provider metad
 - optional content-script reinjection metadata;
 - capabilities such as character reference, live model discovery, cooldown support,
   and whether the active tab must remain visible;
-- the small settings schema needed to render ordinary provider controls.
+- the setting keys needed by each provider.
 
 The registry is data, not a plugin framework. Provider execution remains explicit
 code because Flow, conversational providers, and Leonardo have materially different
 contracts. `background.js` uses a handler map instead of a provider `if/else` chain,
-and `popup.js` derives the provider picker, shared capability behavior, and ordinary
-settings controls from the registry.
+and `popup.js` derives the provider picker and shared capability behavior from the
+registry. The five small provider option cards remain explicit; a generic form
+renderer would add more machinery than it removes.
 
 Leonardo keeps its custom live-sync controls because they are genuinely model-aware.
 The other four providers use only the settings they need:
@@ -85,6 +86,12 @@ preserving all maintained settings. Existing stored selections for a removed pro
 fall back to Flow only for future UI selections; already queued removed-provider work
 fails explicitly instead of being regenerated elsewhere.
 
+Add a pure, idempotent queue migration that preserves completed and existing failed
+history while marking pending or interrupted work for a removed provider as failed
+with `failure.code = "provider-removed"` and `fleetRetrySafe = false`. Retry and
+startup recovery paths must reject those items. Unknown provider IDs must never fall
+through to Leonardo or any other maintained provider.
+
 ## Interface
 
 The side panel shows only the five maintained providers. Shared controls are driven by
@@ -103,7 +110,8 @@ Add dependency-free tests using Node's built-in test runner for:
 - registry defaults and capability lookup;
 - normalization of a removed saved provider to Flow;
 - preservation of maintained provider settings;
-- explicit rejection of queued removed-provider items;
+- explicit, idempotent rejection of pending and interrupted removed-provider items;
+- preservation of completed and existing failed queue history;
 - manifest absence of removed hosts and content scripts;
 - manifest presence of every required maintained provider script.
 
