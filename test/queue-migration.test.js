@@ -114,3 +114,43 @@ test('migrates retryable failed maintained-provider character references without
   assert.equal(migrated[0].referenceDescriptors[0].characterId, 'aria');
   assert.equal(migrated[0].characterRef, undefined);
 });
+
+test('terminalizes active non-plan project scenes without changing allowed jobs or done history', () => {
+  const queue = [
+    { id: 'prompt-pending', provider: 'flow', target: 'project', kind: 'scene', source: 'prompts', status: 'pending' },
+    { id: 'legacy-running', provider: 'qwen', target: 'project', kind: 'scene', source: 'legacy', status: 'running', startedAt: NOW - 250 },
+    { id: 'missing-source', provider: 'chatgpt', target: 'project', kind: 'scene', status: 'pending' },
+    { id: 'plan', provider: 'flow', target: 'project', kind: 'scene', source: 'plan', status: 'pending' },
+    { id: 'thumbnail', provider: 'flow', target: 'project', kind: 'thumbnail', source: 'prompts', status: 'pending' },
+    { id: 'standalone', provider: 'flow', target: 'download', kind: 'scene', source: 'prompts', status: 'pending' },
+    { id: 'done-history', provider: 'flow', target: 'project', kind: 'scene', source: 'prompts', status: 'done', savedAs: 'legacy.png' },
+  ];
+
+  const migrated = migrateQueue(queue, NOW);
+
+  for (const item of migrated.slice(0, 3)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'scene-source-retired');
+    assert.match(item.failure.hint, /create or load a Scene Plan/i);
+    assert.equal(item.fleetRetrySafe, false);
+    assert.equal(item.finishedAt, NOW);
+  }
+  assert.equal(migrated[1].durationMs, 250);
+  assert.deepEqual(migrated.slice(3), queue.slice(3));
+});
+
+test('legacy failed non-plan project scenes cannot retry and migration is idempotent', () => {
+  const queue = [{
+    id: 'legacy-failed',
+    provider: 'flow',
+    target: 'project',
+    kind: 'scene',
+    source: 'prompts',
+    status: 'failed',
+    failure: { code: 'network' },
+  }];
+
+  assert.equal(canRetryItem(queue[0]), false);
+  const once = migrateQueue(queue, NOW);
+  assert.deepEqual(migrateQueue(once, NOW + 1), once);
+});

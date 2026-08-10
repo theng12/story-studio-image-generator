@@ -102,6 +102,10 @@ Do not casually change filenames or ingest routes. Story Studio depends on the
 scene and thumbnail naming scheme. Keep generated credentials, request
 templates, and API keys in local Chrome storage only.
 
+Project scene images require `source: 'plan'` and stable Scene Review IDs, and
+must save through the Scene Review upload route. Image Prompts ingestion is
+thumbnail-only; never spend provider work for non-plan project scene jobs.
+
 When references are enabled, resolve Story Studio's episode, matching scene,
 character, composition, and style assets into bounded descriptors at enqueue,
 then fetch bytes lazily in the worker. Do not store base64 payloads in queue

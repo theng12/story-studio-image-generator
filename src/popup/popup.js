@@ -759,9 +759,13 @@ async function queueAllPending() {
   } catch (e) {
     return setStatus(`Couldn't list episodes: ${e.message}`, 'err');
   }
-  const pending = (Array.isArray(rows) ? rows : rows.episodes || []).filter((e) => {
+  const episodes = Array.isArray(rows) ? rows : rows.episodes || [];
+  const scenePlanEpisodes = episodes.filter((e) => !!(e.status || {}).scene_plan);
+  if (!scenePlanEpisodes.length)
+    return setStatus('No Scene Plans found. Create or load a Scene Plan in Story Studio, then try again.', 'err');
+  const pending = scenePlanEpisodes.filter((e) => {
     const st = e.status || {};
-    return (st.scene_plan || st.scene_prompts) && !st.images;
+    return st.scene_plan && !st.images;
   });
   if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
   const dlg = $('confirm');
@@ -781,7 +785,7 @@ async function queueAllPending() {
     for (const e of pending) {
       const code = e.episode_code || e.code;
       try {
-        const r = await loadScenesFromEither(currentProject.slug, { code, title: e.title || '' });
+        const r = await loadScenePlan(currentProject.slug, { code, title: e.title || '' });
         const missing = (r.scenes || []).filter((s) => !s.hasImage && (s.prompt || '').trim());
         if (!missing.length) continue;
         const res = await chrome.runtime.sendMessage({
@@ -870,10 +874,10 @@ async function loadScenes() {
       currentSource = 'prompts';
       label = 'Thumbnail Prompts';
     } else {
-      const r = await loadScenesFromEither(slug, currentEpisode);
+      const r = await loadScenePlan(slug, currentEpisode);
       scenes = r.scenes;
-      currentSource = r.source;
-      label = r.source === 'plan' ? 'Scene Plan' : 'Scene Prompts';
+      currentSource = 'plan';
+      label = 'Scene Plan';
     }
     currentScenes = scenes;
     loadedKind = currentKind();
@@ -919,10 +923,8 @@ async function loadThumbnails(slug, ep) {
   }));
 }
 
-// An episode has EITHER a scene plan OR scene prompts (mutually exclusive).
-// Try scene_plan first; fall back to the Scene Prompts generator. Normalize both.
-async function loadScenesFromEither(slug, ep) {
-  // 1) Scene Plan
+// Scene images save through Scene Review and therefore require stable plan IDs.
+async function loadScenePlan(slug, ep) {
   try {
     const data = await client.sceneReview(slug, ep.code);
     if (data?.scenes?.length) {
@@ -943,31 +945,7 @@ async function loadScenesFromEither(slug, ep) {
   } catch (e) {
     if (e.status && e.status !== 404) throw e;
   }
-  // 2) Scene Prompts ("03 Scene Prompts")
-  const data = await client.imagePrompts(slug, ep.code, ep.title);
-  const promptScenes = data?.scenes || [];
-  let present = new Set();
-  try {
-    const st = await client.imageStatus(slug, ep.code);
-    const missing = new Set((st?.scenes?.missing || st?.missing || []).map(Number));
-    const total = st?.scenes?.total || promptScenes.length;
-    for (let n = 1; n <= total; n++) if (!missing.has(n)) present.add(n);
-  } catch {
-    /* status optional */
-  }
-  return {
-    source: 'prompts',
-    scenes: promptScenes.map((s) => ({
-      source: 'prompts',
-      kind: 'scene',
-      key: s.number,
-      sceneNumber: Number(s.number),
-      label: `Scene ${s.number}${s.title ? ` — ${s.title}` : ''}`,
-      prompt: s.prompt || '',
-      hasImage: present.has(Number(s.number)),
-      stale: false,
-    })),
-  };
+  throw new Error(`${ep.code} has no usable Scene Plan. Create or load a Scene Plan in Story Studio, then retry.`);
 }
 
 const PROVIDER_LABEL = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, label }) => [id, label])));

@@ -149,3 +149,56 @@ test('queue-all uses a declared project target and records response and thrown f
   assert.match(queueAll, /failures\.push/);
   assert.match(queueAll, /summarizeQueueAll/);
 });
+
+test('current and queue-all scene discovery use Scene Review only and require a Scene Plan', () => {
+  const popup = source('src/popup/popup.js');
+  const loadScenes = popup.slice(popup.indexOf('async function loadScenes()'), popup.indexOf('// Thumbnails always'));
+  const sceneLoader = popup.slice(popup.indexOf('async function loadScenePlan'), popup.indexOf('const PROVIDER_LABEL'));
+  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
+
+  assert.match(loadScenes, /loadScenePlan/);
+  assert.doesNotMatch(loadScenes, /loadScenesFromEither/);
+  assert.match(sceneLoader, /client\.sceneReview/);
+  assert.doesNotMatch(sceneLoader, /client\.imagePrompts/);
+  assert.match(sceneLoader, /Create or load a Scene Plan/i);
+  assert.match(queueAll, /st\.scene_plan/);
+  assert.doesNotMatch(queueAll, /st\.scene_prompts/);
+  assert.match(queueAll, /loadScenePlan/);
+});
+
+test('direct enqueue rejects non-plan scenes before settings, references, or queue writes', () => {
+  const background = source('src/background.js');
+  const enqueueScenes = background.slice(background.indexOf('async function enqueueScenes'), background.indexOf('async function enqueueStandalone'));
+  const guard = enqueueScenes.indexOf('assertSupportedProjectScene');
+
+  assert.ok(guard >= 0, 'enqueueScenes should enforce the scene source contract');
+  assert.doesNotMatch(enqueueScenes, /source\s*\|\|\s*'plan'/);
+  assert.ok(guard < enqueueScenes.indexOf('await getSettings()'));
+  assert.ok(guard < enqueueScenes.indexOf('referenceAssets'));
+  assert.ok(guard < enqueueScenes.indexOf('return enqueue(items)'));
+  assert.match(source('src/lib/queue-migration.js'), /Create or load a Scene Plan/i);
+});
+
+test('worker preflight rejects unsupported scene sources before opening or submitting to providers', () => {
+  const background = source('src/background.js');
+  const queue = background.slice(background.indexOf('async function processQueue'), background.indexOf('// Drop everything not yet started'));
+  const guard = queue.indexOf('assertSupportedProjectScene(item)');
+  const openProvider = queue.indexOf('ensureProviderTab(provider)');
+  const generate = queue.indexOf('generateAndSave(item');
+  const terminal = queue.indexOf("e?.code === 'scene-source-retired'");
+
+  assert.ok(guard >= 0 && guard < openProvider);
+  assert.ok(guard < generate);
+  assert.ok(terminal > guard && terminal < queue.indexOf('if (isKnownPreSubmitLimit'));
+});
+
+test('save routing keeps thumbnail ingest and Scene Review upload but removes scene image ingest', () => {
+  const background = source('src/background.js');
+  const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
+
+  assert.match(generate, /assertSupportedProjectScene\(item\)/);
+  assert.match(generate, /ingestImage\(item\.slug, item\.episodeCode, 'thumbnail'/);
+  assert.match(generate, /uploadSceneImage\(item\.slug, item\.episodeCode, item\.sceneKey/);
+  assert.doesNotMatch(generate, /item\.source === 'prompts'/);
+  assert.doesNotMatch(generate, /ingestImage\(item\.slug, item\.episodeCode, 'scene'/);
+});
