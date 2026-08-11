@@ -107,6 +107,7 @@
     if (/(image generation|images?).{0,40}(limit|quota|cap)|reached your (?:daily )?limit|hit the (?:free|daily).{0,20}limit|upgrade to (?:chatgpt )?(?:plus|go|pro)|isn'?t available right now|come back (?:later|tomorrow)|try again (?:later|tomorrow|after)/i.test(text)) {
       const e = new Error(`ChatGPT image limit reached — ${text.slice(0, 160)}`);
       e.limit = true;
+      e.providerRejectedBeforeGeneration = true;
       return e;
     }
     if (/can(?:'|no)?t (?:create|generate|help create)|content policy|against our (?:usage|content) polic|not able to (?:create|generate)|won'?t be able to/i.test(text))
@@ -163,6 +164,7 @@
       if (button && visible(button) && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
         assertExpectedModel(params.expectedModel);
         await requestSubmissionCheckpoint(params);
+        assertExpectedModel(params.expectedModel);
         button.click();
         return;
       }
@@ -173,6 +175,7 @@
     if (!el) throw new Error('ChatGPT composer disappeared before submission.');
     assertExpectedModel(params.expectedModel);
     await requestSubmissionCheckpoint(params);
+    assertExpectedModel(params.expectedModel);
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   }
 

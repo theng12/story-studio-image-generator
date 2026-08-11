@@ -6,6 +6,7 @@ import {
   captureSceneEnqueueContext,
   captureStandaloneEnqueueContext,
 } from '../src/lib/enqueue-context.js';
+import { assertFlowModelApproval } from '../src/lib/model-identity.js';
 
 test('scene enqueue context survives selection changes during awaited settings persistence', async () => {
   const project = { slug: 'project-a', name: 'Project A' };
@@ -77,4 +78,47 @@ test('standalone capture is not redirected while Flow selection persistence is a
     label: 'Batch A',
     provider: 'flow',
   });
+});
+
+test('Flow confirmation provenance stays immutable and rejects changed discovery at enqueue', () => {
+  const approval = {
+    modelId: 'NARWHAL',
+    modelLabel: 'Nano Banana 2',
+    modelSource: 'live',
+  };
+  const payload = captureSceneEnqueueContext({
+    project: { slug: 'project-a' },
+    episode: { code: 'TN0001', title: 'Episode One' },
+    source: 'plan',
+    scenes: [{ key: 'scene-a', prompt: 'Original prompt' }],
+    kind: 'scene',
+    target: 'project',
+    provider: 'flow',
+    flowModelApproval: approval,
+  });
+
+  approval.modelId = 'HARBOR_SEAL';
+  approval.modelLabel = 'Nano Banana 2 Lite';
+  approval.modelSource = 'fallback';
+
+  assert.deepEqual(payload.flowModelApproval, {
+    modelId: 'NARWHAL',
+    modelLabel: 'Nano Banana 2',
+    modelSource: 'live',
+  });
+  assert.doesNotThrow(() => assertFlowModelApproval(payload.flowModelApproval, {
+    modelId: 'NARWHAL',
+    modelLabel: 'Nano Banana 2',
+    modelSource: 'live',
+  }));
+  for (const current of [
+    { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2', modelSource: 'live' },
+    { modelId: 'NARWHAL', modelLabel: 'Renamed Model', modelSource: 'live' },
+    { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
+  ]) {
+    assert.throws(
+      () => assertFlowModelApproval(payload.flowModelApproval, current),
+      /changed after confirmation/i,
+    );
+  }
 });

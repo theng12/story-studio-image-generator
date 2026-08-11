@@ -189,6 +189,25 @@ export function assertProviderModel({ provider, snapshot, current } = {}) {
   if (!matches) throw modelError('model-selection-changed', provider);
 }
 
+export function assertFlowModelApproval(approval, current) {
+  const approvedId = String(approval?.modelId || '');
+  const approvedLabel = String(approval?.modelLabel || '');
+  const approvedSource = String(approval?.modelSource || '');
+  const matches =
+    FLOW_ID.test(approvedId) &&
+    approvedLabel &&
+    [MODEL_SOURCES.LIVE, MODEL_SOURCES.FALLBACK].includes(approvedSource) &&
+    approvedId === current?.modelId &&
+    approvedLabel === current?.modelLabel &&
+    approvedSource === current?.modelSource;
+  if (!matches) {
+    const error = new Error('Flow model discovery changed after confirmation. Refresh models, review the selected model and provenance, then confirm again.');
+    error.code = 'model-approval-changed';
+    throw error;
+  }
+  return approval;
+}
+
 export function modelSnapshotDiagnostic(snapshot) {
   if (!snapshot) return 'Legacy queue item';
   if (snapshot.modelSource === MODEL_SOURCES.PROVIDER_CONTROLLED) return 'Provider-controlled model';

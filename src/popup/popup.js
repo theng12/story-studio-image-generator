@@ -753,8 +753,14 @@ async function queueAllPending() {
   if (currentKind() === 'thumbnail')
     return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
   const provider = $('provider').value;
-  const project = captureQueueAllContext({ project: currentProject, provider, episodes: [] }).project;
-  if (provider === 'flow' && !hasSelectedFlowModel()) return setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+  const initial = captureQueueAllContext({
+    project: currentProject,
+    provider,
+    episodes: [],
+    flowModelApproval: provider === 'flow' ? selectedFlowModelApproval() : null,
+  });
+  const project = initial.project;
+  if (provider === 'flow' && !initial.flowModelApproval) return setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
   if (provider === 'flow' && !settings.flowProjectId) return setStatus('Set a Flow project first.', 'err');
   let rows;
   try {
@@ -768,19 +774,28 @@ async function queueAllPending() {
     return setStatus('No Scene Plans found. Create or load a Scene Plan in Story Studio, then try again.', 'err');
   const pending = scenePlanEpisodes.filter((e) => !sceneImageProgress(e).complete);
   if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
-  const approved = captureQueueAllContext({ project, provider, episodes: pending });
+  const approved = captureQueueAllContext({
+    project,
+    provider,
+    episodes: pending,
+    flowModelApproval: initial.flowModelApproval,
+  });
   const dlg = $('confirm');
   $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[approved.provider] || approved.provider}?`;
+  const flowApproval = approved.flowModelApproval;
+  const modelNote = flowApproval
+    ? ` Images use ${flowApproval.modelLabel} (${flowApproval.modelSource === 'live' ? 'live workspace' : 'tested fallback'}).`
+    : '';
   $('confirmBody').textContent =
     `Loads ${approved.episodes.length} pending episode${approved.episodes.length > 1 ? 's' : ''} and queues every missing scene image via ` +
     `${PROVIDER_LABEL[approved.provider] || approved.provider} → Story Studio folders. ` +
-    `Already-queued scenes are skipped. This can be a lot of scenes — continue?`;
+    `Already-queued scenes are skipped.${modelNote} This can be a lot of scenes — continue?`;
   $('confirmOk').textContent = 'Queue all pending';
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
     setStatus(`Queuing ${approved.episodes.length} episode${approved.episodes.length > 1 ? 's' : ''}…`, 'running');
-    if (approved.provider === 'flow' && !await persistSelectedFlowModel()) {
+    if (approved.provider === 'flow' && !await persistFlowModelApproval(approved.flowModelApproval)) {
       setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
       return;
     }
@@ -801,6 +816,7 @@ async function queueAllPending() {
           kind: 'scene',
           target: 'project',
           provider: approved.provider,
+          flowModelApproval: approved.flowModelApproval,
         });
         const res = await chrome.runtime.sendMessage({
           type: 'enqueueScenes',
@@ -1275,9 +1291,20 @@ function selectedFlowModelId() {
   return resolveStoredFlowModelId(settings, currentFlowModels);
 }
 
-function hasSelectedFlowModel() {
+function selectedFlowModelApproval() {
   const select = $('flowImageModel');
-  return Boolean(select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value));
+  const model = select?.value && select.selectedIndex >= 0
+    ? currentFlowModels.find((entry) => entry.modelId === select.value) || null
+    : null;
+  return model ? {
+    modelId: model.modelId,
+    modelLabel: model.modelLabel,
+    modelSource: currentFlowModelSource,
+  } : null;
+}
+
+function hasSelectedFlowModel() {
+  return Boolean(selectedFlowModelApproval());
 }
 
 function emptyFlowModelSettings() {
@@ -1290,20 +1317,20 @@ function emptyFlowModelSettings() {
   };
 }
 
-function persistSelectedFlowModel() {
+function persistFlowModelApproval(approval) {
   const save = flowModelSaveTail.then(async () => {
-    const select = $('flowImageModel');
-    const model = select?.value && select.selectedIndex >= 0
-      ? currentFlowModels.find((entry) => entry.modelId === select.value) || null
-      : null;
     const savedSettings = await saveSettings(
-      model ? flowModelSettings(model, currentFlowModelSource) : emptyFlowModelSettings()
+      approval ? flowModelSettings(approval, approval.modelSource) : emptyFlowModelSettings()
     );
     settings = savedSettings;
-    return Boolean(model);
+    return Boolean(approval);
   });
   flowModelSaveTail = save.catch(() => {});
   return save;
+}
+
+function persistSelectedFlowModel() {
+  return persistFlowModelApproval(selectedFlowModelApproval());
 }
 
 async function refreshFlowModels() {
@@ -1447,7 +1474,8 @@ function confirmQueue() {
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
   const target = 'project';
   if (!currentProject) return;
-  if (isFlow && !hasSelectedFlowModel()) {
+  const flowModelApproval = isFlow ? selectedFlowModelApproval() : null;
+  if (isFlow && !flowModelApproval) {
     setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
     return;
   }
@@ -1463,12 +1491,12 @@ function confirmQueue() {
     kind,
     target,
     provider,
+    flowModelApproval,
   });
   const n = `${scenes.length} ${noun}${scenes.length > 1 ? 's' : ''}`;
   if (isFlow) {
-    const selectedModel = currentFlowModels.find(({ modelId }) => modelId === $('flowImageModel').value);
-    const modelLabel = selectedModel?.modelLabel || selectedModel?.modelId || 'selected model';
-    const provenance = currentFlowModelSource === 'live' ? 'live workspace' : 'tested fallback';
+    const modelLabel = context.flowModelApproval.modelLabel;
+    const provenance = context.flowModelApproval.modelSource === 'live' ? 'live workspace' : 'tested fallback';
     $('confirmTitle').textContent = `Queue these ${noun}s?`;
     $('confirmBody').textContent =
       `${n} from ${context.episodeCode} → ` +
@@ -1518,7 +1546,7 @@ function confirmQueue() {
 
 async function doEnqueue(payload) {
   try {
-    if (payload.provider === 'flow' && !await persistSelectedFlowModel()) {
+    if (payload.provider === 'flow' && !await persistFlowModelApproval(payload.flowModelApproval)) {
       setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
       return;
     }

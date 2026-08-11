@@ -68,6 +68,7 @@ test('Qwen accepts only the first bounded reference and retains its one-chip gua
 function qwenAdapterHarness({
   initialChips = [],
   initialModel = { id: '', label: 'Qwen Image' },
+  onCheckpoint,
   onSleep,
   throwOnPaste = false,
 } = {}) {
@@ -194,6 +195,7 @@ function qwenAdapterHarness({
   context.__STORY_STUDIO_QWEN_CHECKPOINT__ = async () => {
     checkpoints++;
     events.push('checkpoint');
+    await onCheckpoint?.(model);
   };
   runInNewContext(source('src/content/qwen-main.js'), context);
   return {
@@ -245,6 +247,28 @@ test('Qwen persists the submission checkpoint immediately before Send', async ()
 
   assert.equal(result.imageUrl, 'https://cdn.qwenlm.ai/generated.png');
   assert.deepEqual(adapter.events(), ['checkpoint', 'click']);
+});
+
+test('Qwen rechecks the queued model after checkpoint persistence and before Send', async () => {
+  const adapter = qwenAdapterHarness({
+    async onCheckpoint(model) {
+      await Promise.resolve();
+      model.label = 'Qwen Text';
+    },
+  });
+
+  await assert.rejects(
+    adapter.generate({
+      prompt: 'A cave at dusk',
+      references: [],
+      expectedModel: { modelId: null, modelLabel: 'Qwen Image', modelSource: 'provider-label' },
+      submissionToken: 'token-1',
+    }),
+    /model selection changed/i,
+  );
+  assert.equal(adapter.checkpoints(), 1);
+  assert.equal(adapter.sendClicks(), 0);
+  assert.deepEqual(adapter.events(), ['checkpoint']);
 });
 
 test('Qwen rejects an unremovable stale chip before sending a no-reference generation', async () => {

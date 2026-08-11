@@ -75,6 +75,7 @@
       // the auto-resume cooldown.
       const error = new Error(`Qwen Studio usage limit reached — ${text.slice(0, 160)}`);
       error.limit = true;
+      error.providerRejectedBeforeGeneration = true;
       return error;
     }
     if (/blocked|safety|policy|not allowed|prohibited|unable to (?:create|generate)|can(?:not|'t) (?:create|generate)/i.test(text))
@@ -329,6 +330,7 @@
     }
     assertExpectedModel(params.expectedModel);
     await requestSubmissionCheckpoint(params);
+    assertExpectedModel(params.expectedModel);
     send.click();
     postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);

@@ -183,6 +183,15 @@ test('background terminalizes every unresolved provider checkpoint before any re
   assert.match(queue, /!providerAttempted && !modelVerificationFailed/);
 });
 
+test('attempt-scoped conversational limits carry explicit rejection proof', () => {
+  for (const file of ['qwen', 'chatgpt']) {
+    const adapter = source(`src/content/${file}-main.js`);
+    const bridge = source(`src/content/${file}.js`);
+    assert.match(adapter, /\.limit = true;[\s\S]{0,120}providerRejectedBeforeGeneration = true/);
+    assert.match(bridge, /providerRejectedBeforeGeneration:\s*error\.providerRejectedBeforeGeneration === true/);
+  }
+});
+
 test('queue-all uses a declared project target and records response and thrown failures', () => {
   const popup = source('src/popup/popup.js');
   const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
@@ -499,14 +508,18 @@ test('all visible adapters recheck queued identity before checkpoint and click',
     ['src/content/qwen-main.js', 'send.click()'],
     ['src/content/leonardo-main.js', 'button.click()'],
     ['src/content/chatgpt-main.js', 'button.click()'],
+    ['src/content/chatgpt-main.js', "el.dispatchEvent(new KeyboardEvent('keydown'"],
   ]) {
     const adapter = source(file);
     assert.match(adapter, /params\.expectedModel/);
     assert.match(adapter, /CHECKPOINT/);
-    const verify = adapter.lastIndexOf('assertExpectedModel', adapter.indexOf(click));
-    const checkpoint = adapter.lastIndexOf('await requestSubmissionCheckpoint', adapter.indexOf(click));
-    assert.ok(verify >= 0 && verify < checkpoint, `${file} verifies before checkpoint`);
-    assert.ok(checkpoint < adapter.indexOf(click), `${file} checkpoints before click`);
+    const clickAt = adapter.indexOf(click);
+    const checkpoint = adapter.lastIndexOf('await requestSubmissionCheckpoint', clickAt);
+    const precheck = adapter.lastIndexOf('assertExpectedModel', checkpoint);
+    const finalCheck = adapter.indexOf('assertExpectedModel', checkpoint);
+    assert.ok(precheck >= 0 && precheck < checkpoint, `${file} verifies before checkpoint`);
+    assert.ok(finalCheck > checkpoint && finalCheck < clickAt, `${file} rechecks after checkpoint`);
+    assert.doesNotMatch(adapter.slice(finalCheck, clickAt), /\bawait\b/, `${file} final recheck is synchronous with click`);
   }
 });
 
@@ -525,9 +538,14 @@ test('modal enqueue callbacks consume captured project and episode payloads', ()
 test('Flow confirmation names the selected model and its actual provenance', () => {
   const popup = source('src/popup/popup.js');
   const confirm = popup.slice(popup.indexOf('function confirmQueue'), popup.indexOf('async function doEnqueue'));
+  const enqueue = popup.slice(popup.indexOf('async function doEnqueue'), popup.indexOf('// ── queue view'));
+  const background = source('src/background.js');
 
   assert.match(confirm, /modelLabel/);
-  assert.match(confirm, /currentFlowModelSource/);
+  assert.match(confirm, /flowModelApproval\.modelSource/);
+  assert.match(confirm, /flowModelApproval/);
+  assert.match(enqueue, /persistFlowModelApproval\(payload\.flowModelApproval\)/);
+  assert.match(background, /assertFlowModelApproval\(flowModelApproval, modelSnapshot\)/);
   assert.doesNotMatch(confirm, /Nano Banana 2 \(free\)/);
 });
 
@@ -721,7 +739,8 @@ test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', asy
   const clear = process.indexOf('delete current.providerAttempted', proof);
   const ambiguity = process.indexOf('isAmbiguousProviderFailure', clear);
   assert.ok(proof >= 0 && clear > proof && ambiguity > clear);
-  assert.match(background, /providerRejectedBeforeGeneration:\s*!!res\?\.limit && provider !== 'leonardo'/);
+  assert.match(background, /providerRejectedBeforeGeneration:\s*res\?\.providerRejectedBeforeGeneration === true/);
+  assert.doesNotMatch(background, /providerRejectedBeforeGeneration:\s*!!res\?\.limit/);
   assert.match(process, /if \(providerActionAttempted\) await setNextProviderRun/);
 });
 
@@ -750,18 +769,18 @@ test('Flow persists a live-only rendered selection with its exact identity', () 
   const popup = source('src/popup/popup.js');
   const change = popup.slice(popup.indexOf("$('flowImageModel').onchange"), popup.indexOf("$('refreshFlowModels').onclick"));
   const refresh = popup.slice(popup.indexOf('async function refreshFlowModels'), popup.indexOf('function flowPopulate'));
-  const persist = popup.slice(popup.indexOf('function persistSelectedFlowModel'), popup.indexOf('async function refreshFlowModels'));
+  const selection = popup.slice(popup.indexOf('function selectedFlowModelApproval'), popup.indexOf('function emptyFlowModelSettings'));
+  const persist = popup.slice(popup.indexOf('function persistFlowModelApproval'), popup.indexOf('async function refreshFlowModels'));
 
   assert.match(popup, /let currentFlowModels = \[\]/);
   assert.match(popup, /let currentFlowModelSource = 'fallback'/);
   assert.match(change, /persistSelectedFlowModel/);
-  assert.match(persist, /currentFlowModels\.find/);
-  assert.doesNotMatch(persist, /flowModels\(\)\.find/);
+  assert.match(selection, /currentFlowModels\.find/);
+  assert.doesNotMatch(selection, /flowModels\(\)\.find/);
   assert.match(refresh, /currentFlowModels = models\.map/);
-  assert.match(persist, /flowModelSettings\(model, currentFlowModelSource\)/);
-  assert.match(persist, /flowModelId: model\.modelId|flowModelSettings/);
-  assert.match(persist, /flowModelLabel: model\.modelLabel|flowModelSettings/);
-  assert.match(persist, /flowModelSource: currentFlowModelSource|flowModelSettings/);
+  assert.match(selection, /modelSource: currentFlowModelSource/);
+  assert.match(persist, /flowModelSettings\(approval, approval\.modelSource\)/);
+  assert.match(persist, /persistFlowModelApproval\(selectedFlowModelApproval\(\)\)/);
 });
 
 test('every Flow enqueue waits for the serialized selection boundary', () => {
@@ -770,12 +789,9 @@ test('every Flow enqueue waits for the serialized selection boundary', () => {
   const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
   const enqueue = popup.slice(popup.indexOf('async function doEnqueue'), popup.indexOf('// ── queue view'));
 
-  for (const path of [standalone, enqueue]) {
-    const boundary = path.indexOf('await persistSelectedFlowModel()');
-    const send = path.indexOf('chrome.runtime.sendMessage');
-    assert.ok(boundary >= 0 && boundary < send);
-  }
-  assert.ok(queueAll.indexOf('await persistSelectedFlowModel()') < queueAll.indexOf('for (const episode of approved.episodes)'));
+  assert.ok(standalone.indexOf('await persistSelectedFlowModel()') < standalone.indexOf('chrome.runtime.sendMessage'));
+  assert.ok(enqueue.indexOf('await persistFlowModelApproval(payload.flowModelApproval)') < enqueue.indexOf('chrome.runtime.sendMessage'));
+  assert.ok(queueAll.indexOf('await persistFlowModelApproval(approved.flowModelApproval)') < queueAll.indexOf('for (const episode of approved.episodes)'));
 });
 
 test('Flow refresh preserves a rendered live selection after a delayed save', () => {
