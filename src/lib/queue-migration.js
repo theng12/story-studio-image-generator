@@ -54,6 +54,58 @@ function failedModelQueueItem(item, provider, now) {
   };
 }
 
+function ambiguousRecoveryQueueItem(item, now) {
+  const provider = String(queueProvider(item) || 'provider');
+  const failure = {
+    code: 'ambiguous',
+    title: `${provider} result needs confirmation`,
+    hint: `Inspect the ${provider} tab and Story Studio save result before you re-queue this item.`,
+    raw: 'Provider or result evidence exists, but no confirmed Story Studio save was recorded.',
+  };
+  return {
+    ...item,
+    status: 'failed',
+    error: failure.raw,
+    failure,
+    fleetRetrySafe: false,
+    finishedAt: now,
+    ...(Number.isFinite(item.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
+  };
+}
+
+function recoveryEvidenceQueueItem(item, now) {
+  if (item?.status !== 'running') return null;
+  if (item.savedAs) {
+    const completed = {
+      ...item,
+      status: 'done',
+      finishedAt: Number.isFinite(item.finishedAt) ? item.finishedAt : now,
+    };
+    completed.durationMs = Number.isFinite(item.durationMs)
+      ? item.durationMs
+      : Math.max(0, completed.finishedAt - (item.startedAt || completed.finishedAt));
+    delete completed.error;
+    delete completed.failure;
+    delete completed.fleetRetrySafe;
+    return completed;
+  }
+  if (item.providerAttempted !== true && !item.mediaId) return null;
+  return ambiguousRecoveryQueueItem(item, now);
+}
+
+export function recoverInterruptedQueue(queue, now = Date.now()) {
+  if (!Array.isArray(queue)) return [];
+  return queue.map((item) => {
+    const evidence = recoveryEvidenceQueueItem(item, now);
+    if (evidence) return evidence;
+    if (item?.status !== 'running') return { ...item };
+    if (item.provider === 'leonardo') return ambiguousRecoveryQueueItem(item, now);
+    const pending = { ...item, status: 'pending' };
+    delete pending.startedAt;
+    return pending;
+  });
+}
+
 function legacyGenerationSettings(item) {
   return {
     aspectRatio: item.aspectRatio,
@@ -113,6 +165,8 @@ export function unsupportedSceneQueueItem(item, now = Date.now()) {
 export function migrateQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
+    const evidence = recoveryEvidenceQueueItem(item, now);
+    if (evidence) return evidence;
     const provider = queueProvider(item);
     const active = item?.status === 'pending' || item?.status === 'running';
     const retryableFailure = canRetryItem(item);

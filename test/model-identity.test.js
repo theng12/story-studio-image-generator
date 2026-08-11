@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as modelIdentity from '../src/lib/model-identity.js';
 import { assertProviderModel, flowInventoryResult, generationSettingsFor, resolveFlowModel, snapshotProviderModel } from '../src/lib/model-identity.js';
 import { FLOW_FALLBACK_MODELS, getFlowModel } from '../src/lib/providers.js';
 
@@ -80,6 +81,110 @@ test('generation settings are copied, not retained by reference', () => {
   settings.leonardoStyle = 'Cinematic';
   assert.equal(result.style, 'Dynamic');
   assert.equal(result.modelId, 'phoenix-v1.0');
+});
+
+test('fallback Flow selection ignores persisted internal IDs across consecutive enqueues', () => {
+  assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
+  const inventory = flowInventoryResult([]);
+  const initial = { imageModel: 'nano-banana-2' };
+  const first = snapshotProviderModel({
+    provider: 'flow',
+    configuredModel: modelIdentity.configuredFlowModel(initial, inventory),
+    flowInventory: inventory,
+  });
+  const persisted = {
+    ...initial,
+    flowModelId: first.modelId,
+    flowModelLabel: first.modelLabel,
+    flowModelSource: first.modelSource,
+  };
+  const second = snapshotProviderModel({
+    provider: 'flow',
+    configuredModel: modelIdentity.configuredFlowModel(persisted, inventory),
+    flowInventory: inventory,
+  });
+  const switched = snapshotProviderModel({
+    provider: 'flow',
+    configuredModel: modelIdentity.configuredFlowModel({ ...persisted, imageModel: 'nano-banana-pro' }, inventory),
+    flowInventory: inventory,
+  });
+
+  assert.deepEqual(first, {
+    modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback',
+  });
+  assert.deepEqual(second, first);
+  assert.deepEqual(switched, {
+    modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro', modelSource: 'fallback',
+  });
+  assert.deepEqual(resolveFlowModel(first.modelId, inventory), {
+    modelId: 'NARWHAL', modelLabel: 'Nano Banana 2',
+  });
+  assert.equal(modelIdentity.configuredFlowModel({
+    imageModel: 'nano-banana-pro',
+    flowModelId: 'FLOW_STALE_LIVE',
+    flowModelSource: 'live',
+  }, inventory), 'nano-banana-pro');
+});
+
+test('first enqueue can snapshot a newly discovered exact live Flow ID', () => {
+  assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
+  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  const snapshot = snapshotProviderModel({
+    provider: 'flow',
+    configuredModel: modelIdentity.configuredFlowModel({
+      imageModel: 'nano-banana-2',
+      flowModelId: 'FLOW_LIVE_NEW',
+      flowModelSource: 'live',
+    }, inventory),
+    flowInventory: inventory,
+  });
+
+  assert.deepEqual(snapshot, {
+    modelId: 'FLOW_LIVE_NEW', modelLabel: 'Flow Live New', modelSource: 'live',
+  });
+});
+
+test('generation settings snapshot every immutable dispatched field', () => {
+  const settings = {
+    aspectRatio: '16:9',
+    aistudioAspectRatio: '4:3',
+    qwenAspectRatio: '3:4',
+    chatgptAspectRatio: '1:1',
+    chatgptMaxWaitSec: 725,
+    leonardoStyle: 'Cinematic',
+    leonardoMode: 'QUALITY',
+    leonardoSize: 'LARGE',
+    leonardoCount: 3,
+  };
+  const leonardoSnapshot = {
+    modelId: 'lucid-origin', modelLabel: 'Lucid Origin', modelSource: 'live',
+  };
+
+  assert.deepEqual(generationSettingsFor('leonardo', settings, leonardoSnapshot), {
+    modelId: 'lucid-origin',
+    modelLabel: 'Lucid Origin',
+    modelSource: 'live',
+    aspectRatio: '16:9',
+    style: 'Cinematic',
+    mode: 'QUALITY',
+    size: 'LARGE',
+    count: 3,
+    maxWaitSec: undefined,
+  });
+  assert.equal(generationSettingsFor('flow', settings, {}).aspectRatio, '16:9');
+  assert.equal(generationSettingsFor('aistudio', settings, {}).aspectRatio, '4:3');
+  assert.equal(generationSettingsFor('qwen', settings, {}).aspectRatio, '3:4');
+  assert.deepEqual(generationSettingsFor('chatgpt', settings, {}), {
+    modelId: null,
+    modelLabel: '',
+    modelSource: undefined,
+    aspectRatio: '1:1',
+    style: undefined,
+    mode: undefined,
+    size: undefined,
+    count: undefined,
+    maxWaitSec: 725,
+  });
 });
 
 test('unknown and changed models fail closed with refresh guidance', () => {

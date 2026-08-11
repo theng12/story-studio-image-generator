@@ -332,3 +332,68 @@ test('Flow generation accepts only the queued exact model ID', () => {
   assert.doesNotMatch(generate, /payload\.model\b/);
   assert.doesNotMatch(flow, /const IMAGE_MODELS/);
 });
+
+test('both Flow enqueue paths refresh live inventory before snapshotting', () => {
+  const background = source('src/background.js');
+  for (const [start, end] of [
+    ['async function enqueueScenes', 'async function enqueueStandalone'],
+    ['async function enqueueStandalone', 'async function processQueue'],
+  ]) {
+    const enqueue = background.slice(background.indexOf(start), background.indexOf(end));
+    const refresh = enqueue.indexOf('refreshFlowModels');
+    const snapshot = enqueue.indexOf('snapshotProviderModelAtEnqueue');
+    assert.ok(refresh >= 0 && refresh < snapshot);
+    assert.doesNotMatch(enqueue, /flowInventoryForEnqueue/);
+  }
+});
+
+test('startup recovery delegates to evidence-aware queue recovery', () => {
+  const background = source('src/background.js');
+  const startup = background.slice(background.indexOf('// Resume only work'), background.indexOf('chrome.alarms?.onAlarm'));
+  assert.match(startup, /recoverInterruptedQueue/);
+  assert.doesNotMatch(startup, /item\.status = 'pending'/);
+});
+
+test('Flow command rejects missing and malformed exact model IDs without network work', async () => {
+  for (const modelId of [undefined, 'unknown model id']) {
+    const requests = [];
+    const uploads = [];
+    const generations = [];
+    let tokens = 0;
+    const context = {
+      window: {
+        grecaptcha: {
+          enterprise: {
+            ready(callback) { callback(); },
+            execute() { tokens++; return Promise.resolve('token'); },
+          },
+        },
+      },
+      document: { querySelector() { return null; }, querySelectorAll() { return []; } },
+      location: { pathname: '', href: 'https://labs.google/fx/tools/flow' },
+      fetch(...args) {
+        requests.push(args);
+        if (String(args[0]).includes('/uploadImage')) uploads.push(args);
+        if (String(args[0]).includes('batchGenerateImages')) generations.push(args);
+        throw new Error('network work must not start');
+      },
+    };
+    const command = runInNewContext(`(${flowCommand.toString()})`, context);
+    const result = await command({
+      op: 'generateImage',
+      payload: {
+        projectId: '12345678-1234-1234-1234-123456789abc',
+        prompt: 'A moonlit lake',
+        modelId,
+        aspectRatio: '16:9',
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /model ID is malformed/i);
+    assert.equal(tokens, 0);
+    assert.equal(requests.length, 0);
+    assert.equal(uploads.length, 0);
+    assert.equal(generations.length, 0);
+  }
+});

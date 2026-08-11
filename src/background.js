@@ -18,12 +18,14 @@ import {
   assertSupportedProjectScene,
   canRetryItem,
   migrateQueue,
+  recoverInterruptedQueue,
   unsupportedSceneQueueItem,
 } from './lib/queue-migration.js';
 import { enqueueItems } from './lib/queue-operations.js';
 import { createQueueStore } from './lib/queue-store.js';
 import {
   assertProviderModel,
+  configuredFlowModel,
   flowInventoryResult,
   generationSettingsFor,
   snapshotProviderModel,
@@ -384,15 +386,6 @@ async function send(tabId, message) {
   throw new Error('Provider tab did not become ready.');
 }
 
-async function flowInventoryForEnqueue() {
-  const stored = (await chrome.storage.local.get(FLOW_MODEL_INVENTORY_KEY))[FLOW_MODEL_INVENTORY_KEY];
-  if (stored?.source === 'live' && Array.isArray(stored.models)) {
-    const live = flowInventoryResult(stored.models.map((model) => ({ id: model.modelId, label: model.modelLabel })));
-    if (live.source === 'live') return live;
-  }
-  return flowInventoryResult([]);
-}
-
 async function refreshFlowModels(tabId) {
   try {
     const targetId = Number.isInteger(tabId) ? tabId : (await ensureFlowTab()).id;
@@ -421,7 +414,7 @@ async function snapshotProviderModelAtEnqueue(provider, settings, flowInventory)
   const liveModel = context?.modelIdentity
     ? { id: context.modelIdentity.id, label: context.modelIdentity.label }
     : undefined;
-  const configuredModel = provider === 'flow' ? settings.flowModelId || settings.imageModel : undefined;
+  const configuredModel = provider === 'flow' ? configuredFlowModel(settings, flowInventory) : undefined;
   const modelSnapshot = snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory });
   return { modelSnapshot, generationSettings: generationSettingsFor(provider, settings, modelSnapshot) };
 }
@@ -969,7 +962,8 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
-  const flowInventory = prov === 'flow' ? await flowInventoryForEnqueue() : undefined;
+  const flowRefresh = prov === 'flow' ? await refreshFlowModels() : null;
+  const flowInventory = flowRefresh?.ok ? flowRefresh : flowInventoryResult([]);
   const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
   if (prov === 'flow') {
     await saveSettings({
@@ -1085,7 +1079,8 @@ async function enqueueStandalone({ prompts, prompt, label, provider }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
-  const flowInventory = prov === 'flow' ? await flowInventoryForEnqueue() : undefined;
+  const flowRefresh = prov === 'flow' ? await refreshFlowModels() : null;
+  const flowInventory = flowRefresh?.ok ? flowRefresh : flowInventoryResult([]);
   const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
   if (prov === 'flow') {
     await saveSettings({
@@ -1372,27 +1367,9 @@ async function clearPendingFromFleet() {
   return { cleared: true };
 }
 
-// Resume after a worker restart: re-pend any item that was mid-flight when the
-// worker died, then keep going if anything is pending.
+// Resume only work with no evidence that a provider request or save completed.
 (async () => {
-  const queue = await queueStore.update((current) => {
-    for (const item of current) {
-      if (item.status === 'running') {
-        if (item.provider === 'leonardo') {
-          item.status = 'failed';
-          item.error = 'Leonardo generation was interrupted after submission; its outcome is unknown. Check the Leonardo tab before retrying.';
-          item.failure = diagnoseFailure(item.error, item);
-          item.fleetRetrySafe = false;
-          item.finishedAt = Date.now();
-          item.durationMs = item.finishedAt - (item.startedAt || item.finishedAt);
-        } else {
-          item.status = 'pending';
-          delete item.startedAt;
-        }
-      }
-    }
-    return current;
-  });
+  const queue = await queueStore.update((current) => recoverInterruptedQueue(current, Date.now()));
   if (queue.some((item) => item.status === 'pending')) {
     alarmCreate();
     processQueue();

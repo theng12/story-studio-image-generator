@@ -60,6 +60,12 @@ export function resolveFlowModel(modelId, inventory) {
   return inventory?.models?.find((model) => model.modelId === String(modelId || ''));
 }
 
+export function configuredFlowModel(settings = {}, flowInventory) {
+  return settings.flowModelSource === MODEL_SOURCES.LIVE && flowInventory?.source === MODEL_SOURCES.LIVE
+    ? settings.flowModelId
+    : settings.imageModel;
+}
+
 export function snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory } = {}) {
   assertSupportedProvider(provider);
   if (provider === 'flow') {
