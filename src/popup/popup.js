@@ -368,7 +368,12 @@ function wire() {
   $('leoMode').onchange = async () => (settings = await saveSettings({ leonardoMode: $('leoMode').value }));
   $('leoSize').onchange = async () => (settings = await saveSettings({ leonardoSize: $('leoSize').value }));
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
-  $('flowImageModel').onchange = async () => (settings = await saveSettings({ imageModel: $('flowImageModel').value }));
+  $('flowImageModel').onchange = async () => {
+    const model = flowModels().find(({ modelId }) => modelId === $('flowImageModel').value);
+    if (!model) return;
+    settings = await saveSettings(flowModelSettings(model, $('flowModelSource').dataset.source));
+  };
+  $('refreshFlowModels').onclick = refreshFlowModels;
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
   $('flowRecaptchaMaxAttempts').onchange = async () => {
     settings = await saveSettings({ flowRecaptchaMaxAttempts: $('flowRecaptchaMaxAttempts').value });
@@ -431,6 +436,10 @@ async function setWorkMode(mode) {
 
 async function queueStandalone() {
   if (!standalonePrompts.length) return reviewStandalonePrompts();
+  if ($('provider').value === 'flow' && !hasSelectedFlowModel()) {
+    setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+    return;
+  }
   if ($('provider').value === 'flow' && !settings.flowProjectId) {
     setStatus('Select a generation workspace before queuing with this provider.', 'err');
     return;
@@ -723,6 +732,7 @@ async function queueAllPending() {
   if (currentKind() === 'thumbnail')
     return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
   const provider = $('provider').value;
+  if (provider === 'flow' && !hasSelectedFlowModel()) return setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
   if (provider === 'flow' && !settings.flowProjectId) return setStatus('Set a Flow project first.', 'err');
   let rows;
   try {
@@ -1213,9 +1223,74 @@ async function leoSyncAll() {
   }
 }
 
-// Google Flow image options in the panel (mirrors the Options page).
+function flowModels() {
+  return (PROVIDERS.find(({ id }) => id === 'flow')?.models || []).map(({ internalId, label }) => ({
+    modelId: internalId,
+    modelLabel: label,
+  }));
+}
+
+function flowModelSettings(model, source) {
+  const fallback = source === 'fallback'
+    ? PROVIDERS.find(({ id }) => id === 'flow')?.models.find(({ internalId }) => internalId === model.modelId)
+    : null;
+  const imageModel = fallback?.id || model.modelId;
+  return {
+    imageModel,
+    flowModelId: model.modelId,
+    flowModelLabel: model.modelLabel,
+    flowModelSource: source,
+    flowModelSelection: imageModel,
+  };
+}
+
+function selectedFlowModelId() {
+  if (settings.flowModelId) return settings.flowModelId;
+  return flowModels().find(({ modelId }) => modelId === settings.imageModel)?.modelId || settings.imageModel;
+}
+
+function hasSelectedFlowModel() {
+  const select = $('flowImageModel');
+  return Boolean(select?.value && select.selectedIndex >= 0);
+}
+
+async function refreshFlowModels() {
+  const button = $('refreshFlowModels');
+  const select = $('flowImageModel');
+  const provenance = $('flowModelSource');
+  const previous = selectedFlowModelId();
+  button.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'refreshFlowModels' }).catch(() => null);
+    const source = response?.ok && response.source === 'live' ? 'live' : 'fallback';
+    const models = response?.ok && Array.isArray(response.models) ? response.models : flowModels();
+    select.replaceChildren(...models.map(({ modelId, modelLabel }) => {
+      const option = document.createElement('option');
+      option.value = modelId;
+      option.textContent = modelLabel;
+      return option;
+    }));
+    provenance.dataset.source = source;
+    provenance.textContent = source === 'live'
+      ? 'Live from this signed-in Flow workspace'
+      : 'Tested fallback catalog; live discovery unavailable';
+    const selected = models.find(({ modelId }) => modelId === previous);
+    if (!selected) {
+      select.selectedIndex = -1;
+      return;
+    }
+    select.value = selected.modelId;
+    const patch = flowModelSettings(selected, source);
+    if (Object.entries(patch).some(([key, value]) => settings[key] !== value)) {
+      settings = await saveSettings(patch);
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function flowPopulate() {
-  $('flowImageModel').value = settings.imageModel || 'nano-banana-2';
+  void refreshFlowModels();
   $('flowAspect').value = settings.aspectRatio || '16:9';
   $('flowRecaptchaMaxAttempts').value = settings.flowRecaptchaMaxAttempts || 4;
 }
@@ -1314,6 +1389,10 @@ function confirmQueue() {
   const folder = kind === 'thumbnail' ? 'Thumbnail Images folder' : 'scene folder';
   const target = 'project';
   if (!currentProject) return;
+  if (isFlow && !hasSelectedFlowModel()) {
+    setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+    return;
+  }
   if (isFlow && !settings.flowProjectId) {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
@@ -1479,12 +1558,10 @@ function updateGenStatus(queue, paused) {
   const meta = $('activeMeta');
   if (displayItem) {
     const provider = PROVIDER_LABEL[displayItem.provider] || displayItem.provider || 'Google Flow';
-    const model =
-      displayItem.provider === 'flow'
-        ? (settings?.imageModel || 'Nano Banana 2').replaceAll('-', ' ')
-        : 'Scene image';
-    const ratio = settings?.aspectRatio || '16:9';
-    meta.textContent = `${provider} · ${model.replace(/\b\w/g, (c) => c.toUpperCase())} · ${ratio}`;
+    const snapshot = displayItem.modelSnapshot;
+    const model = queuedModelLabel({ modelSnapshot: snapshot });
+    const ratio = displayItem.generationSettings?.aspectRatio || displayItem.aspectRatio || '16:9';
+    meta.textContent = `${provider} · ${model} · ${ratio}`;
     meta.classList.remove('hidden');
   } else {
     meta.classList.add('hidden');
@@ -1492,6 +1569,18 @@ function updateGenStatus(queue, paused) {
   const total = queue.length;
   const progress = total ? Math.round(((done + failed + (running ? .35 : 0)) / total) * 100) : 0;
   $('batchProgressFill').style.width = `${Math.min(100, Math.max(0, progress))}%`;
+}
+
+function queuedModelLabel(item) {
+  const snapshot = item?.modelSnapshot;
+  if (!snapshot) return 'Legacy queue item';
+  if (snapshot.modelSource === 'provider-controlled' || !snapshot.modelId || !snapshot.modelLabel) {
+    return 'Provider-controlled model';
+  }
+  if (snapshot.modelSource === 'fallback') {
+    return `${snapshot.modelLabel} (${snapshot.modelId}, fallback)`;
+  }
+  return `${snapshot.modelLabel} (${snapshot.modelId}, live)`;
 }
 
 let lastQueueSig = '';

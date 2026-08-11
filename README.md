@@ -42,6 +42,17 @@ New provider integrations and most new provider models require an extension
 update. Leonardo is the exception: its model list is read from the signed-in
 Leonardo page when you refresh models in the side panel.
 
+## Model Identity And Queue Safety
+
+Queued work snapshots its model identity and generation settings, so active
+batch diagnostics show the configuration that was actually queued. Flow reads
+exact provider-owned model IDs and labels from the signed-in workspace and
+reports when that inventory is live; only when discovery is unavailable does it
+use the three tested fallback IDs. Google AI Studio, Qwen Studio, and ChatGPT
+remain website-controlled, while Leonardo is live-discovered. Unknown or
+changed verifiable selections fail before submission and require refresh and
+re-queue.
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.

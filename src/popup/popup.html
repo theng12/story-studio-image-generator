@@ -129,12 +129,9 @@
         <div class="row leo-grid" id="flowImageRow">
           <label class="grow">
             <span class="mini">Image model</span>
-            <select id="flowImageModel">
-              <option value="nano-banana-2">Nano Banana 2 — free</option>
-              <option value="nano-banana-2-lite">Nano Banana 2 Lite — free, faster</option>
-              <option value="nano-banana-pro">Nano Banana Pro — premium</option>
-            </select>
+            <select id="flowImageModel"></select>
           </label>
+          <button id="refreshFlowModels" class="btn small" title="Read models from your signed-in Flow workspace">Refresh Flow models</button>
           <label class="grow">
             <span class="mini">Aspect ratio</span>
             <select id="flowAspect">
@@ -146,11 +143,15 @@
             </select>
           </label>
         </div>
+        <div id="flowModelSource" class="hint"></div>
         <label class="grow">
           <span class="mini">Fresh-token attempts</span>
           <input id="flowRecaptchaMaxAttempts" type="number" min="1" max="10" step="1" />
           <span class="hint">Retries a fresh provider token before this image is paused for cooldown.</span>
         </label>
+        <div class="hint">
+          Web providers choose models in their signed tabs. Flow discovery is live when exact provider-owned IDs are available and otherwise uses the three tested fallback records. Changed or unknown verifiable selections require refresh and re-queue.
+        </div>
       </div>
       <div id="aistudioCard" class="leo hidden">
         <div class="label">Google AI Studio options</div>
