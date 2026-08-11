@@ -157,11 +157,24 @@
     return { mime: m[1], base64: m[2] };
   }
 
+  function selectedModelIdentity() {
+    const selector = '[data-model-id], [data-model], [data-testid^="model-"], button[aria-haspopup][aria-label*="model" i], [role="button"][aria-haspopup][aria-label*="model" i], [role="combobox"][aria-label*="model" i]';
+    const control = [...document.querySelectorAll(selector)].find(vis);
+    if (!control) return { id: '', label: '', stable: false };
+    const testId = control.getAttribute('data-testid') || '';
+    const testIdModel = /^model-(?!selector|switcher|trigger|button|menu|dropdown)/i.test(testId) ? testId : '';
+    const id = norm(control.getAttribute('data-model-id') || control.getAttribute('data-model') || testIdModel);
+    const visibleLabel = norm(control.textContent) || norm(control.getAttribute('aria-label'));
+    const label = new Set(['Model', 'Select model', 'Choose model']).has(visibleLabel) ? '' : visibleLabel;
+    return { id, label, stable: Boolean(id || label) };
+  }
+
   function getContext() {
     return {
       provider: 'aistudio',
       ready: !!(promptInput() && runButton()),
       signedIn: !/^\s*(sign in|log in)\b/i.test((document.body.innerText || '').slice(0, 300)),
+      modelIdentity: selectedModelIdentity(),
       url: location.href,
     };
   }

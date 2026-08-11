@@ -9,14 +9,6 @@ export async function flowCommand(command) {
   try {
     const API = 'https://aisandbox-pa.googleapis.com/v1';
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
-    const IMAGE_MODELS = {
-      'nano-banana-2': 'NARWHAL',
-      'nano-banana-2-lite': 'HARBOR_SEAL',
-      'nano-banana-pro': 'GEM_PIX_2',
-      NARWHAL: 'NARWHAL',
-      HARBOR_SEAL: 'HARBOR_SEAL',
-      GEM_PIX_2: 'GEM_PIX_2',
-    };
     const IMAGE_ASPECT = {
       '16:9': 'IMAGE_ASPECT_RATIO_LANDSCAPE',
       '9:16': 'IMAGE_ASPECT_RATIO_PORTRAIT',
@@ -107,11 +99,28 @@ export async function flowCommand(command) {
       if (buffer.byteLength > 50 * 1024 * 1024) throw new Error('Downloaded image exceeded 50 MB.');
       return { base64: bufToBase64(buffer), mime: contentType || 'image/png' };
     };
+    const listImageModels = async () => {
+      const entries = [];
+      const add = (id, label) => entries.push({ id: String(id || ''), label: String(label || '') });
+      const nextData = window.__NEXT_DATA__ || (() => {
+        try { return JSON.parse(document.querySelector('script#__NEXT_DATA__')?.textContent || 'null'); }
+        catch { return null; }
+      })();
+      const configs = nextData?.props?.pageProps?.imageModelConfigs;
+      for (const config of Array.isArray(configs) ? configs : []) add(config.imageModelKey, config.displayName);
+      for (const element of document.querySelectorAll('[role="option"][data-image-model-key]')) {
+        add(element.getAttribute('data-image-model-key'), element.textContent);
+      }
+      return { entries };
+    };
     const generateImage = async () => {
       const projectId = projectIdFor(payload.projectId);
       if (!projectId) throw new Error('No Flow project selected.');
       if (!String(payload.prompt || '').trim()) throw new Error('Empty image prompt.');
-      const model = IMAGE_MODELS[payload.model] || 'NARWHAL';
+      const modelId = String(payload.modelId || '').trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{2,127}$/.test(modelId)) {
+        throw new Error('Flow model ID is malformed. Refresh the signed-in Flow page and choose an advertised model before retrying.');
+      }
       const aspect = IMAGE_ASPECT[payload.aspectRatio] || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
       const seed = Number.isFinite(payload.seed) ? payload.seed : randomSeed();
       const maxAttempts = Math.min(10, Math.max(1, Math.round(Number(payload.recaptchaMaxAttempts) || 4)));
@@ -139,7 +148,7 @@ export async function flowCommand(command) {
               requests: [
                 {
                   clientContext,
-                  imageModelName: model,
+                  imageModelName: modelId,
                   imageAspectRatio: aspect,
                   structuredPrompt: { parts: [{ text: payload.prompt }] },
                   seed,
@@ -235,6 +244,7 @@ export async function flowCommand(command) {
     };
 
     const handlers = {
+      listImageModels,
       generateImage,
       uploadImage,
       getContext,

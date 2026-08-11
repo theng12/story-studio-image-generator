@@ -192,3 +192,121 @@ test('failed legacy scenes with omitted targets cannot retry locally', () => {
 
   for (const item of failed) assert.equal(canRetryItem(item), false);
 });
+
+test('legacy Leonardo work without a model snapshot fails closed', () => {
+  const input = [{
+    id: 'legacy-leonardo',
+    provider: 'leonardo',
+    target: 'project',
+    kind: 'scene',
+    source: 'plan',
+    status: 'pending',
+    prompt: 'A quiet mountain lake',
+  }];
+
+  const [migrated] = migrateQueue(input, NOW);
+
+  assert.equal(migrated.status, 'failed');
+  assert.equal(migrated.failure.code, 'model-unknown');
+  assert.match(migrated.failure.hint, /refresh.*re-queue/i);
+  assert.equal(migrated.fleetRetrySafe, false);
+  assert.equal(migrated.finishedAt, NOW);
+  assert.deepEqual(input[0], {
+    id: 'legacy-leonardo',
+    provider: 'leonardo',
+    target: 'project',
+    kind: 'scene',
+    source: 'plan',
+    status: 'pending',
+    prompt: 'A quiet mountain lake',
+  });
+});
+
+test('legacy Flow work retains its prompt and friendly model', () => {
+  const input = [{
+    id: 'legacy-flow',
+    provider: 'flow',
+    target: 'project',
+    kind: 'scene',
+    source: 'plan',
+    status: 'pending',
+    prompt: 'A paper boat on a moonlit river',
+    model: 'nano-banana-2',
+  }];
+
+  const [migrated] = migrateQueue(input, NOW);
+
+  assert.equal(migrated.prompt, input[0].prompt);
+  assert.equal(migrated.model, 'nano-banana-2');
+  assert.deepEqual(migrated.modelSnapshot, {
+    modelId: 'NARWHAL',
+    modelLabel: 'Nano Banana 2',
+    modelSource: 'fallback',
+  });
+  assert.equal(migrated.generationSettings.modelId, 'NARWHAL');
+});
+
+test('legacy picker-driven web work becomes explicitly provider-controlled', () => {
+  const input = ['aistudio', 'qwen', 'chatgpt'].map((provider) => ({
+    id: provider,
+    provider,
+    target: 'download',
+    kind: 'scene',
+    source: 'standalone',
+    status: 'pending',
+    aspectRatio: '4:3',
+  }));
+
+  const migrated = migrateQueue(input, NOW);
+
+  for (const item of migrated) {
+    assert.deepEqual(item.modelSnapshot, {
+      modelId: null,
+      modelLabel: '',
+      modelSource: 'provider-controlled',
+    });
+    assert.equal(item.generationSettings.aspectRatio, '4:3');
+  }
+});
+
+test('stale model failures require a fresh queue item', () => {
+  for (const code of ['model-unknown', 'model-selection-changed']) {
+    assert.equal(canRetryItem({
+      provider: 'flow',
+      target: 'project',
+      kind: 'scene',
+      source: 'plan',
+      status: 'failed',
+      failure: { code },
+    }), false);
+  }
+});
+
+test('migration preserves saved results and recovery checkpoints', () => {
+  const input = [
+    { id: 'done', provider: 'flow', status: 'done', savedAs: 'scene.png', mediaId: 'media-done' },
+    { id: 'retry', provider: 'flow', status: 'running', providerAttempted: true, mediaId: 'media-retry' },
+  ];
+  const migrated = migrateQueue(input, NOW);
+  assert.equal(migrated[0].savedAs, 'scene.png');
+  assert.equal(migrated[0].mediaId, 'media-done');
+  assert.equal(migrated[1].providerAttempted, true);
+  assert.equal(migrated[1].mediaId, 'media-retry');
+});
+
+test('migration preserves known Leonardo submission evidence for ambiguity recovery', () => {
+  const input = [{
+    id: 'leonardo-submitted',
+    provider: 'leonardo',
+    target: 'download',
+    kind: 'scene',
+    source: 'standalone',
+    status: 'running',
+    providerAttempted: true,
+    startedAt: NOW - 100,
+  }];
+
+  const [migrated] = migrateQueue(input, NOW);
+
+  assert.deepEqual(migrated, input[0]);
+});

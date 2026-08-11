@@ -10,7 +10,7 @@
 // Strictly sequential — only ever one provider generation in flight, so sites
 // are never flooded no matter how much image work is queued.
 
-import { getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
+import { getLeonardoModels, getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
@@ -22,6 +22,12 @@ import {
 } from './lib/queue-migration.js';
 import { enqueueItems } from './lib/queue-operations.js';
 import { createQueueStore } from './lib/queue-store.js';
+import {
+  assertProviderModel,
+  flowInventoryResult,
+  generationSettingsFor,
+  snapshotProviderModel,
+} from './lib/model-identity.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 import {
   ambiguousLeonardoQueueItem,
@@ -33,6 +39,7 @@ import {
 const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
+const FLOW_MODEL_INVENTORY_KEY = 'flowImageModelInventory';
 const PROVIDER = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, workspace }) => [id, workspace])));
 const PROVIDER_NAME = Object.freeze(Object.fromEntries(PROVIDERS.map(({ id, label }) => [id, label])));
 const PROVIDER_SCRIPTS = Object.freeze(
@@ -338,6 +345,7 @@ async function send(tabId, message) {
     'flow:generateImage',
     'flow:uploadImage',
     'flow:getContext',
+    'flow:listImageModels',
     'chatgpt:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
@@ -374,6 +382,73 @@ async function send(tabId, message) {
     }
   }
   throw new Error('Provider tab did not become ready.');
+}
+
+async function flowInventoryForEnqueue() {
+  const stored = (await chrome.storage.local.get(FLOW_MODEL_INVENTORY_KEY))[FLOW_MODEL_INVENTORY_KEY];
+  if (stored?.source === 'live' && Array.isArray(stored.models)) {
+    const live = flowInventoryResult(stored.models.map((model) => ({ id: model.modelId, label: model.modelLabel })));
+    if (live.source === 'live') return live;
+  }
+  return flowInventoryResult([]);
+}
+
+async function refreshFlowModels(tabId) {
+  try {
+    const targetId = Number.isInteger(tabId) ? tabId : (await ensureFlowTab()).id;
+    const response = await send(targetId, { type: 'flow:listImageModels' });
+    const inventory = flowInventoryResult(response.entries);
+    const refreshedAt = Date.now();
+    const stored = {
+      source: inventory.source,
+      models: inventory.models.map((model) => ({ ...model })),
+      refreshedAt,
+    };
+    await chrome.storage.local.set({ [FLOW_MODEL_INVENTORY_KEY]: stored });
+    return { ok: true, ...stored };
+  } catch {
+    return { ok: false, code: 'flow-model-discovery-unavailable' };
+  }
+}
+
+async function snapshotProviderModelAtEnqueue(provider, settings, flowInventory) {
+  if (provider === 'leonardo') await leonardoModelControls(settings.leonardoModel);
+  const context = provider === 'flow' ? null : await webGeneratorContext(provider);
+  if (provider === 'leonardo' && context?.modelIdentity?.id && !context.modelIdentity.label) {
+    const saved = (await getLeonardoModels()).find((model) => model.id === context.modelIdentity.id);
+    if (saved?.label) context.modelIdentity = { ...context.modelIdentity, label: saved.label };
+  }
+  const liveModel = context?.modelIdentity
+    ? { id: context.modelIdentity.id, label: context.modelIdentity.label }
+    : undefined;
+  const configuredModel = provider === 'flow' ? settings.flowModelId || settings.imageModel : undefined;
+  const modelSnapshot = snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory });
+  return { modelSnapshot, generationSettings: generationSettingsFor(provider, settings, modelSnapshot) };
+}
+
+const modelError = (code, message) => Object.assign(new Error(message), { code });
+
+async function requireCurrentFlowModel(item, tabId) {
+  const current = await refreshFlowModels(tabId);
+  if (!current.ok) throw modelError('model-unknown', 'Flow model discovery is unavailable. Refresh the signed-in Flow page and re-queue this item.');
+  if (item.modelSnapshot.modelSource === 'live') {
+    const selected = current.models.find((model) => model.modelId === item.modelSnapshot.modelId);
+    if (!selected || selected.modelLabel !== item.modelSnapshot.modelLabel) {
+      throw modelError('model-selection-changed', 'The queued Flow model was removed or changed. Refresh the signed-in Flow page and re-queue this item.');
+    }
+  } else if (!current.models.some((model) => model.modelId === item.modelSnapshot.modelId)) {
+    throw modelError('model-unknown', 'The queued Flow fallback model is unavailable. Refresh the signed-in Flow page and re-queue this item.');
+  }
+}
+
+async function verifyQueuedModel(item, provider, tab) {
+  if (!item.modelSnapshot || !item.generationSettings) {
+    throw modelError('model-unknown', `${PROVIDER_NAME[provider] || 'Provider'} model settings are missing. Refresh the signed-in provider page and re-queue this item.`);
+  }
+  if (provider === 'flow') return requireCurrentFlowModel(item, tab.id);
+  const config = getProvider(provider);
+  const current = await send(tab.id, { type: config.contextMessage });
+  assertProviderModel({ provider, snapshot: item.modelSnapshot, current: current.modelIdentity });
 }
 
 async function responseToPayload(response) {
@@ -482,9 +557,9 @@ async function generateAndSave(item, settings, tab) {
         type: 'chatgpt:generateImage',
         params: {
           prompt: item.prompt,
-          aspectRatio: item.aspectRatio || settings.aspectRatio,
+          aspectRatio: item.generationSettings.aspectRatio,
           references: await resolveReferenceImages(item, settings, provider),
-          maxWaitSec: settings.chatgptMaxWaitSec,
+          maxWaitSec: item.generationSettings.maxWaitSec,
         },
       });
       // The adapter returns in-page PNG bytes when it can, else a URL for the
@@ -496,7 +571,7 @@ async function generateAndSave(item, settings, tab) {
         type: 'aistudio:generateImage',
         params: {
           prompt: item.prompt,
-          aspectRatio: item.aspectRatio || settings.aistudioAspectRatio || settings.aspectRatio,
+          aspectRatio: item.generationSettings.aspectRatio,
           references: await resolveReferenceImages(item, settings, provider),
         },
       });
@@ -507,8 +582,8 @@ async function generateAndSave(item, settings, tab) {
       const params = {
         projectId,
         prompt: item.prompt,
-        model: item.model || settings.imageModel,
-        aspectRatio: item.aspectRatio || settings.aspectRatio,
+        modelId: item.modelSnapshot.modelId,
+        aspectRatio: item.generationSettings.aspectRatio,
         recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
       };
       const referenceIds = await resolveReferenceMediaIds(item, settings, tab);
@@ -522,7 +597,7 @@ async function generateAndSave(item, settings, tab) {
         type: 'qwen:generateImage',
         params: {
           prompt: item.prompt,
-          aspectRatio: item.aspectRatio || settings.aspectRatio,
+          aspectRatio: item.generationSettings.aspectRatio,
           references: await resolveReferenceImages(item, settings, provider),
         },
       });
@@ -533,12 +608,12 @@ async function generateAndSave(item, settings, tab) {
         type: 'leonardo:generateImage',
         params: {
           prompt: item.prompt,
-          aspectRatio: item.aspectRatio || settings.aspectRatio,
-          style: settings.leonardoStyle,
-          model: settings.leonardoModel,
-          mode: settings.leonardoMode,
-          size: settings.leonardoSize,
-          count: settings.leonardoCount,
+          aspectRatio: item.generationSettings.aspectRatio,
+          style: item.generationSettings.style,
+          model: item.generationSettings.modelId,
+          mode: item.generationSettings.mode,
+          size: item.generationSettings.size,
+          count: item.generationSettings.count,
         },
       });
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
@@ -659,6 +734,14 @@ function diagnoseFailure(error, item = {}) {
   const text = raw.toLowerCase();
   const provider = providerLabelForItem(item);
   const match = (pattern) => pattern.test(text);
+
+  if (error?.code === 'model-unknown' || error?.code === 'model-selection-changed')
+    return {
+      code: error.code,
+      title: 'Queued model settings changed',
+      hint: `Refresh the signed-in ${provider} page, choose the model and settings again, then re-queue this item.`,
+      raw,
+    };
 
   if (error?.code === 'provider-removed' || match(/provider (?:was )?removed|provider is not supported/))
     return {
@@ -886,6 +969,15 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
+  const flowInventory = prov === 'flow' ? await flowInventoryForEnqueue() : undefined;
+  const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
+  if (prov === 'flow') {
+    await saveSettings({
+      flowModelId: modelSnapshot.modelId,
+      flowModelLabel: modelSnapshot.modelLabel,
+      flowModelSource: modelSnapshot.modelSource,
+    });
+  }
   const providerConfig = getProvider(prov);
   const effTarget = 'project';
   const maxReferences = providerConfig?.capabilities?.maxReferences || 0;
@@ -966,6 +1058,8 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       target: effTarget,
       projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
       model: settings.imageModel,
+      modelSnapshot: { ...modelSnapshot },
+      generationSettings: { ...generationSettings },
       aspectRatio:
         prov === 'qwen'
           ? settings.qwenAspectRatio || '16:9'
@@ -991,6 +1085,15 @@ async function enqueueStandalone({ prompts, prompt, label, provider }) {
   const settings = await getSettings();
   const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
   if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
+  const flowInventory = prov === 'flow' ? await flowInventoryForEnqueue() : undefined;
+  const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
+  if (prov === 'flow') {
+    await saveSettings({
+      flowModelId: modelSnapshot.modelId,
+      flowModelLabel: modelSnapshot.modelLabel,
+      flowModelSource: modelSnapshot.modelSource,
+    });
+  }
   const safeLabel = String(label || 'image')
     .trim()
     .replace(/[^a-z0-9_-]+/gi, '-')
@@ -1013,6 +1116,8 @@ async function enqueueStandalone({ prompts, prompt, label, provider }) {
       target: 'download',
       projectId: normalizeFlowProjectId(settings.flowProjectId),
       model: settings.imageModel,
+      modelSnapshot: { ...modelSnapshot },
+      generationSettings: { ...generationSettings },
       aspectRatio:
         prov === 'qwen' ? settings.qwenAspectRatio || '16:9'
           : prov === 'aistudio' ? settings.aistudioAspectRatio || '16:9'
@@ -1077,6 +1182,7 @@ async function processQueue() {
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
         if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
+        await verifyQueuedModel(item, provider, tabs[provider]);
         await setNextProviderRun(settings);
         providerAttempted = true;
         const r = await generateAndSave(item, settings, tabs[provider]);
@@ -1195,7 +1301,8 @@ async function processQueue() {
         // Auto-retry a normal failure up to the provider's configured count —
         // only while its auto-resume toggle is on, so "off" keeps prior behavior
         // (fail immediately, retry manually with the Retry-failed button).
-        if (cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
+        const modelVerificationFailed = ['model-unknown', 'model-selection-changed'].includes(e?.code);
+        if (!modelVerificationFailed && cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
           let retryAttempt = (item.attempts || 0) + 1;
           await queueStore.update((queue) => {
             const current = queue.find((candidate) => candidate.id === item.id);
@@ -1682,6 +1789,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'flowContext':
       reply(flowContext());
+      return true;
+    case 'refreshFlowModels':
+      reply(refreshFlowModels(msg.tabId));
       return true;
     case 'openProviderPage':
       reply(openProviderPage(msg.provider));

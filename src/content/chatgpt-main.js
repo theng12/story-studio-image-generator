@@ -328,6 +328,18 @@
     }
   }
 
+  function selectedModelIdentity() {
+    const selector = '[data-model-id], [data-model], [data-testid^="model-"], button[aria-haspopup][aria-label*="model" i], [role="button"][aria-haspopup][aria-label*="model" i], [role="combobox"][aria-label*="model" i]';
+    const control = [...document.querySelectorAll(selector)].find(visible);
+    if (!control) return { id: '', label: '', stable: false };
+    const testId = control.getAttribute('data-testid') || '';
+    const testIdModel = /^model-(?!selector|switcher|trigger|button|menu|dropdown)/i.test(testId) ? testId : '';
+    const id = norm(control.getAttribute('data-model-id') || control.getAttribute('data-model') || testIdModel);
+    const visibleLabel = norm(control.textContent) || norm(control.getAttribute('aria-label'));
+    const label = new Set(['Model', 'Select model', 'Choose model']).has(visibleLabel) ? '' : visibleLabel;
+    return { id, label, stable: Boolean(id || label) };
+  }
+
   function getContext() {
     const el = composer();
     const bodyText = norm(document.body.innerText).slice(0, 300);
@@ -337,6 +349,7 @@
       ready: !!el,
       signedIn: !!el && !/^\s*(log in|sign up|welcome back)\b/i.test(bodyText),
       conversationId: m ? m[1] : '',
+      modelIdentity: selectedModelIdentity(),
       url: location.href,
     };
   }
