@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import * as queueMigration from '../src/lib/queue-migration.js';
 import { canRetryItem, migrateQueue } from '../src/lib/queue-migration.js';
 
 const NOW = 1_723_000_000_000;
@@ -294,7 +295,7 @@ test('migration preserves saved results and recovery checkpoints', () => {
   assert.equal(migrated[1].mediaId, 'media-retry');
 });
 
-test('migration preserves known Leonardo submission evidence for ambiguity recovery', () => {
+test('migration terminalizes known Leonardo submission evidence for ambiguity recovery', () => {
   const input = [{
     id: 'leonardo-submitted',
     provider: 'leonardo',
@@ -308,5 +309,67 @@ test('migration preserves known Leonardo submission evidence for ambiguity recov
 
   const [migrated] = migrateQueue(input, NOW);
 
-  assert.deepEqual(migrated, input[0]);
+  assert.equal(migrated.status, 'failed');
+  assert.equal(migrated.failure.code, 'ambiguous');
+  assert.match(migrated.failure.hint, /inspect.*re-queue/i);
+  assert.equal(migrated.fleetRetrySafe, false);
+  assert.equal(migrated.providerAttempted, true);
+});
+
+test('migration terminalizes running recovery evidence before provider or model policy', () => {
+  const input = [
+    {
+      id: 'saved', provider: 'flow', status: 'running', savedAs: 'scene.png',
+      mediaId: 'media-saved', providerAttempted: true, startedAt: NOW - 200,
+    },
+    {
+      id: 'attempted', provider: 'qwen', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'running', providerAttempted: true, startedAt: NOW - 150,
+      modelSnapshot: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
+    },
+    {
+      id: 'media', provider: 'aistudio', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'running', mediaId: 'media-only', startedAt: NOW - 100,
+    },
+    {
+      id: 'retired-attempted', provider: 'retired-provider', status: 'running',
+      providerAttempted: true, startedAt: NOW - 50,
+    },
+  ];
+
+  const migrated = migrateQueue(input, NOW);
+
+  assert.equal(migrated[0].status, 'done');
+  assert.equal(migrated[0].savedAs, 'scene.png');
+  assert.equal(migrated[0].mediaId, 'media-saved');
+  assert.equal(migrated[0].providerAttempted, true);
+  for (const item of migrated.slice(1)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'ambiguous');
+    assert.match(item.failure.hint, /inspect.*re-queue/i);
+    assert.equal(item.fleetRetrySafe, false);
+  }
+  assert.equal(migrated[1].providerAttempted, true);
+  assert.equal(migrated[2].mediaId, 'media-only');
+  assert.equal(migrated[3].provider, 'retired-provider');
+});
+
+test('startup recovery never re-pends submitted or saved evidence', () => {
+  assert.equal(typeof queueMigration.recoverInterruptedQueue, 'function');
+  const recovered = queueMigration.recoverInterruptedQueue?.([
+    { id: 'saved', provider: 'flow', status: 'running', savedAs: 'scene.png', startedAt: NOW - 40 },
+    { id: 'attempted', provider: 'chatgpt', status: 'running', providerAttempted: true, startedAt: NOW - 30 },
+    { id: 'media', provider: 'flow', status: 'running', mediaId: 'media-id', startedAt: NOW - 20 },
+    { id: 'safe-retry', provider: 'flow', status: 'running', startedAt: NOW - 10 },
+    { id: 'leonardo-unknown', provider: 'leonardo', status: 'running', startedAt: NOW - 5 },
+  ], NOW);
+
+  assert.equal(recovered[0].status, 'done');
+  assert.equal(recovered[1].status, 'failed');
+  assert.equal(recovered[2].status, 'failed');
+  assert.equal(recovered[3].status, 'pending');
+  assert.equal(recovered[3].startedAt, undefined);
+  assert.equal(recovered[4].status, 'failed');
+  assert.equal(recovered[4].failure.code, 'ambiguous');
+  assert.equal(recovered.some((item) => item.status === 'pending' && (item.providerAttempted || item.mediaId || item.savedAs)), false);
 });
