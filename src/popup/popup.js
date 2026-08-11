@@ -1293,6 +1293,7 @@ async function refreshFlowModels() {
   const select = $('flowImageModel');
   const provenance = $('flowModelSource');
   button.disabled = true;
+  select.disabled = true;
   try {
     await flowModelSaveTail;
     const previous = select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value)
@@ -1313,14 +1314,16 @@ async function refreshFlowModels() {
     provenance.textContent = source === 'live'
       ? 'Live from this signed-in Flow workspace'
       : 'Tested fallback catalog; live discovery unavailable';
-    const selected = currentFlowModels.find(({ modelId }) => modelId === previous);
-    if (!selected) {
+    if (!currentFlowModels.length) {
       select.selectedIndex = -1;
     } else {
-      select.value = selected.modelId;
+      const selected = currentFlowModels.find(({ modelId }) => modelId === previous);
+      if (!selected) select.selectedIndex = -1;
+      else select.value = selected.modelId;
     }
     await persistSelectedFlowModel();
   } finally {
+    select.disabled = currentFlowModels.length === 0;
     button.disabled = false;
   }
 }

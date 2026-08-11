@@ -511,3 +511,16 @@ test('Flow refresh preserves a rendered live selection after a delayed save', ()
   assert.match(refresh, /\? select\.value\s*:\s*selectedFlowModelId\(\)/);
   assert.ok(previous < replace, 'refresh preserves B before rendering the returned inventory');
 });
+
+test('Flow disables model selection throughout refresh and leaves an empty inventory disabled', () => {
+  const popup = source('src/popup/popup.js');
+  const refresh = popup.slice(popup.indexOf('async function refreshFlowModels'), popup.indexOf('function flowPopulate'));
+  const disable = refresh.indexOf('select.disabled = true');
+  const request = refresh.indexOf("chrome.runtime.sendMessage({ type: 'refreshFlowModels' })");
+  const render = refresh.indexOf('select.replaceChildren');
+  const persist = refresh.indexOf('await persistSelectedFlowModel()');
+
+  assert.ok(disable >= 0 && disable < request && request < render && render < persist);
+  assert.match(refresh, /select\.disabled = currentFlowModels\.length === 0/);
+  assert.match(refresh, /if \(!currentFlowModels\.length\)\s*\{\s*select\.selectedIndex = -1/);
+});
