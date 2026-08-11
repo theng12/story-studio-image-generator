@@ -9,7 +9,16 @@ const standalone = (overrides = {}) => ({
   kind: 'scene',
   provider: 'flow',
   prompt: '  A quiet cabin   at dusk  ',
-  generationSettings: { modelId: 'NARWHAL', aspectRatio: '16:9', style: '', mode: '', size: '', count: 1 },
+  generationSettings: {
+    modelId: 'NARWHAL',
+    modelLabel: 'Nano Banana 2',
+    modelSource: 'live',
+    aspectRatio: '16:9',
+    style: '',
+    mode: '',
+    size: '',
+    count: 1,
+  },
   ...overrides,
 });
 
@@ -60,6 +69,23 @@ test('changed standalone model remains distinct', () => {
   assert.equal(result.added, 1);
   assert.equal(result.skipped, 0);
   assert.notEqual(activeWorkKey(current), activeWorkKey(changed));
+});
+
+test('standalone label and provenance changes remain distinct', () => {
+  const current = standalone({ id: 'queued', status: 'pending' });
+  for (const changedField of [
+    { modelLabel: 'Nano Banana 2 renamed' },
+    { modelSource: 'fallback' },
+  ]) {
+    const changed = standalone({
+      generationSettings: { ...current.generationSettings, ...changedField },
+    });
+    const result = enqueueItems([current], [changed], 1000);
+
+    assert.equal(result.added, 1);
+    assert.equal(result.skipped, 0);
+    assert.notEqual(activeWorkKey(current), activeWorkKey(changed));
+  }
 });
 
 test('legacy standalone items deduplicate exact settings but not changed model or aspect ratio', () => {

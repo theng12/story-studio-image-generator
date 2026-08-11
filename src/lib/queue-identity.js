@@ -1,4 +1,13 @@
-const GENERATION_SETTING_FIELDS = ['modelId', 'aspectRatio', 'style', 'mode', 'size', 'count'];
+const GENERATION_SETTING_FIELDS = [
+  'modelId',
+  'modelLabel',
+  'modelSource',
+  'aspectRatio',
+  'style',
+  'mode',
+  'size',
+  'count',
+];
 
 export function normalizePrompt(prompt) {
   return String(prompt || '').trim().replace(/\s+/g, ' ').toLowerCase();

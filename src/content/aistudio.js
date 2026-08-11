@@ -1,4 +1,9 @@
 (() => {
+  globalThis.__STORY_STUDIO_AISTUDIO_CHECKPOINT__ = async (token) => {
+    const response = await chrome.runtime.sendMessage({ type: 'providerSubmissionCheckpoint', token });
+    if (!response?.ok) throw new Error(response?.error || 'AI Studio submission checkpoint failed.');
+  };
+
   const callAdapter = (op, payload = {}, timeoutMs = 240000) => {
     const adapter = globalThis.__STORY_STUDIO_AISTUDIO_CALL__;
     if (typeof adapter !== 'function') return Promise.reject(new Error('AI Studio adapter is not ready.'));

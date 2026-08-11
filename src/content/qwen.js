@@ -1,5 +1,9 @@
 if (!globalThis.__STORY_STUDIO_QWEN_BRIDGE__) {
   globalThis.__STORY_STUDIO_QWEN_BRIDGE__ = true;
+  globalThis.__STORY_STUDIO_QWEN_CHECKPOINT__ = async (token) => {
+    const response = await chrome.runtime.sendMessage({ type: 'providerSubmissionCheckpoint', token });
+    if (!response?.ok) throw new Error(response?.error || 'Qwen Studio submission checkpoint failed.');
+  };
   globalThis.__STORY_STUDIO_QWEN_PROGRESS__ = (phase) => {
     try {
       chrome.runtime.sendMessage({ type: 'qwen:progress', phase }).catch(() => {});

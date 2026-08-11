@@ -255,6 +255,23 @@
     return { id, label, stable: Boolean(id || label) };
   }
 
+  function assertExpectedModel(expected, current = selectedModelIdentity()) {
+    if (!expected) throw new Error('Qwen Studio queued model identity is missing. Refresh and re-queue this item.');
+    if (expected.modelSource === 'provider-controlled') return;
+    const matches = expected.modelSource === 'provider-label'
+      ? expected.modelLabel === current.label
+      : expected.modelId === current.id && (!expected.modelLabel || expected.modelLabel === current.label);
+    if (!matches) throw new Error('Qwen Studio model selection changed. Refresh the signed-in page and re-queue this item.');
+  }
+
+  async function requestSubmissionCheckpoint(params) {
+    const checkpoint = globalThis.__STORY_STUDIO_QWEN_CHECKPOINT__;
+    if (!params.submissionToken || typeof checkpoint !== 'function') {
+      throw new Error('Qwen Studio submission checkpoint is unavailable. Reload the provider tab.');
+    }
+    await checkpoint(params.submissionToken);
+  }
+
   function getContext() {
     const textarea = promptInput();
     return {
@@ -310,6 +327,8 @@
     if (finalChipCount !== expectedChipCount) {
       throw new Error(`Qwen Studio reference attachment count mismatch: expected ${expectedChipCount}, found ${finalChipCount}. Remove stale attachments in the tab, then retry.`);
     }
+    assertExpectedModel(params.expectedModel);
+    await requestSubmissionCheckpoint(params);
     send.click();
     postProgress('generating');
     const result = await waitForImage(beforeImages, beforeMessageCount);

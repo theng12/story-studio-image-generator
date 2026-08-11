@@ -9,7 +9,11 @@ export function providerLabelForItem(item = {}) {
 }
 
 export function isAmbiguousLeonardoFailure(provider, providerAttempted, error) {
-  return provider === 'leonardo' && providerAttempted && error?.submitted !== false;
+  return provider === 'leonardo' && isAmbiguousProviderFailure(providerAttempted, error);
+}
+
+export function isAmbiguousProviderFailure(providerAttempted, error) {
+  return providerAttempted && error?.submitted !== false;
 }
 
 export function isKnownPreSubmitLimit(provider, error) {
@@ -17,7 +21,11 @@ export function isKnownPreSubmitLimit(provider, error) {
 }
 
 export function ambiguousLeonardoQueueItem(item, error, now = Date.now()) {
-  const raw = String(error?.message || error || 'Unknown Leonardo error');
+  return ambiguousProviderQueueItem(item, error, now);
+}
+
+export function ambiguousProviderQueueItem(item, error, now = Date.now()) {
+  const raw = String(error?.message || error || 'Unknown provider error');
   const provider = providerLabelForItem(item);
   return {
     ...item,

@@ -6,12 +6,24 @@
 // persistent queue. A confirmation step guards every batch so an accidental
 // click can't burn work/credits.
 
-import { getSettings, saveSettings, getLeonardoModels, saveLeonardoModels, providerCooldown } from '../lib/config.js';
+import {
+  requestSettings as getSettings,
+  saveSettings,
+  getLeonardoModels,
+  saveLeonardoModels,
+  providerCooldown,
+} from '../lib/config.js';
 import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 import { summarizeQueueAll } from '../lib/queue-all.js';
 import { sceneImageProgress } from '../lib/episode-progress.js';
+import {
+  captureQueueAllContext,
+  captureSceneEnqueueContext,
+  captureStandaloneEnqueueContext,
+} from '../lib/enqueue-context.js';
+import { modelSnapshotDiagnostic, resolveStoredFlowModelId } from '../lib/model-identity.js';
 
 const $ = (id) => document.getElementById(id);
 let settings = null;
@@ -444,6 +456,11 @@ async function queueStandalone() {
     setStatus('Select a generation workspace before queuing with this provider.', 'err');
     return;
   }
+  const payload = captureStandaloneEnqueueContext({
+    prompts: standalonePrompts,
+    label: $('standaloneLabel').value,
+    provider,
+  });
   const button = $('queueStandalone');
   button.disabled = true;
   try {
@@ -453,7 +470,7 @@ async function queueStandalone() {
     }
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueStandalone',
-      payload: { prompts: standalonePrompts, label: $('standaloneLabel').value, provider },
+      payload,
     });
     if (!res?.ok) throw new Error(res?.error || 'Could not queue the images.');
     $('standalonePrompt').value = '';
@@ -736,11 +753,12 @@ async function queueAllPending() {
   if (currentKind() === 'thumbnail')
     return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
   const provider = $('provider').value;
+  const project = captureQueueAllContext({ project: currentProject, provider, episodes: [] }).project;
   if (provider === 'flow' && !hasSelectedFlowModel()) return setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
   if (provider === 'flow' && !settings.flowProjectId) return setStatus('Set a Flow project first.', 'err');
   let rows;
   try {
-    rows = await client.listEpisodes(currentProject.slug);
+    rows = await client.listEpisodes(project.slug);
   } catch (e) {
     return setStatus(`Couldn't list episodes: ${e.message}`, 'err');
   }
@@ -750,42 +768,43 @@ async function queueAllPending() {
     return setStatus('No Scene Plans found. Create or load a Scene Plan in Story Studio, then try again.', 'err');
   const pending = scenePlanEpisodes.filter((e) => !sceneImageProgress(e).complete);
   if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
+  const approved = captureQueueAllContext({ project, provider, episodes: pending });
   const dlg = $('confirm');
-  $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[provider] || provider}?`;
+  $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[approved.provider] || approved.provider}?`;
   $('confirmBody').textContent =
-    `Loads ${pending.length} pending episode${pending.length > 1 ? 's' : ''} and queues every missing scene image via ` +
-    `${PROVIDER_LABEL[provider] || provider} → Story Studio folders. ` +
+    `Loads ${approved.episodes.length} pending episode${approved.episodes.length > 1 ? 's' : ''} and queues every missing scene image via ` +
+    `${PROVIDER_LABEL[approved.provider] || approved.provider} → Story Studio folders. ` +
     `Already-queued scenes are skipped. This can be a lot of scenes — continue?`;
   $('confirmOk').textContent = 'Queue all pending';
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    setStatus(`Queuing ${pending.length} episode${pending.length > 1 ? 's' : ''}…`, 'running');
-    if (provider === 'flow' && !await persistSelectedFlowModel()) {
+    setStatus(`Queuing ${approved.episodes.length} episode${approved.episodes.length > 1 ? 's' : ''}…`, 'running');
+    if (approved.provider === 'flow' && !await persistSelectedFlowModel()) {
       setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
       return;
     }
     let queued = 0;
     let eps = 0;
     const failures = [];
-    for (const e of pending) {
-      const code = e.episode_code || e.code;
+    for (const episode of approved.episodes) {
+      const code = episode.code;
       try {
-        const r = await loadScenePlan(currentProject.slug, { code, title: e.title || '' });
+        const r = await loadScenePlan(approved.project.slug, episode);
         const missing = (r.scenes || []).filter((s) => !s.hasImage && (s.prompt || '').trim());
         if (!missing.length) continue;
+        const payload = captureSceneEnqueueContext({
+          project: approved.project,
+          episode,
+          source: r.source,
+          scenes: missing,
+          kind: 'scene',
+          target: 'project',
+          provider: approved.provider,
+        });
         const res = await chrome.runtime.sendMessage({
           type: 'enqueueScenes',
-          payload: {
-            slug: currentProject.slug,
-            episodeCode: code,
-            episodeTitle: e.title || '',
-            scenes: missing,
-            source: r.source,
-            kind: 'scene',
-            target: 'project',
-            provider,
-          },
+          payload,
         });
         if (!res?.ok) {
           failures.push({ code, error: res?.error || 'The extension did not accept this episode.' });
@@ -1253,8 +1272,7 @@ function flowModelSettings(model, source) {
 }
 
 function selectedFlowModelId() {
-  if (settings.flowModelId) return settings.flowModelId;
-  return flowModels().find(({ modelId }) => modelId === settings.imageModel)?.modelId || settings.imageModel;
+  return resolveStoredFlowModelId(settings, currentFlowModels);
 }
 
 function hasSelectedFlowModel() {
@@ -1296,14 +1314,15 @@ async function refreshFlowModels() {
   select.disabled = true;
   try {
     await flowModelSaveTail;
-    const previous = select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value)
+    const renderedSelection = select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value)
       ? select.value
-      : selectedFlowModelId();
+      : null;
     const response = await chrome.runtime.sendMessage({ type: 'refreshFlowModels' }).catch(() => null);
     const source = response?.ok && response.source === 'live' ? 'live' : 'fallback';
     const models = response?.ok && Array.isArray(response.models) ? response.models : flowModels();
     currentFlowModels = models.map(({ modelId, modelLabel }) => ({ modelId, modelLabel }));
     currentFlowModelSource = source;
+    const previous = renderedSelection || selectedFlowModelId();
     select.replaceChildren(...currentFlowModels.map(({ modelId, modelLabel }) => {
       const option = document.createElement('option');
       option.value = modelId;
@@ -1436,18 +1455,30 @@ function confirmQueue() {
     setStatus('Set a Flow project first (use “Use current tab”).', 'err');
     return;
   }
+  const context = captureSceneEnqueueContext({
+    project: currentProject,
+    episode: currentEpisode,
+    source: currentSource,
+    scenes,
+    kind,
+    target,
+    provider,
+  });
   const n = `${scenes.length} ${noun}${scenes.length > 1 ? 's' : ''}`;
   if (isFlow) {
+    const selectedModel = currentFlowModels.find(({ modelId }) => modelId === $('flowImageModel').value);
+    const modelLabel = selectedModel?.modelLabel || selectedModel?.modelId || 'selected model';
+    const provenance = currentFlowModelSource === 'live' ? 'live workspace' : 'tested fallback';
     $('confirmTitle').textContent = `Queue these ${noun}s?`;
     $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} → ` +
+      `${n} from ${context.episodeCode} → ` +
       `Story Studio ${folder}. ` +
-      `Images use Nano Banana 2 (free). One at a time.`;
+      `Images use ${modelLabel} (${provenance}). One at a time.`;
     $('confirmOk').textContent = 'Queue';
   } else if (provider === 'aistudio') {
     $('confirmTitle').textContent = `Queue these ${noun}s on AI Studio?`;
     $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via Google AI Studio → ` +
+      `${n} from ${context.episodeCode} via Google AI Studio → ` +
       `Story Studio ${folder}. Keep the AI Studio tab open in ` +
       `image mode. Uses your FREE DAILY image quota — the queue pauses when it's hit; press Resume after reset. ` +
       `${humanDelayLabel()} between each. Continue?`;
@@ -1455,7 +1486,7 @@ function confirmQueue() {
   } else if (provider === 'qwen') {
     $('confirmTitle').textContent = `Queue these ${noun}s on Qwen Studio?`;
     $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via Qwen Studio (${settings.qwenAspectRatio || '16:9'}) → ` +
+      `${n} from ${context.episodeCode} via Qwen Studio (${settings.qwenAspectRatio || '16:9'}) → ` +
       `Story Studio ${folder}. Keep the Qwen tab open. ` +
       `Qwen uses one submission per scene, ratio is best-effort, and explicit usage limits pause the queue. ` +
       `${humanDelayLabel()} between each. Continue?`;
@@ -1472,7 +1503,7 @@ function confirmQueue() {
       provider === 'chatgpt' ? ' Runs on chatgpt.com — keep that tab visible.' : '';
     $('confirmTitle').textContent = `Queue these ${noun}s on ${name}?`;
     $('confirmBody').textContent =
-      `${n} from ${currentEpisode.code} via the ${name} website → ` +
+      `${n} from ${context.episodeCode} via the ${name} website → ` +
       `Story Studio ${folder}. ` +
       `Keep the generator tab open; jobs run one at a time with a ${humanDelayLabel()} gap.${ratioNote}${chatNote}`;
     $('confirmOk').textContent = `Queue on ${name}`;
@@ -1481,28 +1512,19 @@ function confirmQueue() {
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
-    await doEnqueue(scenes, target, provider, kind);
+    await doEnqueue(context);
   };
 }
 
-async function doEnqueue(scenes, target, provider, kind) {
+async function doEnqueue(payload) {
   try {
-    if (provider === 'flow' && !await persistSelectedFlowModel()) {
+    if (payload.provider === 'flow' && !await persistSelectedFlowModel()) {
       setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
       return;
     }
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
-      payload: {
-        slug: currentProject.slug,
-        episodeCode: currentEpisode.code,
-        episodeTitle: currentEpisode.title,
-        scenes,
-        source: currentSource,
-        kind,
-        target,
-        provider,
-      },
+      payload,
     });
     if (!res?.ok) throw new Error(res?.error || 'enqueue failed');
     setStatus(`Queued ${res.added}${res.skipped ? `, skipped ${res.skipped} already queued` : ''}.`, 'done');
@@ -1615,15 +1637,7 @@ function updateGenStatus(queue, paused) {
 }
 
 function queuedModelLabel(item) {
-  const snapshot = item?.modelSnapshot;
-  if (!snapshot) return 'Legacy queue item';
-  if (snapshot.modelSource === 'provider-controlled' || !snapshot.modelId || !snapshot.modelLabel) {
-    return 'Provider-controlled model';
-  }
-  if (snapshot.modelSource === 'fallback') {
-    return `${snapshot.modelLabel} (${snapshot.modelId}, fallback)`;
-  }
-  return `${snapshot.modelLabel} (${snapshot.modelId}, live)`;
+  return modelSnapshotDiagnostic(item?.modelSnapshot);
 }
 
 let lastQueueSig = '';

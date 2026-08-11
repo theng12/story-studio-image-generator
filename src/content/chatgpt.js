@@ -1,5 +1,9 @@
 if (!globalThis.__STORY_STUDIO_CHATGPT_BRIDGE__) {
   globalThis.__STORY_STUDIO_CHATGPT_BRIDGE__ = true;
+  globalThis.__STORY_STUDIO_CHATGPT_CHECKPOINT__ = async (token) => {
+    const response = await chrome.runtime.sendMessage({ type: 'providerSubmissionCheckpoint', token });
+    if (!response?.ok) throw new Error(response?.error || 'ChatGPT submission checkpoint failed.');
+  };
   globalThis.__STORY_STUDIO_CHATGPT_PROGRESS__ = (phase) => {
     chrome.runtime.sendMessage({ type: 'chatgpt:progress', phase }).catch(() => {});
   };

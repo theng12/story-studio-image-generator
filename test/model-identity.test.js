@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as modelIdentity from '../src/lib/model-identity.js';
-import { assertProviderModel, flowInventoryResult, generationSettingsFor, resolveFlowModel, snapshotProviderModel } from '../src/lib/model-identity.js';
+import {
+  assertProviderModel,
+  flowInventoryResult,
+  generationSettingsFor,
+  modelSnapshotDiagnostic,
+  resolveFlowModel,
+  resolveStoredFlowModelId,
+  snapshotProviderModel,
+} from '../src/lib/model-identity.js';
 import { FLOW_FALLBACK_MODELS, getFlowModel } from '../src/lib/providers.js';
 
 test('Flow exposes only exact tested fallback IDs', () => {
@@ -140,6 +148,28 @@ test('first enqueue maps a tested fallback selection to its exact live Flow ID',
   });
 });
 
+test('released Flow settings resolve friendly and exact IDs without losing provenance', () => {
+  const live = flowInventoryResult([
+    { id: 'NARWHAL', label: 'Provider Nano Banana 2' },
+    { id: 'FLOW_LIVE_NEW', label: 'Workspace Model' },
+  ]);
+
+  assert.equal(resolveStoredFlowModelId({ imageModel: 'nano-banana-2' }, live.models), 'NARWHAL');
+  assert.equal(resolveStoredFlowModelId({ imageModel: 'NARWHAL' }, live.models), 'NARWHAL');
+  assert.equal(resolveStoredFlowModelId({
+    imageModel: 'FLOW_LIVE_NEW',
+    flowModelId: 'FLOW_LIVE_NEW',
+    flowModelSource: 'live',
+    flowModelSelection: 'FLOW_LIVE_NEW',
+  }, live.models), 'FLOW_LIVE_NEW');
+  assert.equal(resolveStoredFlowModelId({
+    imageModel: 'nano-banana-2',
+    flowModelId: 'REMOVED_LIVE_ID',
+    flowModelSource: 'live',
+    flowModelSelection: 'nano-banana-2',
+  }, live.models), null, 'trusted live provenance must not silently remap a removed exact ID');
+});
+
 test('first live Flow enqueue fails closed when the mapped exact catalog ID is absent', () => {
   const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
   assert.throws(
@@ -258,7 +288,10 @@ test('generation parameter construction produces every immutable provider payloa
       modelId: null, modelLabel: '', modelSource: 'provider-controlled', aspectRatio: '4:3',
     },
   }, { references }), {
-    prompt: 'A moonlit river', aspectRatio: '4:3', references,
+    prompt: 'A moonlit river',
+    aspectRatio: '4:3',
+    references,
+    expectedModel: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
   });
   assert.deepEqual(modelIdentity.generationParamsFor('qwen', {
     ...base,
@@ -267,7 +300,10 @@ test('generation parameter construction produces every immutable provider payloa
       modelId: null, modelLabel: '', modelSource: 'provider-controlled', aspectRatio: '3:4',
     },
   }, { references }), {
-    prompt: 'A moonlit river', aspectRatio: '3:4', references,
+    prompt: 'A moonlit river',
+    aspectRatio: '3:4',
+    references,
+    expectedModel: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
   });
   assert.deepEqual(modelIdentity.generationParamsFor('chatgpt', {
     ...base,
@@ -276,7 +312,11 @@ test('generation parameter construction produces every immutable provider payloa
       modelId: null, modelLabel: '', modelSource: 'provider-controlled', aspectRatio: '1:1', maxWaitSec: 725,
     },
   }, { references }), {
-    prompt: 'A moonlit river', aspectRatio: '1:1', references, maxWaitSec: 725,
+    prompt: 'A moonlit river',
+    aspectRatio: '1:1',
+    references,
+    maxWaitSec: 725,
+    expectedModel: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
   });
   assert.deepEqual(modelIdentity.generationParamsFor('leonardo', {
     ...base,
@@ -299,6 +339,7 @@ test('generation parameter construction produces every immutable provider payloa
     mode: 'QUALITY',
     size: 'LARGE',
     count: 3,
+    expectedModel: { modelId: 'lucid-origin', modelLabel: 'Lucid Origin', modelSource: 'live' },
   });
 });
 
@@ -358,6 +399,14 @@ test('unknown and changed models fail closed with refresh guidance', () => {
     }),
     (error) => error.code === 'model-selection-changed' && /refresh the signed-in Leonardo page/i.test(error.message),
   );
+  assert.throws(
+    () => assertProviderModel({
+      provider: 'leonardo',
+      snapshot: { modelId: 'phoenix-v1.0', modelLabel: 'Phoenix', modelSource: 'live' },
+      current: { id: 'phoenix-v1.0', label: 'Renamed or changed selection' },
+    }),
+    (error) => error.code === 'model-selection-changed',
+  );
 });
 
 test('provider-controlled identity does not claim a false match', () => {
@@ -366,6 +415,19 @@ test('provider-controlled identity does not claim a false match', () => {
     snapshot: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
     current: { id: '', label: '' },
   }));
+});
+
+test('diagnostics distinguish provider labels from provider-controlled snapshots', () => {
+  assert.equal(modelSnapshotDiagnostic({
+    modelId: null,
+    modelLabel: 'Qwen Image',
+    modelSource: 'provider-label',
+  }), 'Qwen Image (provider-selected label)');
+  assert.equal(modelSnapshotDiagnostic({
+    modelId: null,
+    modelLabel: '',
+    modelSource: 'provider-controlled',
+  }), 'Provider-controlled model');
 });
 
 test('missing model snapshots fail closed', () => {

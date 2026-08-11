@@ -169,6 +169,23 @@
     return { id, label, stable: Boolean(id || label) };
   }
 
+  function assertExpectedModel(expected, current = selectedModelIdentity()) {
+    if (!expected) throw new Error('AI Studio queued model identity is missing. Refresh and re-queue this item.');
+    if (expected.modelSource === 'provider-controlled') return;
+    const matches = expected.modelSource === 'provider-label'
+      ? expected.modelLabel === current.label
+      : expected.modelId === current.id && (!expected.modelLabel || expected.modelLabel === current.label);
+    if (!matches) throw new Error('AI Studio model selection changed. Refresh the signed-in page and re-queue this item.');
+  }
+
+  async function requestSubmissionCheckpoint(params) {
+    const checkpoint = globalThis.__STORY_STUDIO_AISTUDIO_CHECKPOINT__;
+    if (!params.submissionToken || typeof checkpoint !== 'function') {
+      throw new Error('AI Studio submission checkpoint is unavailable. Reload the provider tab.');
+    }
+    await checkpoint(params.submissionToken);
+  }
+
   function getContext() {
     return {
       provider: 'aistudio',
@@ -198,6 +215,8 @@
     await sleep(250);
     const run = runButton();
     if (!run) throw new Error('AI Studio Run button not found.');
+    assertExpectedModel(params.expectedModel);
+    await requestSubmissionCheckpoint(params);
     run.click();
     return imagePayload(await waitForImage(before));
   }

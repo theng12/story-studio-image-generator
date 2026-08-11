@@ -39,8 +39,9 @@ only reference descriptors and downloads the bounded image bytes when a job
 runs.
 
 New provider integrations and most new provider models require an extension
-update. Leonardo is the exception: its model list is read from the signed-in
-Leonardo page when you refresh models in the side panel.
+update. Flow and Leonardo are live-discovered where applicable: Flow reads its
+signed-in workspace inventory, and Leonardo reads its signed-in page when you
+refresh models in the side panel.
 
 ## Model Identity And Queue Safety
 

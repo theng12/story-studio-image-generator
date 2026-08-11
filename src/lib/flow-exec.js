@@ -113,7 +113,8 @@ export async function flowCommand(command) {
       }
       return { entries };
     };
-    const generateImage = async () => {
+    const preparedRequests = window.__STORY_STUDIO_FLOW_IMAGE_PREPARATIONS__ ||= new Map();
+    const prepareGenerateImage = async () => {
       const projectId = projectIdFor(payload.projectId);
       if (!projectId) throw new Error('No Flow project selected.');
       if (!String(payload.prompt || '').trim()) throw new Error('Empty image prompt.');
@@ -124,21 +125,52 @@ export async function flowCommand(command) {
       const aspect = IMAGE_ASPECT[payload.aspectRatio] || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
       const seed = Number.isFinite(payload.seed) ? payload.seed : randomSeed();
       const maxAttempts = Math.min(10, Math.max(1, Math.round(Number(payload.recaptchaMaxAttempts) || 4)));
+      const token = await mintToken('IMAGE_GENERATION');
+      const authorization = await accessToken();
+      const preparationId = uuid();
+      const now = Date.now();
+      for (const [id, prepared] of preparedRequests) {
+        if (now - prepared.createdAt > 120000) preparedRequests.delete(id);
+      }
+      preparedRequests.set(preparationId, {
+        projectId,
+        prompt: String(payload.prompt),
+        modelId,
+        aspect,
+        seed,
+        maxAttempts,
+        imageInputs: Array.isArray(payload.imageInputs) ? payload.imageInputs : [],
+        token,
+        authorization,
+        createdAt: now,
+      });
+      return { preparationId };
+    };
+
+    const submitPreparedImage = async (preparationId) => {
+      const prepared = preparedRequests.get(String(preparationId || ''));
+      if (!prepared || Date.now() - prepared.createdAt > 120000) {
+        preparedRequests.delete(String(preparationId || ''));
+        throw new Error('Flow generation preparation expired. Re-queue this item after checking the Flow tab.');
+      }
+      // One-shot consumption prevents a transport retry from replaying a request
+      // whose provider outcome is unknown.
+      preparedRequests.delete(String(preparationId));
       let json;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const token = await mintToken('IMAGE_GENERATION');
+      for (let attempt = 1; attempt <= prepared.maxAttempts; attempt++) {
+        const token = attempt === 1 ? prepared.token : await mintToken('IMAGE_GENERATION');
         const clientContext = {
           recaptchaContext: recaptchaContext(token),
-          projectId,
+          projectId: prepared.projectId,
           tool: 'PINHOLE',
           sessionId: sessionId(),
         };
         const response = await fetch(
-          `${API}/projects/${encodeURIComponent(projectId)}/flowMedia:batchGenerateImages`,
+          `${API}/projects/${encodeURIComponent(prepared.projectId)}/flowMedia:batchGenerateImages`,
           {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${await accessToken()}`,
+              Authorization: `Bearer ${attempt === 1 ? prepared.authorization : await accessToken()}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -148,11 +180,11 @@ export async function flowCommand(command) {
               requests: [
                 {
                   clientContext,
-                  imageModelName: modelId,
-                  imageAspectRatio: aspect,
-                  structuredPrompt: { parts: [{ text: payload.prompt }] },
-                  seed,
-                  imageInputs: Array.isArray(payload.imageInputs) ? payload.imageInputs : [],
+                  imageModelName: prepared.modelId,
+                  imageAspectRatio: prepared.aspect,
+                  structuredPrompt: { parts: [{ text: prepared.prompt }] },
+                  seed: prepared.seed,
+                  imageInputs: prepared.imageInputs,
                 },
               ],
             }),
@@ -165,13 +197,14 @@ export async function flowCommand(command) {
         const detail = await errorDetail(response);
         const recaptchaFailure =
           response.status === 403 || /recaptcha|captcha|evaluation failed/i.test(detail);
-        if (recaptchaFailure && attempt < maxAttempts) {
+        if (recaptchaFailure && attempt < prepared.maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
           continue;
         }
         if (recaptchaFailure) {
-          throw new Error(
-            `Flow reCAPTCHA failed after ${attempt} fresh-token attempts (${response.status}): ${detail}`
+          throw Object.assign(
+            new Error(`Flow reCAPTCHA failed after ${attempt} fresh-token attempts (${response.status}): ${detail}`),
+            { providerRejectedBeforeGeneration: true }
           );
         }
         throw new Error(`Flow image generation failed (${response.status}): ${detail}`);
@@ -182,10 +215,15 @@ export async function flowCommand(command) {
       return {
         ...image,
         mediaId: generated.mediaId || json.media[0].name,
-        seed: generated.seed ?? seed,
+        seed: generated.seed ?? prepared.seed,
         width: json.media[0]?.image?.dimensions?.width,
         height: json.media[0]?.image?.dimensions?.height,
       };
+    };
+    const submitGenerateImage = () => submitPreparedImage(payload.preparationId);
+    const generateImage = async () => {
+      const prepared = await prepareGenerateImage();
+      return submitPreparedImage(prepared.preparationId);
     };
     const uploadImage = async () => {
       const projectId = projectIdFor(payload.projectId);
@@ -245,6 +283,8 @@ export async function flowCommand(command) {
 
     const handlers = {
       listImageModels,
+      prepareGenerateImage,
+      submitGenerateImage,
       generateImage,
       uploadImage,
       getContext,
@@ -254,6 +294,10 @@ export async function flowCommand(command) {
     if (!handler) throw new Error(`Unknown Flow operation: ${command?.op || ''}`);
     return { ok: true, result: await handler() };
   } catch (error) {
-    return { ok: false, error: String(error?.message || error) };
+    return {
+      ok: false,
+      error: String(error?.message || error),
+      providerRejectedBeforeGeneration: error?.providerRejectedBeforeGeneration === true,
+    };
   }
 }

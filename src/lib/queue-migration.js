@@ -119,7 +119,7 @@ function legacyGenerationSettings(item) {
 function migrateLegacyModel(item, provider, now, active) {
   if (item.modelSnapshot || !Object.hasOwn(item, 'provider')) return item;
   if (provider === 'leonardo') {
-    if (item.providerAttempted === true || item.mediaId || item.savedAs) return item;
+    if (item.status === 'running' || item.providerAttempted === true || item.mediaId || item.savedAs) return item;
     return active ? failedModelQueueItem(item, provider, now) : item;
   }
 
@@ -165,12 +165,7 @@ export function unsupportedSceneQueueItem(item, now = Date.now()) {
 export function migrateQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
-    const evidence = recoveryEvidenceQueueItem(item, now);
-    if (evidence) return evidence;
     const provider = queueProvider(item);
-    if (item?.status === 'running' && provider === 'leonardo') {
-      return ambiguousRecoveryQueueItem(item, now);
-    }
     const active = item?.status === 'pending' || item?.status === 'running';
     const retryableFailure = canRetryItem(item);
     if (!active && !retryableFailure) return { ...item };
