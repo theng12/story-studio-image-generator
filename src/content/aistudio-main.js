@@ -112,16 +112,27 @@
     }
   }
 
-  function currentErrorText() {
+  function providerErrorEntries({ visibleOnly = true } = {}) {
     // AI Studio surfaces failures in the model turn or an alert. Never scan the
     // user turn: ordinary prompt text such as "safety" would look like an error.
     return [...document.querySelectorAll('.chat-turn-container.model, [class*="error"], [role="alert"]')]
-      .filter((el) => vis(el) && !el.closest('.chat-turn-container.user'))
-      .map((e) => norm(e.textContent))
+      .filter((el) => (!visibleOnly || vis(el)) && !el.closest('.chat-turn-container.user'))
+      .map((element) => ({ element, text: norm(element.textContent) }))
+      .filter(({ text }) => text);
+  }
+
+  const providerErrorSnapshot = () => new Map(
+    providerErrorEntries({ visibleOnly: false }).map(({ element, text }) => [element, text])
+  );
+
+  function currentAttemptErrorText(beforeErrors) {
+    return providerErrorEntries()
+      .filter(({ element, text }) => beforeErrors.get(element) !== text)
+      .map(({ text }) => text)
       .join(' ');
   }
 
-  async function waitForImage(before, timeoutMs = 180000) {
+  async function waitForImage(before, beforeErrors, timeoutMs = 180000) {
     const started = Date.now();
     let lastSrc = '';
     let stableSince = 0;
@@ -138,10 +149,11 @@
           return fresh;
         }
       }
-      const err = currentErrorText();
+      const err = currentAttemptErrorText(beforeErrors);
       if (/quota|exceeded|resource[_ ]?exhausted|rate limit|too many requests|limit reached/i.test(err)) {
         const e = new Error('AI Studio free quota reached.');
         e.limit = true;
+        e.providerRejectedBeforeGeneration = true;
         throw e;
       }
       if (/blocked|safety|not allowed|violat|prohibited/i.test(err)) throw new Error(`AI Studio blocked the prompt: ${err.slice(0, 120)}`);
@@ -217,8 +229,10 @@
     if (!run) throw new Error('AI Studio Run button not found.');
     assertExpectedModel(params.expectedModel);
     await requestSubmissionCheckpoint(params);
+    const beforeErrors = providerErrorSnapshot();
+    assertExpectedModel(params.expectedModel);
     run.click();
-    return imagePayload(await waitForImage(before));
+    return imagePayload(await waitForImage(before, beforeErrors));
   }
 
   const handlers = { getContext, generateImage };

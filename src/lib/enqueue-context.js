@@ -1,4 +1,14 @@
-export function captureSceneEnqueueContext({ project, episode, source, scenes, kind, target, provider } = {}) {
+function captureFlowApproval(approval) {
+  if (!approval) return null;
+  return {
+    modelId: approval.modelId,
+    modelLabel: approval.modelLabel,
+    modelSource: approval.modelSource,
+  };
+}
+
+export function captureSceneEnqueueContext({ project, episode, source, scenes, kind, target, provider, flowModelApproval } = {}) {
+  const approval = captureFlowApproval(flowModelApproval);
   return {
     slug: project?.slug,
     episodeCode: episode?.code,
@@ -8,10 +18,12 @@ export function captureSceneEnqueueContext({ project, episode, source, scenes, k
     kind,
     target,
     provider,
+    ...(approval ? { flowModelApproval: approval } : {}),
   };
 }
 
-export function captureQueueAllContext({ project, provider, episodes } = {}) {
+export function captureQueueAllContext({ project, provider, episodes, flowModelApproval } = {}) {
+  const approval = captureFlowApproval(flowModelApproval);
   return {
     project: { slug: project?.slug, name: project?.name || project?.slug || '' },
     provider,
@@ -19,6 +31,7 @@ export function captureQueueAllContext({ project, provider, episodes } = {}) {
       code: episode?.episode_code || episode?.code,
       title: episode?.title || '',
     })),
+    ...(approval ? { flowModelApproval: approval } : {}),
   };
 }
 

@@ -32,7 +32,12 @@ if (!globalThis.__STORY_STUDIO_QWEN_BRIDGE__) {
     callAdapter(op, message.params || {})
       .then((result) => sendResponse({ ok: true, ...result, result }))
       .catch((error) =>
-        sendResponse({ ok: false, error: String(error.message || error), limit: !!error.limit })
+        sendResponse({
+          ok: false,
+          error: String(error.message || error),
+          limit: !!error.limit,
+          providerRejectedBeforeGeneration: error.providerRejectedBeforeGeneration === true,
+        })
       );
     return true;
   });

@@ -385,6 +385,7 @@
       }
       assertExpectedModel(params.expectedModel);
       await requestSubmissionCheckpoint(params);
+      assertExpectedModel(params.expectedModel);
       submitted = true;
       button.click();
       return imagePayload(await waitForResult(before));

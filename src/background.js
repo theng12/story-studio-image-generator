@@ -33,6 +33,7 @@ import { createQueueStore } from './lib/queue-store.js';
 import { createSettingsStore } from './lib/settings-store.js';
 import { createSubmissionGate } from './lib/submission-gate.js';
 import {
+  assertFlowModelApproval,
   assertProviderModel,
   assertQueuedModelIdentity,
   configuredFlowModel,
@@ -387,7 +388,7 @@ async function send(tabId, message) {
         throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), {
           limit: !!res?.limit,
           submitted: res?.submitted,
-          providerRejectedBeforeGeneration: !!res?.limit && provider !== 'leonardo',
+          providerRejectedBeforeGeneration: res?.providerRejectedBeforeGeneration === true,
         });
       return res;
     } catch (error) {
@@ -1015,7 +1016,7 @@ async function retryFleetSafeFailed(expectedRevision) {
 
 // Expand an episode (or list of scenes) into queue items. Done worker-side so
 // the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, fleetJobId }) {
+async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, fleetJobId, flowModelApproval }) {
   const src = source;
   const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene';
   assertSupportedProjectScene({ target: 'project', kind: akind, source: src });
@@ -1026,6 +1027,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
   const flowInventory = flowRefresh?.ok ? flowRefresh : flowInventoryResult([]);
   const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
   if (prov === 'flow') {
+    assertFlowModelApproval(flowModelApproval, modelSnapshot);
     await saveSettings({
       flowModelId: modelSnapshot.modelId,
       flowModelLabel: modelSnapshot.modelLabel,
