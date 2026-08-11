@@ -25,6 +25,7 @@ import { enqueueItems } from './lib/queue-operations.js';
 import { createQueueStore } from './lib/queue-store.js';
 import {
   assertProviderModel,
+  assertQueuedModelIdentity,
   configuredFlowModel,
   flowInventoryResult,
   generationParamsFor,
@@ -436,9 +437,7 @@ async function requireCurrentFlowModel(item, tabId) {
 }
 
 async function verifyQueuedModel(item, provider, tab) {
-  if (!item.modelSnapshot || !item.generationSettings) {
-    throw modelError('model-unknown', `${PROVIDER_NAME[provider] || 'Provider'} model settings are missing. Refresh the signed-in provider page and re-queue this item.`);
-  }
+  assertQueuedModelIdentity(item, provider);
   if (provider === 'flow') return requireCurrentFlowModel(item, tab.id);
   const config = getProvider(provider);
   const current = await send(tab.id, { type: config.contextMessage });
@@ -543,8 +542,9 @@ async function resolveReferenceMediaIds(item, settings, tab) {
 
 async function generateAndSave(item, settings, tab) {
   assertSupportedProjectScene(item);
-  if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const provider = item.provider || DEFAULT_PROVIDER_ID;
+  assertQueuedModelIdentity(item, provider);
+  if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const handlers = {
     chatgpt: async () => {
       const references = await resolveReferenceImages(item, settings, provider);
@@ -566,12 +566,14 @@ async function generateAndSave(item, settings, tab) {
     flow: async () => {
       const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
       if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
-      const referenceIds = await resolveReferenceMediaIds(item, settings, tab);
       const params = generationParamsFor('flow', item, {
         projectId,
         recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
-        referenceIds,
       });
+      const referenceIds = await resolveReferenceMediaIds(item, settings, tab);
+      if (referenceIds.length) {
+        params.imageInputs = referenceIds.map((name) => ({ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name }));
+      }
       return send(tab.id, { type: 'flow:generateImage', params });
     },
     qwen: async () => {
@@ -948,6 +950,7 @@ async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, 
       flowModelId: modelSnapshot.modelId,
       flowModelLabel: modelSnapshot.modelLabel,
       flowModelSource: modelSnapshot.modelSource,
+      flowModelSelection: settings.imageModel,
     });
   }
   const providerConfig = getProvider(prov);
@@ -1065,6 +1068,7 @@ async function enqueueStandalone({ prompts, prompt, label, provider }) {
       flowModelId: modelSnapshot.modelId,
       flowModelLabel: modelSnapshot.modelLabel,
       flowModelSource: modelSnapshot.modelSource,
+      flowModelSelection: settings.imageModel,
     });
   }
   const safeLabel = String(label || 'image')

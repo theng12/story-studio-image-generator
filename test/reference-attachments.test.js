@@ -37,7 +37,10 @@ test('the worker caps resolved references before maintained adapters receive byt
 test('Flow maps every bounded reference to Flow reference image inputs', () => {
   const params = generationParamsFor('flow', {
     prompt: 'A mountain lake',
-    generationSettings: { modelId: 'NARWHAL', aspectRatio: '16:9' },
+    modelSnapshot: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' },
+    generationSettings: {
+      modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live', aspectRatio: '16:9',
+    },
   }, { referenceIds: references.slice(0, 4).map(({ name }) => name) });
   assert.deepEqual(params.imageInputs, references.slice(0, 4).map(({ name }) => ({
     imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE',
