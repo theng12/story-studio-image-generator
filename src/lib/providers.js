@@ -1,9 +1,20 @@
 const provider = (value) => Object.freeze(value);
 
+export const FLOW_FALLBACK_MODELS = Object.freeze([
+  Object.freeze({ id: 'nano-banana-2', internalId: 'NARWHAL', label: 'Nano Banana 2', source: 'fallback' }),
+  Object.freeze({ id: 'nano-banana-2-lite', internalId: 'HARBOR_SEAL', label: 'Nano Banana 2 Lite', source: 'fallback' }),
+  Object.freeze({ id: 'nano-banana-pro', internalId: 'GEM_PIX_2', label: 'Nano Banana Pro', source: 'fallback' }),
+]);
+
+export function getFlowModel(id) {
+  return FLOW_FALLBACK_MODELS.find((model) => model.id === id);
+}
+
 export const PROVIDERS = Object.freeze([
   provider({
     id: 'flow',
     label: 'Google Flow',
+    models: FLOW_FALLBACK_MODELS,
     workspace: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
     scripts: null,
     contextMessage: 'flow:getContext',
