@@ -1,5 +1,9 @@
 if (!globalThis.__STORY_STUDIO_LEONARDO_BRIDGE__) {
   globalThis.__STORY_STUDIO_LEONARDO_BRIDGE__ = true;
+  globalThis.__STORY_STUDIO_LEONARDO_CHECKPOINT__ = async (token) => {
+    const response = await chrome.runtime.sendMessage({ type: 'providerSubmissionCheckpoint', token });
+    if (!response?.ok) throw new Error(response?.error || 'Leonardo AI submission checkpoint failed.');
+  };
 
   const callAdapter = (op, payload = {}, timeoutMs = 270000) => {
     const adapter = globalThis.__STORY_STUDIO_LEONARDO_CALL__;

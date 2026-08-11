@@ -7,7 +7,7 @@ export const FLOW_FALLBACK_MODELS = Object.freeze([
 ]);
 
 export function getFlowModel(id) {
-  return FLOW_FALLBACK_MODELS.find((model) => model.id === id);
+  return FLOW_FALLBACK_MODELS.find((model) => model.id === id || model.internalId === id);
 }
 
 export const PROVIDERS = Object.freeze([

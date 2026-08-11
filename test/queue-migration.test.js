@@ -296,7 +296,7 @@ test('migration preserves saved results and recovery checkpoints', () => {
   assert.equal(migrated[1].mediaId, 'media-retry');
 });
 
-test('migration terminalizes known Leonardo submission evidence for ambiguity recovery', () => {
+test('migration leaves live Leonardo submission evidence for startup recovery', () => {
   const input = [{
     id: 'leonardo-submitted',
     provider: 'leonardo',
@@ -306,53 +306,61 @@ test('migration terminalizes known Leonardo submission evidence for ambiguity re
     status: 'running',
     providerAttempted: true,
     startedAt: NOW - 100,
+    modelSnapshot: { modelId: 'phoenix-v1.0', modelLabel: 'Phoenix', modelSource: 'live' },
+    generationSettings: {
+      modelId: 'phoenix-v1.0', modelLabel: 'Phoenix', modelSource: 'live', aspectRatio: '16:9',
+    },
   }];
 
   const [migrated] = migrateQueue(input, NOW);
 
-  assert.equal(migrated.status, 'failed');
-  assert.equal(migrated.failure.code, 'ambiguous');
-  assert.match(migrated.failure.hint, /inspect.*re-queue/i);
-  assert.equal(migrated.fleetRetrySafe, false);
+  assert.equal(migrated.status, 'running');
+  assert.equal(migrated.failure, undefined);
   assert.equal(migrated.providerAttempted, true);
 });
 
-test('migration terminalizes running recovery evidence before provider or model policy', () => {
+test('migration is schema-only while startup recovery classifies persisted lifecycle evidence', () => {
+  const providerControlled = {
+    modelSnapshot: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
+    generationSettings: {
+      modelId: null, modelLabel: '', modelSource: 'provider-controlled', aspectRatio: '16:9',
+    },
+  };
   const input = [
     {
-      id: 'saved', provider: 'flow', status: 'running', savedAs: 'scene.png',
+      id: 'saved', provider: 'flow', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'running', savedAs: 'scene.png',
       mediaId: 'media-saved', providerAttempted: true, startedAt: NOW - 200,
     },
     {
       id: 'attempted', provider: 'qwen', target: 'download', kind: 'scene', source: 'standalone',
       status: 'running', providerAttempted: true, startedAt: NOW - 150,
-      modelSnapshot: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
+      ...providerControlled,
     },
     {
       id: 'media', provider: 'aistudio', target: 'download', kind: 'scene', source: 'standalone',
       status: 'running', mediaId: 'media-only', startedAt: NOW - 100,
-    },
-    {
-      id: 'retired-attempted', provider: 'retired-provider', status: 'running',
-      providerAttempted: true, startedAt: NOW - 50,
+      ...providerControlled,
     },
   ];
 
   const migrated = migrateQueue(input, NOW);
 
-  assert.equal(migrated[0].status, 'done');
+  assert.deepEqual(migrated.map(({ status }) => status), ['running', 'running', 'running']);
   assert.equal(migrated[0].savedAs, 'scene.png');
   assert.equal(migrated[0].mediaId, 'media-saved');
   assert.equal(migrated[0].providerAttempted, true);
-  for (const item of migrated.slice(1)) {
+  assert.equal(migrated[1].providerAttempted, true);
+  assert.equal(migrated[2].mediaId, 'media-only');
+
+  const recovered = queueMigration.recoverInterruptedQueue(migrated, NOW);
+  assert.equal(recovered[0].status, 'done');
+  for (const item of recovered.slice(1)) {
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'ambiguous');
     assert.match(item.failure.hint, /inspect.*re-queue/i);
     assert.equal(item.fleetRetrySafe, false);
   }
-  assert.equal(migrated[1].providerAttempted, true);
-  assert.equal(migrated[2].mediaId, 'media-only');
-  assert.equal(migrated[3].provider, 'retired-provider');
 });
 
 test('startup recovery never re-pends submitted or saved evidence', () => {
@@ -375,11 +383,20 @@ test('startup recovery never re-pends submitted or saved evidence', () => {
   assert.equal(recovered.some((item) => item.status === 'pending' && (item.providerAttempted || item.mediaId || item.savedAs)), false);
 });
 
-test('active pending recovery evidence terminalizes while ordinary pending work remains pending', () => {
+test('ordinary migration reads preserve pending lifecycle evidence until startup recovery', () => {
   const input = [
-    { id: 'saved', provider: 'flow', status: 'pending', savedAs: 'scene.png', mediaId: 'saved-media' },
-    { id: 'attempted', provider: 'qwen', status: 'pending', providerAttempted: true },
-    { id: 'media', provider: 'aistudio', status: 'pending', mediaId: 'media-only' },
+    {
+      id: 'saved', provider: 'flow', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'pending', savedAs: 'scene.png', mediaId: 'saved-media',
+    },
+    {
+      id: 'attempted', provider: 'qwen', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'pending', providerAttempted: true,
+    },
+    {
+      id: 'media', provider: 'aistudio', target: 'download', kind: 'scene', source: 'standalone',
+      status: 'pending', mediaId: 'media-only',
+    },
     {
       id: 'ordinary', provider: 'flow', target: 'download', kind: 'scene', source: 'standalone', status: 'pending',
     },
@@ -387,22 +404,22 @@ test('active pending recovery evidence terminalizes while ordinary pending work 
   ];
 
   const migrated = migrateQueue(input, NOW);
-  assert.equal(migrated[0].status, 'done');
+  assert.deepEqual(migrated.map(({ status }) => status), ['pending', 'pending', 'pending', 'pending', 'failed']);
   assert.equal(migrated[0].savedAs, 'scene.png');
   assert.equal(migrated[0].mediaId, 'saved-media');
-  for (const item of migrated.slice(1, 3)) {
-    assert.equal(item.status, 'failed');
-    assert.equal(item.failure.code, 'ambiguous');
-    assert.equal(item.fleetRetrySafe, false);
-    assert.match(item.failure.hint, /inspect.*before.*re-queue/i);
-  }
   assert.equal(migrated[1].providerAttempted, true);
   assert.equal(migrated[2].mediaId, 'media-only');
   assert.deepEqual(migrated[3], input[3]);
   assert.deepEqual(migrated[4], input[4]);
 
-  const recovered = queueMigration.recoverInterruptedQueue(input, NOW);
+  const recovered = queueMigration.recoverInterruptedQueue(migrated, NOW);
   assert.deepEqual(recovered.map(({ status }) => status), ['done', 'failed', 'failed', 'pending', 'failed']);
+  for (const item of recovered.slice(1, 3)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'ambiguous');
+    assert.equal(item.fleetRetrySafe, false);
+    assert.match(item.failure.hint, /inspect.*before.*re-queue/i);
+  }
   assert.deepEqual(recovered[4], input[4]);
 });
 

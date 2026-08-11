@@ -65,12 +65,20 @@ test('Qwen accepts only the first bounded reference and retains its one-chip gua
   assert.match(adapter, /settleToOneChip/);
 });
 
-function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false } = {}) {
+function qwenAdapterHarness({
+  initialChips = [],
+  initialModel = { id: '', label: 'Qwen Image' },
+  onSleep,
+  throwOnPaste = false,
+} = {}) {
   let sendClicks = 0;
+  let checkpoints = 0;
   let pasteEvents = 0;
   let chipsAtSend = null;
   let generatedImage = null;
   let clock = 0;
+  const events = [];
+  const model = { ...initialModel };
   const visible = { getBoundingClientRect: () => ({ width: 100, height: 30 }) };
   const chips = [...initialChips];
   const makeChip = (removable = true) => {
@@ -116,8 +124,18 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     classList: { contains: () => false },
     click() {
       sendClicks++;
+      events.push('click');
       chipsAtSend = chips.length;
       generatedImage = { src: 'https://cdn.qwenlm.ai/generated.png', currentSrc: 'https://cdn.qwenlm.ai/generated.png' };
+    },
+  };
+  const modelControl = {
+    ...visible,
+    get textContent() { return model.label; },
+    getAttribute(name) {
+      if (name === 'data-model-id') return model.id;
+      if (name === 'aria-label') return model.label;
+      return '';
     },
   };
   Object.defineProperty(sendButton, 'disabled', { get: () => sendChecks++ === 0 });
@@ -130,6 +148,7 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
       if (selector === '.vision-item-container') return chips;
       if (selector === 'button.send-button') return [sendButton];
       if (selector === 'img.qwen-image') return generatedImage ? [generatedImage] : [];
+      if (selector.includes('[data-model-id]')) return [modelControl];
       return [];
     },
   };
@@ -159,7 +178,7 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     setTimeout(callback, ms) {
       if (ms < 2000) {
         clock += ms;
-        onSleep?.(ms, chips, makeChip);
+        onSleep?.(ms, chips, makeChip, model);
         queueMicrotask(callback);
       }
       return 0;
@@ -172,14 +191,61 @@ function qwenAdapterHarness({ initialChips = [], onSleep, throwOnPaste = false }
     queueMicrotask,
   };
   context.globalThis = context;
+  context.__STORY_STUDIO_QWEN_CHECKPOINT__ = async () => {
+    checkpoints++;
+    events.push('checkpoint');
+  };
   runInNewContext(source('src/content/qwen-main.js'), context);
   return {
-    generate: (params) => context.__STORY_STUDIO_QWEN_CALL__('generateImage', params),
+    generate: (params) => context.__STORY_STUDIO_QWEN_CALL__('generateImage', {
+      expectedModel: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
+      submissionToken: 'test-token',
+      ...params,
+    }),
+    checkpoints: () => checkpoints,
+    events: () => events,
     sendClicks: () => sendClicks,
     pasteEvents: () => pasteEvents,
     chipsAtSend: () => chipsAtSend,
   };
 }
+
+test('Qwen rechecks the queued model after delayed page changes and before submission', async () => {
+  let changed = false;
+  const adapter = qwenAdapterHarness({
+    onSleep(ms, _chips, _makeChip, model) {
+      if (ms === 400 && !changed) {
+        changed = true;
+        model.label = 'Qwen Text';
+      }
+    },
+  });
+
+  await assert.rejects(
+    adapter.generate({
+      prompt: 'A cave at dusk',
+      references: [],
+      expectedModel: { modelId: null, modelLabel: 'Qwen Image', modelSource: 'provider-label' },
+      submissionToken: 'token-1',
+    }),
+    /model selection changed/i,
+  );
+  assert.equal(adapter.checkpoints(), 0);
+  assert.equal(adapter.sendClicks(), 0);
+});
+
+test('Qwen persists the submission checkpoint immediately before Send', async () => {
+  const adapter = qwenAdapterHarness();
+  const result = await adapter.generate({
+    prompt: 'A cave at dusk',
+    references: [],
+    expectedModel: { modelId: null, modelLabel: 'Qwen Image', modelSource: 'provider-label' },
+    submissionToken: 'token-1',
+  });
+
+  assert.equal(result.imageUrl, 'https://cdn.qwenlm.ai/generated.png');
+  assert.deepEqual(adapter.events(), ['checkpoint', 'click']);
+});
 
 test('Qwen rejects an unremovable stale chip before sending a no-reference generation', async () => {
   const adapter = qwenAdapterHarness({ initialChips: [false] });

@@ -284,13 +284,36 @@
     return values.find((value) => document.querySelector(`[role="radio"][value="${value}"][aria-checked="true"]`)) || '';
   }
 
+  function selectedModelIdentity() {
+    const selectedModel = new URL(location.href).searchParams.get('model') || '';
+    const model = document.querySelector(MODEL_TRIGGER_SELECTOR);
+    const modelLabel = (model?.textContent || '').replace(/\s+/g, ' ').trim();
+    return { id: selectedModel, label: modelLabel, stable: Boolean(selectedModel) };
+  }
+
+  function assertExpectedModel(expected, current = selectedModelIdentity()) {
+    if (!expected) throw new Error('Leonardo AI queued model identity is missing. Refresh and re-queue this item.');
+    if (expected.modelSource === 'provider-controlled') return;
+    const matches = expected.modelSource === 'provider-label'
+      ? expected.modelLabel === current.label
+      : expected.modelId === current.id && (!expected.modelLabel || expected.modelLabel === current.label);
+    if (!matches) throw new Error('Leonardo AI model selection changed. Refresh the signed-in page and re-queue this item.');
+  }
+
+  async function requestSubmissionCheckpoint(params) {
+    const checkpoint = globalThis.__STORY_STUDIO_LEONARDO_CHECKPOINT__;
+    if (!params.submissionToken || typeof checkpoint !== 'function') {
+      throw new Error('Leonardo AI submission checkpoint is unavailable. Reload the provider tab.');
+    }
+    await checkpoint(params.submissionToken);
+  }
+
   function getContext() {
     const prompt = document.querySelector(PROMPT_SELECTOR);
     const model = document.querySelector(MODEL_TRIGGER_SELECTOR);
     const style = document.querySelector(STYLE_TRIGGER_SELECTOR);
     const button = document.querySelector(GENERATE_SELECTOR);
-    const selectedModel = new URL(location.href).searchParams.get('model') || '';
-    const modelLabel = (model?.textContent || '').replace(/\s+/g, ' ').trim();
+    const modelIdentity = selectedModelIdentity();
     return {
       provider: 'leonardo',
       ready: visible(prompt) && visible(model) && visible(style) && !!button,
@@ -298,11 +321,11 @@
       hasModel: visible(model),
       hasStyle: visible(style),
       hasGenerate: !!button,
-      selectedModel,
+      selectedModel: modelIdentity.id,
       selectedStyle: style?.textContent.trim().replace(/^Style\s*/, '') || '',
       selectedMode: selectedRadio(['FAST', 'QUALITY', 'ULTRA']),
       selectedSize: selectedRadio(['SMALL', 'MEDIUM', 'LARGE']),
-      modelIdentity: { id: selectedModel, label: modelLabel, stable: Boolean(selectedModel) },
+      modelIdentity,
       url: location.href,
     };
   }
@@ -360,6 +383,8 @@
         error.limit = true; // pause the batch rather than fail all remaining scenes
         throw error;
       }
+      assertExpectedModel(params.expectedModel);
+      await requestSubmissionCheckpoint(params);
       submitted = true;
       button.click();
       return imagePayload(await waitForResult(before));

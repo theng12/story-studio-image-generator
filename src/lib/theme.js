@@ -1,5 +1,5 @@
 // Shared light/dark/system presentation handling for extension pages.
-import { getSettings } from './config.js';
+import { requestSettings as getSettings } from './config.js';
 
 const media = () => window.matchMedia('(prefers-color-scheme: dark)');
 

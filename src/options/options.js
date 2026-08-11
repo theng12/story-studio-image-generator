@@ -1,5 +1,5 @@
 import {
-  getSettings,
+  requestSettings as getSettings,
   saveSettings,
   getCredentials,
   saveCredentials,

@@ -10,7 +10,14 @@
 // Strictly sequential — only ever one provider generation in flight, so sites
 // are never flooded no matter how much image work is queued.
 
-import { getLeonardoModels, getSettings, saveSettings, normalizeFlowProjectId, providerCooldown } from './lib/config.js';
+import {
+  getLeonardoModels,
+  getSettings as loadSettings,
+  normalizeFlowProjectId,
+  normalizeSettings,
+  persistSettings,
+  providerCooldown,
+} from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
@@ -23,6 +30,8 @@ import {
 } from './lib/queue-migration.js';
 import { enqueueItems } from './lib/queue-operations.js';
 import { createQueueStore } from './lib/queue-store.js';
+import { createSettingsStore } from './lib/settings-store.js';
+import { createSubmissionGate } from './lib/submission-gate.js';
 import {
   assertProviderModel,
   assertQueuedModelIdentity,
@@ -34,8 +43,8 @@ import {
 } from './lib/model-identity.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 import {
-  ambiguousLeonardoQueueItem,
-  isAmbiguousLeonardoFailure,
+  ambiguousProviderQueueItem,
+  isAmbiguousProviderFailure,
   isKnownPreSubmitLimit,
   providerLabelForItem,
 } from './lib/failure-policy.js';
@@ -80,6 +89,14 @@ const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 // Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
 // cooldown is scoped to the provider that hit its limit and never blocks others.
 const COOLDOWN_KEY = 'cooldownUntil';
+
+const settingsStore = createSettingsStore({
+  load: loadSettings,
+  save: persistSettings,
+  normalize: normalizeSettings,
+});
+const getSettings = () => settingsStore.read();
+const saveSettings = (patch) => settingsStore.patch(patch);
 
 const getCooldowns = async () => (await chrome.storage.local.get(COOLDOWN_KEY))[COOLDOWN_KEY] || {};
 async function setCooldownUntil(provider, resumeAt) {
@@ -340,7 +357,11 @@ async function send(tabId, message) {
       func: flowCommand,
       args: [{ op: message.type.slice('flow:'.length), payload: message.params || {} }],
     });
-    if (!result?.ok) throw new Error(result?.error || 'Flow command failed.');
+    if (!result?.ok) {
+      throw Object.assign(new Error(result?.error || 'Flow command failed.'), {
+        providerRejectedBeforeGeneration: result?.providerRejectedBeforeGeneration === true,
+      });
+    }
     return { ok: true, ...result.result, result: result.result };
   }
   // Retrying generation is safe for free Flow images. Read-only checks and
@@ -366,9 +387,12 @@ async function send(tabId, message) {
         throw Object.assign(new Error(res?.error || 'No response from the provider tab.'), {
           limit: !!res?.limit,
           submitted: res?.submitted,
+          providerRejectedBeforeGeneration: !!res?.limit && provider !== 'leonardo',
         });
       return res;
     } catch (error) {
+      const submissionToken = message?.params?.submissionToken;
+      if (submissionToken && !submissionGate.canReplayTransport(submissionToken)) throw error;
       // Tabs that survived an extension update still contain the old, now
       // invalid content-script context. A missing receiver means the page
       // operation never started, so reinjection and one retry are safe even
@@ -548,7 +572,7 @@ async function generateAndSave(item, settings, tab) {
   const handlers = {
     chatgpt: async () => {
       const references = await resolveReferenceImages(item, settings, provider);
-      const r = await send(tab.id, {
+      const r = await dispatchProviderGeneration(item, provider, tab, {
         type: 'chatgpt:generateImage',
         params: generationParamsFor('chatgpt', item, { references }),
       });
@@ -558,7 +582,7 @@ async function generateAndSave(item, settings, tab) {
     },
     aistudio: async () => {
       const references = await resolveReferenceImages(item, settings, provider);
-      return send(tab.id, {
+      return dispatchProviderGeneration(item, provider, tab, {
         type: 'aistudio:generateImage',
         params: generationParamsFor('aistudio', item, { references }),
       });
@@ -574,18 +598,19 @@ async function generateAndSave(item, settings, tab) {
       if (referenceIds.length) {
         params.imageInputs = referenceIds.map((name) => ({ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name }));
       }
-      return send(tab.id, { type: 'flow:generateImage', params });
+      const prepared = await send(tab.id, { type: 'flow:prepareGenerateImage', params });
+      return dispatchFlowGeneration(item, tab, prepared.preparationId);
     },
     qwen: async () => {
       const references = await resolveReferenceImages(item, settings, provider);
-      const r = await send(tab.id, {
+      const r = await dispatchProviderGeneration(item, provider, tab, {
         type: 'qwen:generateImage',
         params: generationParamsFor('qwen', item, { references }),
       });
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     leonardo: async () => {
-      const r = await send(tab.id, {
+      const r = await dispatchProviderGeneration(item, provider, tab, {
         type: 'leonardo:generateImage',
         params: generationParamsFor('leonardo', item),
       });
@@ -824,12 +849,17 @@ function diagnoseFailure(error, item = {}) {
 }
 
 const queueStore = createQueueStore({
-  load: async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY],
-  save: async (queue) => {
-    const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
-    const revision = Math.max(0, Number(stored[FLEET_QUEUE_REVISION_KEY]) || 0) + 1;
-    await chrome.storage.local.set({ [QUEUE_KEY]: queue, [FLEET_QUEUE_REVISION_KEY]: revision });
+  load: async () => {
+    const stored = await chrome.storage.local.get([QUEUE_KEY, FLEET_QUEUE_REVISION_KEY]);
+    return {
+      queue: stored[QUEUE_KEY],
+      revision: stored[FLEET_QUEUE_REVISION_KEY],
+    };
   },
+  save: (queue, revision) => chrome.storage.local.set({
+    [QUEUE_KEY]: queue,
+    [FLEET_QUEUE_REVISION_KEY]: revision,
+  }),
   normalize: (storedQueue) => {
     const queue = migrateQueue(storedQueue, Date.now());
     for (const item of queue) {
@@ -842,9 +872,55 @@ const queueStore = createQueueStore({
 });
 const getQueue = () => queueStore.read();
 
+const submissionGate = createSubmissionGate({
+  persist: ({ itemId, provider }) => queueStore.update((queue) => {
+    const item = queue.find((candidate) => candidate.id === itemId);
+    if (!item || item.status !== 'running' || item.provider !== provider) {
+      throw new Error('The queued provider item is no longer running.');
+    }
+    item.providerAttempted = true;
+    item.providerAttemptedAt = Date.now();
+    return queue;
+  }),
+});
+
+async function dispatchProviderGeneration(item, provider, tab, message) {
+  const request = submissionGate.arm({ itemId: item.id, provider, tabId: tab.id });
+  try {
+    return await send(tab.id, {
+      ...message,
+      params: { ...(message.params || {}), submissionToken: request.token },
+    });
+  } catch (error) {
+    if (error && typeof error === 'object' && error.submitted == null) {
+      error.submitted = request.checkpointed;
+    }
+    throw error;
+  } finally {
+    submissionGate.release(request.token);
+  }
+}
+
+async function dispatchFlowGeneration(item, tab, preparationId) {
+  const request = submissionGate.arm({ itemId: item.id, provider: 'flow', tabId: tab.id });
+  try {
+    await submissionGate.checkpoint({ token: request.token, tabId: tab.id });
+    return await send(tab.id, {
+      type: 'flow:submitGenerateImage',
+      params: { preparationId },
+    });
+  } catch (error) {
+    if (error && typeof error === 'object' && error.submitted == null) {
+      error.submitted = request.checkpointed;
+    }
+    throw error;
+  } finally {
+    submissionGate.release(request.token);
+  }
+}
+
 async function getQueueRevision() {
-  const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
-  return Math.max(0, Number(stored[FLEET_QUEUE_REVISION_KEY]) || 0);
+  return (await queueStore.snapshot()).revision;
 }
 
 let _seq = 0;
@@ -889,6 +965,8 @@ async function retryFailed(id = null) {
       delete item.startedAt;
       delete item.finishedAt;
       delete item.durationMs;
+      delete item.providerAttempted;
+      delete item.providerAttemptedAt;
       retried++;
     }
     return queue;
@@ -908,9 +986,9 @@ function isFleetRetrySafe(item) {
   return canRetryItem(item) && item.fleetRetrySafe === true && item.failure?.code !== 'ambiguous';
 }
 
-async function retryFleetSafeFailed() {
+async function retryFleetSafeFailed(expectedRevision) {
   let retried = 0;
-  await queueStore.update((queue) => {
+  await queueStore.updateIfRevision(expectedRevision, (queue) => {
     for (const item of queue) {
       if (!isFleetRetrySafe(item)) continue;
       item.status = 'pending';
@@ -921,6 +999,8 @@ async function retryFleetSafeFailed() {
       delete item.finishedAt;
       delete item.durationMs;
       delete item.fleetRetrySafe;
+      delete item.providerAttempted;
+      delete item.providerAttemptedAt;
       retried++;
     }
     return queue;
@@ -1154,6 +1234,7 @@ async function processQueue() {
       runStatusPrefix = `(${pos}/${q.length}) ${item.label}`;
       await writeStatus(`${runStatusPrefix}…`, 'running');
       let providerAttempted = false;
+      let providerActionAttempted = false;
       try {
         assertSupportedProjectScene(item);
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
@@ -1161,8 +1242,9 @@ async function processQueue() {
         if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
         await verifyQueuedModel(item, provider, tabs[provider]);
         await setNextProviderRun(settings);
-        providerAttempted = true;
         const r = await generateAndSave(item, settings, tabs[provider]);
+        providerAttempted = true;
+        providerActionAttempted = true;
         await queueStore.update((queue) => {
           const current = queue.find((candidate) => candidate.id === item.id);
           if (current) {
@@ -1196,6 +1278,30 @@ async function processQueue() {
           }
         }
       } catch (e) {
+        try {
+          const persisted = (await getQueue()).find((candidate) => candidate.id === item.id);
+          providerAttempted = persisted?.providerAttempted === true || e?.submitted === true;
+        } catch {
+          // If storage cannot prove this was pre-submit, fail closed against a duplicate generation.
+          providerAttempted = e?.submitted !== false;
+        }
+        providerActionAttempted = providerActionAttempted || providerAttempted;
+        if (provider !== 'leonardo' && providerAttempted && e?.providerRejectedBeforeGeneration === true) {
+          let checkpointCleared = false;
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current?.providerAttempted === true) {
+              delete current.providerAttempted;
+              delete current.providerAttemptedAt;
+              checkpointCleared = true;
+            }
+            return queue;
+          });
+          if (checkpointCleared) {
+            providerAttempted = false;
+            e.submitted = false;
+          }
+        }
         const cd = providerCooldown(settings, provider);
         if (e?.code === 'scene-source-retired') {
           await queueStore.update((queue) => {
@@ -1206,13 +1312,26 @@ async function processQueue() {
           await writeStatus(String(e.message || e), 'err');
           continue;
         }
+        if (isAmbiguousProviderFailure(providerAttempted, e)) {
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) Object.assign(current, ambiguousProviderQueueItem(current, e));
+            return queue;
+          });
+          const name = PROVIDER_NAME[provider] || provider;
+          await writeStatus(
+            `${name} submission outcome is unknown — inspect the provider tab before manually retrying.`,
+            'err'
+          );
+          continue;
+        }
         // A known pre-submit provider limit (or Flow giving up on reCAPTCHA)
         // doesn't fail the batch: re-pend the item. With auto-resume on, schedule
         // a per-provider cooldown — the provider's own stated wait when it gives
         // one (Qwen), else the configured minutes — and let the queue resume
         // itself, re-arming if it's still limited. With auto-resume off, hard-
         // pause until the user presses Resume (the prior default behavior).
-        if (isKnownPreSubmitLimit(provider, e) || isFlowRecaptchaFailure(e, item)) {
+        if (!providerAttempted && (isKnownPreSubmitLimit(provider, e) || isFlowRecaptchaFailure(e, item))) {
           await queueStore.update((queue) => {
             const current = queue.find((candidate) => candidate.id === item.id);
             if (current) {
@@ -1240,29 +1359,17 @@ async function processQueue() {
           } else {
             await chrome.storage.local.set({ [PAUSE_KEY]: true });
             await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
-            await queueStore.update((queue) => queue);
+            await queueStore.update((queue) => queue, { touch: true });
             const detail = e && e.message ? ` ${e.message}` : '';
             await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
             alarmClear();
           }
           return;
         }
-        if (isAmbiguousLeonardoFailure(provider, providerAttempted, e)) {
-          await queueStore.update((queue) => {
-            const current = queue.find((candidate) => candidate.id === item.id);
-            if (current) Object.assign(current, ambiguousLeonardoQueueItem(current, e));
-            return queue;
-          });
-          await writeStatus(
-            'Leonardo AI submission outcome is unknown — inspect the Leonardo tab before manually retrying.',
-            'err'
-          );
-          continue;
-        }
         // A page reload is a transport interruption, not a generation result.
         // Put safe/resumable work back at the front and let the alarm wake it
         // after the provider tab settles instead of permanently skipping it.
-        if (isTabReloadError(e)) {
+        if (!providerAttempted && isTabReloadError(e)) {
           await queueStore.update((queue) => {
             const current = queue.find((candidate) => candidate.id === item.id);
             if (current) {
@@ -1279,7 +1386,7 @@ async function processQueue() {
         // only while its auto-resume toggle is on, so "off" keeps prior behavior
         // (fail immediately, retry manually with the Retry-failed button).
         const modelVerificationFailed = ['model-unknown', 'model-selection-changed'].includes(e?.code);
-        if (!modelVerificationFailed && cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
+        if (!providerAttempted && !modelVerificationFailed && cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
           let retryAttempt = (item.attempts || 0) + 1;
           await queueStore.update((queue) => {
             const current = queue.find((candidate) => candidate.id === item.id);
@@ -1316,7 +1423,7 @@ async function processQueue() {
           return queue;
         });
       } finally {
-        if (providerAttempted) await setNextProviderRun(settings);
+        if (providerActionAttempted) await setNextProviderRun(settings);
       }
       const more = (await getQueue()).some((i) => i.status === 'pending');
       if (more) await waitForNextProviderRun(item);
@@ -1343,8 +1450,11 @@ async function clearQueue() {
 
 // The Hub may clear only work that has not started. It must not alter provider
 // cooldowns: those are local safety limits, not Fleet scheduling knobs.
-async function clearPendingFromFleet() {
-  await queueStore.update((queue) => queue.filter((item) => item.status !== 'pending'));
+async function clearPendingFromFleet(expectedRevision) {
+  await queueStore.updateIfRevision(
+    expectedRevision,
+    (queue) => queue.filter((item) => item.status !== 'pending')
+  );
   await writeStatus('Pending queue items cleared by Fleet Hub.', 'info');
   return { cleared: true };
 }
@@ -1483,16 +1593,14 @@ async function fleetHeartbeat({ testOnly = false } = {}) {
   const secret = String(settings.fleetSharedSecret || '').trim();
   if (!secret) return { ok: false, error: 'Enter this agent’s local pairing secret first.' };
 
-  await queueStore.read();
-
-  const [queue, paused, stored, identity, queueRevision, receipts] = await Promise.all([
-    getQueue(),
+  const [queueSnapshot, paused, stored, identity, receipts] = await Promise.all([
+    queueStore.snapshot(),
     isPaused(),
     chrome.storage.local.get([COOLDOWN_KEY, 'lastStatus']),
     getFleetIdentity(),
-    getQueueRevision(),
     getFleetCommandReceipts(),
   ]);
+  const { queue, revision: queueRevision } = queueSnapshot;
   const cooldowns = stored[COOLDOWN_KEY] || {};
   const cooldownUntil = Number(cooldowns[settings.provider]) || null;
   const counts = {
@@ -1585,13 +1693,16 @@ async function executeFleetCommand(command, settings, identity) {
   if (command.targetAgentId !== identity.agentId) return reject('wrong_agent');
   if (command.targetSessionId !== FLEET_SESSION_ID) return reject('stale_session');
   if (!settings.fleetQueueControlEnabled) return reject('queue_control_not_consented');
-  await queueStore.read();
-  if (!Number.isInteger(command.expectedQueueRevision) || command.expectedQueueRevision !== await getQueueRevision()) return reject('stale_queue_revision');
+  if (!Number.isInteger(command.expectedQueueRevision)) return reject('stale_queue_revision');
 
   try {
     switch (action) {
       case 'pause_after_current':
-        await pauseQueue({ byHub: true, commandId });
+        await pauseQueue({
+          byHub: true,
+          commandId,
+          expectedRevision: command.expectedQueueRevision,
+        });
         break;
       case 'resume_hub_pause': {
         const marker = (await chrome.storage.local.get(FLEET_HUB_PAUSE_KEY))[FLEET_HUB_PAUSE_KEY];
@@ -1600,17 +1711,14 @@ async function executeFleetCommand(command, settings, identity) {
         const cooldownUntil = Number((await getCooldowns())[nextProvider]) || 0;
         if (!marker || !(await isPaused())) return reject('not_hub_paused');
         if (cooldownUntil > Date.now()) return reject('local_cooldown_active');
-        await chrome.storage.local.remove([PAUSE_KEY, FLEET_HUB_PAUSE_KEY]);
-        await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
-        alarmCreate();
-        processQueue();
+        await resumeQueue({ byHub: true, expectedRevision: command.expectedQueueRevision });
         break;
       }
       case 'clear_pending':
-        await clearPendingFromFleet();
+        await clearPendingFromFleet(command.expectedQueueRevision);
         break;
       case 'retry_failed': {
-        const result = await retryFleetSafeFailed();
+        const result = await retryFleetSafeFailed(command.expectedQueueRevision);
         if (!result.retried) return reject('no_provably_safe_failed_items');
         break;
       }
@@ -1619,6 +1727,7 @@ async function executeFleetCommand(command, settings, identity) {
     }
     return recordFleetCommandResult(commandId, fleetCommandResult(command, 'succeeded', { queueRevision: await getQueueRevision() }));
   } catch (error) {
+    if (error?.code === 'stale-queue-revision') return reject('stale_queue_revision');
     return recordFleetCommandResult(commandId, fleetCommandResult(command, 'failed', {
       reason: fleetSafeText(error?.message || error, 180),
       queueRevision: await getQueueRevision(),
@@ -1668,31 +1777,54 @@ async function leonardoModelControls(model) {
 }
 
 // Resume a paused/pending queue after a user pause or provider limit.
-async function resumeQueue() {
-  // Manual resume overrides any provider's cooldown — clear them all.
-  await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY]);
-  await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
+async function resumeQueue({ byHub = false, expectedRevision } = {}) {
+  const update = expectedRevision === undefined
+    ? (mutator, options) => queueStore.update(mutator, options)
+    : (mutator, options) => queueStore.updateIfRevision(expectedRevision, mutator, options);
+  await update(async (queue) => {
+    // Manual resume overrides provider cooldowns; Fleet may clear only its own pause.
+    const keys = byHub
+      ? [PAUSE_KEY, FLEET_HUB_PAUSE_KEY]
+      : [PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY];
+    await chrome.storage.local.remove(keys);
+    return queue;
+  }, { touch: true });
   alarmCreate();
   processQueue();
   return { ok: true };
 }
 
-async function pauseQueue({ byHub = false, commandId = '' } = {}) {
-  if (byHub) await chrome.storage.local.set({ [PAUSE_KEY]: true, [FLEET_HUB_PAUSE_KEY]: { commandId, at: Date.now() } });
-  else {
-    await chrome.storage.local.set({ [PAUSE_KEY]: true });
-    await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
-  }
-  await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
+async function pauseQueue({ byHub = false, commandId = '', expectedRevision } = {}) {
+  const update = expectedRevision === undefined
+    ? (mutator, options) => queueStore.update(mutator, options)
+    : (mutator, options) => queueStore.updateIfRevision(expectedRevision, mutator, options);
+  await update(async (queue) => {
+    if (byHub) {
+      await chrome.storage.local.set({
+        [PAUSE_KEY]: true,
+        [FLEET_HUB_PAUSE_KEY]: { commandId, at: Date.now() },
+      });
+    } else {
+      await chrome.storage.local.set({ [PAUSE_KEY]: true });
+      await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
+    }
+    return queue;
+  }, { touch: true });
   // If something is mid-generation it finishes and saves; the loop then stops.
   await writeStatus(processing ? 'Pausing — finishing the current item first…' : 'Queue paused — press Resume to continue.', 'info');
   return { ok: true };
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = (p) =>
     p.then((r) => sendResponse(r)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
   switch (msg?.type) {
+    case 'settings:get':
+      reply(getSettings().then((settings) => ({ ok: true, settings })));
+      return true;
+    case 'settings:patch':
+      reply(saveSettings(msg.patch).then((settings) => ({ ok: true, settings })));
+      return true;
     case 'flow:projectSeen':
       // A Flow project tab announced its id; remember it for the panel.
       chrome.storage.local.set({ [SEEN_PROJECT_KEY]: msg.projectId });
@@ -1757,6 +1889,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'webGeneratorContext':
       reply(webGeneratorContext(msg.provider));
+      return true;
+    case 'providerSubmissionCheckpoint':
+      reply(
+        submissionGate
+          .checkpoint({ token: msg.token, tabId: sender?.tab?.id })
+          .then(() => ({ ok: true }))
+      );
       return true;
     case 'qwen:progress':
       // Live sub-phase note from the Qwen content script (upload vs generate).

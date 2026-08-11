@@ -230,9 +230,8 @@ export async function getSettings() {
   };
 }
 
-export async function saveSettings(patch) {
-  const current = await getSettings();
-  const next = normalizeSettings({ ...current, ...patch });
+export async function persistSettings(next, patch = {}) {
+  next = normalizeSettings({ ...DEFAULTS, ...next });
   if (Object.prototype.hasOwnProperty.call(patch, 'fleetSharedSecret')) {
     const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
     const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
@@ -246,6 +245,15 @@ export async function saveSettings(patch) {
   await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   return next;
 }
+
+async function settingsMessage(type, patch) {
+  const response = await chrome.runtime.sendMessage({ type, ...(patch ? { patch } : {}) });
+  if (!response?.ok) throw new Error(response?.error || 'The background settings owner did not respond.');
+  return response.settings;
+}
+
+export const requestSettings = () => settingsMessage('settings:get');
+export const saveSettings = (patch) => settingsMessage('settings:patch', patch);
 
 // Leonardo's model catalogue, read live from the site (Options → "Refresh
 // models") so new models appear without a code change. Kept in LOCAL storage:

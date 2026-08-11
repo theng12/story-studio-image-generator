@@ -139,19 +139,41 @@
     }
   }
 
-  async function clickSendWhenReady() {
+  function assertExpectedModel(expected, current = selectedModelIdentity()) {
+    if (!expected) throw new Error('ChatGPT queued model identity is missing. Refresh and re-queue this item.');
+    if (expected.modelSource === 'provider-controlled') return;
+    const matches = expected.modelSource === 'provider-label'
+      ? expected.modelLabel === current.label
+      : expected.modelId === current.id && (!expected.modelLabel || expected.modelLabel === current.label);
+    if (!matches) throw new Error('ChatGPT model selection changed. Refresh the signed-in page and re-queue this item.');
+  }
+
+  async function requestSubmissionCheckpoint(params) {
+    const checkpoint = globalThis.__STORY_STUDIO_CHATGPT_CHECKPOINT__;
+    if (!params.submissionToken || typeof checkpoint !== 'function') {
+      throw new Error('ChatGPT submission checkpoint is unavailable. Reload the provider tab.');
+    }
+    await checkpoint(params.submissionToken);
+  }
+
+  async function clickSendWhenReady(params) {
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
-      const b = sendButton();
-      if (b && visible(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true') {
-        b.click();
+      const button = sendButton();
+      if (button && visible(button) && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
+        assertExpectedModel(params.expectedModel);
+        await requestSubmissionCheckpoint(params);
+        button.click();
         return;
       }
       await sleep(300);
     }
     // Fallback: press Enter in the composer.
     const el = composer();
-    if (el) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    if (!el) throw new Error('ChatGPT composer disappeared before submission.');
+    assertExpectedModel(params.expectedModel);
+    await requestSubmissionCheckpoint(params);
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   }
 
   // Turn a rendered image (blob:/data:/https) into a payload. Prefer in-page
@@ -387,7 +409,7 @@
     setComposer(el, instruction);
     await sleep(200);
     postProgress('generating');
-    await clickSendWhenReady();
+    await clickSendWhenReady(params);
     // Clamp mirrors config (60s–900s); default 8 min if unset.
     const maxWaitMs = Math.min(900, Math.max(60, Math.round(Number(params.maxWaitSec) || 480))) * 1000;
     return waitForImage(beforeImages, beforeCount, maxWaitMs);

@@ -56,3 +56,63 @@ test('no-op update still saves normalization changes', async () => {
   assert.deepEqual(stored, [{ id: 'legacy', migrated: true }]);
   assert.equal(writes, 1);
 });
+
+test('snapshot returns queue bytes and revision from one serialized load', async () => {
+  const state = { queue: [{ id: 'running', status: 'running' }], revision: 7 };
+  const store = createQueueStore({
+    load: async () => structuredClone(state),
+    save: async (queue, revision) => Object.assign(state, {
+      queue: structuredClone(queue),
+      revision,
+    }),
+  });
+
+  assert.deepEqual(await store.snapshot(), {
+    queue: [{ id: 'running', status: 'running' }],
+    revision: 7,
+  });
+});
+
+test('stale revision is rejected inside the queue mutation boundary', async () => {
+  const state = { queue: [{ id: 'seed', status: 'pending' }], revision: 3 };
+  const store = createQueueStore({
+    load: async () => structuredClone(state),
+    save: async (queue, revision) => Object.assign(state, {
+      queue: structuredClone(queue),
+      revision,
+    }),
+  });
+  const received = await store.snapshot();
+
+  await store.update((queue) => [...queue, { id: 'local', status: 'pending' }]);
+
+  await assert.rejects(
+    store.updateIfRevision(received.revision, (queue) => queue.filter(({ status }) => status !== 'pending')),
+    (error) => error.code === 'stale-queue-revision' && error.actualRevision === 4,
+  );
+  assert.deepEqual(state, {
+    queue: [
+      { id: 'seed', status: 'pending' },
+      { id: 'local', status: 'pending' },
+    ],
+    revision: 4,
+  });
+});
+
+test('explicit touch advances revision while ordinary no-op work does not', async () => {
+  const state = { queue: [{ id: 'seed', status: 'pending' }], revision: 10 };
+  const store = createQueueStore({
+    load: async () => structuredClone(state),
+    save: async (queue, revision) => Object.assign(state, {
+      queue: structuredClone(queue),
+      revision,
+    }),
+  });
+
+  await store.update((queue) => queue);
+  assert.equal(state.revision, 10);
+
+  await store.update((queue) => queue, { touch: true });
+  assert.equal(state.revision, 11);
+  assert.deepEqual(state.queue, [{ id: 'seed', status: 'pending' }]);
+});

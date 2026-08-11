@@ -60,13 +60,26 @@ export function resolveFlowModel(modelId, inventory) {
   return inventory?.models?.find((model) => model.modelId === String(modelId || ''));
 }
 
+export function resolveStoredFlowModelId(settings = {}, models = []) {
+  const offered = new Set((Array.isArray(models) ? models : []).map(({ modelId }) => modelId));
+  const imageModel = String(settings.imageModel || '');
+  const exactStoredId = String(settings.flowModelId || '');
+  const trustedLiveSelection =
+    settings.flowModelSource === MODEL_SOURCES.LIVE &&
+    exactStoredId &&
+    (!settings.flowModelSelection || settings.flowModelSelection === imageModel);
+  if (trustedLiveSelection) return offered.has(exactStoredId) ? exactStoredId : null;
+
+  const fallbackId = getFlowModel(imageModel)?.internalId;
+  for (const candidate of [fallbackId, imageModel, exactStoredId]) {
+    if (candidate && offered.has(candidate)) return candidate;
+  }
+  return null;
+}
+
 export function configuredFlowModel(settings = {}, flowInventory) {
   if (flowInventory?.source !== MODEL_SOURCES.LIVE) return settings.imageModel;
-  if (
-    settings.flowModelSource === MODEL_SOURCES.LIVE &&
-    settings.flowModelSelection === settings.imageModel
-  ) return settings.flowModelId;
-  return getFlowModel(settings.imageModel)?.internalId || settings.imageModel;
+  return resolveStoredFlowModelId(settings, flowInventory.models) || settings.flowModelId || settings.imageModel;
 }
 
 export function snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory } = {}) {
@@ -152,9 +165,14 @@ export function generationParamsFor(provider, item = {}, operational = {}) {
       mode: generation.mode,
       size: generation.size,
       count: generation.count,
+      expectedModel: { ...snapshot },
     };
   }
-  const params = { ...base, references: operational.references || [] };
+  const params = {
+    ...base,
+    references: operational.references || [],
+    expectedModel: { ...snapshot },
+  };
   if (provider === 'chatgpt') params.maxWaitSec = generation.maxWaitSec;
   return params;
 }
@@ -167,6 +185,16 @@ export function assertProviderModel({ provider, snapshot, current } = {}) {
   const { modelId, modelLabel } = liveIdentity(current);
   const matches = snapshot.modelSource === MODEL_SOURCES.PROVIDER_LABEL
     ? snapshot.modelLabel === modelLabel
-    : snapshot.modelId === modelId;
+    : snapshot.modelId === modelId && (!snapshot.modelLabel || snapshot.modelLabel === modelLabel);
   if (!matches) throw modelError('model-selection-changed', provider);
+}
+
+export function modelSnapshotDiagnostic(snapshot) {
+  if (!snapshot) return 'Legacy queue item';
+  if (snapshot.modelSource === MODEL_SOURCES.PROVIDER_CONTROLLED) return 'Provider-controlled model';
+  if (snapshot.modelSource === MODEL_SOURCES.PROVIDER_LABEL) {
+    return `${snapshot.modelLabel || 'Selected model'} (provider-selected label)`;
+  }
+  const identity = [snapshot.modelLabel, snapshot.modelId && `(${snapshot.modelId})`].filter(Boolean).join(' ');
+  return `${identity || 'Unknown model'} (${snapshot.modelSource || 'unknown source'})`;
 }
