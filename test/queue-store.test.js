@@ -30,3 +30,29 @@ test('read persists normalization inside the serialized boundary', async () => {
   assert.deepEqual(await store.read(), [{ id: 'legacy', migrated: true }]);
   assert.deepEqual(stored, [{ id: 'legacy', migrated: true }]);
 });
+
+test('no-op update does not save an unchanged queue', async () => {
+  const stored = [{ id: 'pending', status: 'pending' }];
+  let writes = 0;
+  const store = createQueueStore({
+    load: async () => structuredClone(stored),
+    save: async () => { writes++; },
+  });
+
+  assert.deepEqual(await store.update((queue) => queue), stored);
+  assert.equal(writes, 0);
+});
+
+test('no-op update still saves normalization changes', async () => {
+  let stored = [{ id: 'legacy' }];
+  let writes = 0;
+  const store = createQueueStore({
+    load: async () => structuredClone(stored),
+    save: async (queue) => { stored = structuredClone(queue); writes++; },
+    normalize: (queue) => queue.map((item) => ({ ...item, migrated: true })),
+  });
+
+  assert.deepEqual(await store.update((queue) => queue), [{ id: 'legacy', migrated: true }]);
+  assert.deepEqual(stored, [{ id: 'legacy', migrated: true }]);
+  assert.equal(writes, 1);
+});

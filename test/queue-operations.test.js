@@ -13,6 +13,28 @@ const standalone = (overrides = {}) => ({
   ...overrides,
 });
 
+const legacyStandalone = (overrides = {}) => ({
+  id: overrides.id || 'new',
+  status: 'pending',
+  source: 'standalone',
+  kind: 'scene',
+  key: 'standalone_stamp_01_image',
+  sceneKey: 'standalone_stamp_01_image',
+  slug: 'standalone',
+  episodeCode: 'Standalone',
+  episodeTitle: '',
+  prompt: 'A quiet cabin at dusk',
+  provider: 'flow',
+  target: 'download',
+  projectId: 'project-1',
+  model: 'NARWHAL',
+  aspectRatio: '16:9',
+  label: 'Standalone 01/01 — image',
+  project: 'Standalone',
+  downloadPath: 'StoryStudioImages/Standalone/stamp_01_image.png',
+  ...overrides,
+});
+
 test('normalizes standalone prompts and matches equivalent active work', () => {
   const queued = standalone({ id: 'queued', status: 'pending' });
   const incoming = standalone({ prompt: 'a QUIET cabin\nat dusk' });
@@ -38,6 +60,24 @@ test('changed standalone model remains distinct', () => {
   assert.equal(result.added, 1);
   assert.equal(result.skipped, 0);
   assert.notEqual(activeWorkKey(current), activeWorkKey(changed));
+});
+
+test('legacy standalone items deduplicate exact settings but not changed model or aspect ratio', () => {
+  const active = legacyStandalone({ id: 'active' });
+
+  assert.deepEqual(enqueueItems([active], [legacyStandalone()], 1000), {
+    queue: [active],
+    added: 0,
+    skipped: 1,
+  });
+  for (const changed of [
+    legacyStandalone({ model: 'ORCA' }),
+    legacyStandalone({ aspectRatio: '1:1' }),
+  ]) {
+    const result = enqueueItems([active], [changed], 1000);
+    assert.equal(result.added, 1);
+    assert.equal(result.skipped, 0);
+  }
 });
 
 test('done and failed history do not participate in active deduplication', () => {

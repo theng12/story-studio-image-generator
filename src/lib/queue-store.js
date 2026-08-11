@@ -28,10 +28,10 @@ export function createQueueStore({ load, save, normalize = (queue) => queue } = 
         return Promise.reject(new TypeError('Queue update needs a mutator function.'));
       }
       return serialized(async () => {
-        const { queue } = await current();
+        const { stored, queue } = await current();
         const next = await mutator(queue);
         if (!Array.isArray(next)) throw new TypeError('Queue mutator must return an array.');
-        await save(next);
+        if (!sameQueue(stored, next)) await save(next);
         return next;
       });
     },

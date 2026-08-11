@@ -15,7 +15,15 @@ export function projectWorkKey(item = {}) {
 }
 
 export function standaloneWorkKey(item = {}) {
-  return `${item.provider || 'flow'}::${normalizePrompt(item.prompt)}::${item.kind}::${generationSettingsKey(item.generationSettings)}`;
+  const settings = item.generationSettings ?? {
+    modelId: item.modelId ?? item.model,
+    aspectRatio: item.aspectRatio,
+    style: item.style,
+    mode: item.mode,
+    size: item.size,
+    count: item.count,
+  };
+  return `${item.provider || 'flow'}::${normalizePrompt(item.prompt)}::${item.kind}::${generationSettingsKey(settings)}`;
 }
 
 export function activeWorkKey(item = {}) {
