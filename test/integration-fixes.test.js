@@ -498,3 +498,16 @@ test('every Flow enqueue waits for the serialized selection boundary', () => {
   }
   assert.ok(queueAll.indexOf('await persistSelectedFlowModel()') < queueAll.indexOf('for (const e of pending)'));
 });
+
+test('Flow refresh preserves a rendered live selection after a delayed save', () => {
+  const popup = source('src/popup/popup.js');
+  const refresh = popup.slice(popup.indexOf('async function refreshFlowModels'), popup.indexOf('function flowPopulate'));
+  const wait = refresh.indexOf('await flowModelSaveTail');
+  const previous = refresh.indexOf('const previous =');
+  const replace = refresh.indexOf('select.replaceChildren');
+
+  assert.ok(wait >= 0 && wait < previous, 'refresh waits for B before reading the prior selection');
+  assert.match(refresh, /currentFlowModels\.some\(\(model\) => model\.modelId === select\.value\)/);
+  assert.match(refresh, /\? select\.value\s*:\s*selectedFlowModelId\(\)/);
+  assert.ok(previous < replace, 'refresh preserves B before rendering the returned inventory');
+});
