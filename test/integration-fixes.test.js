@@ -234,13 +234,13 @@ test('worker verifies the queued model before provider-attempted and generation'
   assert.match(background, /generationSettings/);
 });
 
-test('generation reads Leonardo snapshot settings, not mutable settings', () => {
+test('every provider handler dispatches through immutable generation parameter construction', () => {
   const background = source('src/background.js');
   const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
-  assert.match(generate, /model: item\.generationSettings\.modelId/);
-  assert.match(generate, /style: item\.generationSettings\.style/);
-  assert.doesNotMatch(generate, /model: settings\.leonardoModel/);
-  assert.doesNotMatch(generate, /style: settings\.leonardoStyle/);
+  assert.equal((generate.match(/generationParamsFor\(/g) || []).length, 5);
+  assert.doesNotMatch(generate, /item\.generationSettings\.(?:aspectRatio|modelId|style|mode|size|count|maxWaitSec)/);
+  assert.doesNotMatch(generate, /settings\.(?:aspectRatio|aistudioAspectRatio|qwenAspectRatio|chatgptAspectRatio|chatgptMaxWaitSec|leonardoModel|leonardoStyle|leonardoMode|leonardoSize|leonardoCount)/);
+  assert.match(generate, /recaptchaMaxAttempts:\s*settings\.flowRecaptchaMaxAttempts/);
 });
 
 test('Flow discovery is read-only, provider-owned, and never display-text inferred', () => {

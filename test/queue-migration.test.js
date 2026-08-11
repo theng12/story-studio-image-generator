@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import * as queueMigration from '../src/lib/queue-migration.js';
 import { canRetryItem, migrateQueue } from '../src/lib/queue-migration.js';
+import { createQueueStore } from '../src/lib/queue-store.js';
 
 const NOW = 1_723_000_000_000;
 
@@ -372,4 +373,61 @@ test('startup recovery never re-pends submitted or saved evidence', () => {
   assert.equal(recovered[4].status, 'failed');
   assert.equal(recovered[4].failure.code, 'ambiguous');
   assert.equal(recovered.some((item) => item.status === 'pending' && (item.providerAttempted || item.mediaId || item.savedAs)), false);
+});
+
+test('active pending recovery evidence terminalizes while ordinary pending work remains pending', () => {
+  const input = [
+    { id: 'saved', provider: 'flow', status: 'pending', savedAs: 'scene.png', mediaId: 'saved-media' },
+    { id: 'attempted', provider: 'qwen', status: 'pending', providerAttempted: true },
+    { id: 'media', provider: 'aistudio', status: 'pending', mediaId: 'media-only' },
+    {
+      id: 'ordinary', provider: 'flow', target: 'download', kind: 'scene', source: 'standalone', status: 'pending',
+    },
+    { id: 'history', provider: 'flow', status: 'failed', providerAttempted: true, failure: { code: 'quota' } },
+  ];
+
+  const migrated = migrateQueue(input, NOW);
+  assert.equal(migrated[0].status, 'done');
+  assert.equal(migrated[0].savedAs, 'scene.png');
+  assert.equal(migrated[0].mediaId, 'saved-media');
+  for (const item of migrated.slice(1, 3)) {
+    assert.equal(item.status, 'failed');
+    assert.equal(item.failure.code, 'ambiguous');
+    assert.equal(item.fleetRetrySafe, false);
+    assert.match(item.failure.hint, /inspect.*before.*re-queue/i);
+  }
+  assert.equal(migrated[1].providerAttempted, true);
+  assert.equal(migrated[2].mediaId, 'media-only');
+  assert.deepEqual(migrated[3], input[3]);
+  assert.deepEqual(migrated[4], input[4]);
+
+  const recovered = queueMigration.recoverInterruptedQueue(input, NOW);
+  assert.deepEqual(recovered.map(({ status }) => status), ['done', 'failed', 'failed', 'pending', 'failed']);
+  assert.deepEqual(recovered[4], input[4]);
+});
+
+test('composed startup migration preserves ambiguous legacy running Leonardo recovery', async () => {
+  let stored = [{
+    id: 'legacy-leonardo-running',
+    provider: 'leonardo',
+    target: 'download',
+    kind: 'scene',
+    source: 'standalone',
+    status: 'running',
+    prompt: 'A quiet lake',
+    startedAt: NOW - 100,
+  }];
+  const store = createQueueStore({
+    load: async () => structuredClone(stored),
+    save: async (queue) => { stored = structuredClone(queue); },
+    normalize: (queue) => migrateQueue(queue, NOW),
+  });
+
+  const [recovered] = await store.update((queue) => queueMigration.recoverInterruptedQueue(queue, NOW));
+
+  assert.equal(recovered.status, 'failed');
+  assert.equal(recovered.failure.code, 'ambiguous');
+  assert.notEqual(recovered.failure.code, 'model-unknown');
+  assert.equal(recovered.fleetRetrySafe, false);
+  assert.match(recovered.failure.hint, /inspect.*before.*re-queue/i);
 });
