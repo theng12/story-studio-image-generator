@@ -1292,9 +1292,12 @@ async function refreshFlowModels() {
   const button = $('refreshFlowModels');
   const select = $('flowImageModel');
   const provenance = $('flowModelSource');
-  const previous = selectedFlowModelId();
   button.disabled = true;
   try {
+    await flowModelSaveTail;
+    const previous = select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value)
+      ? select.value
+      : selectedFlowModelId();
     const response = await chrome.runtime.sendMessage({ type: 'refreshFlowModels' }).catch(() => null);
     const source = response?.ok && response.source === 'live' ? 'live' : 'fallback';
     const models = response?.ok && Array.isArray(response.models) ? response.models : flowModels();
