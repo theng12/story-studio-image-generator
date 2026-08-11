@@ -445,3 +445,24 @@ test('Flow command rejects missing and malformed exact model IDs without network
     assert.equal(generations.length, 0);
   }
 });
+
+test('active metadata reads the queued snapshot', () => {
+  const popup = source('src/popup/popup.js');
+  const status = popup.slice(popup.indexOf('function updateGenStatus'), popup.indexOf('let lastQueueSig'));
+  assert.match(status, /displayItem\.modelSnapshot/);
+  assert.match(status, /provider-controlled|modelSource/);
+  assert.doesNotMatch(status, /settings\?\.imageModel/);
+});
+
+test('Flow model options refresh from the runtime inventory', () => {
+  const popup = source('src/popup/popup.js');
+  const flow = popup.slice(popup.indexOf('async function refreshFlowModels'), popup.indexOf('function qwenPopulate'));
+  const html = source('src/popup/popup.html');
+
+  assert.match(flow, /type:\s*'refreshFlowModels'/);
+  assert.match(flow, /option\.value = modelId/);
+  assert.match(flow, /option\.textContent = modelLabel/);
+  assert.match(flow, /flowModelSource/);
+  assert.match(html, /id="refreshFlowModels"/);
+  assert.doesNotMatch(html, /value="nano-banana-2"/);
+});

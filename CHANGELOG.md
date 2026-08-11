@@ -3,6 +3,14 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.0 - Image Generator hardening
+
+- Serialized queue mutations so panel, alarm, recovery, and Fleet actions cannot overwrite one another.
+- Deduplicated active standalone work by provider, normalized prompt, asset kind, and generation settings while allowing deliberate requeue after completed or terminal history.
+- Snapshotted model IDs, labels, and generation settings at enqueue and failed closed before submission when a signed provider selection was unknown or changed.
+- Discovered exact Flow model IDs and labels read-only from the signed workspace, reported live versus tested-fallback provenance, and rejected removed/stale live selections before submission.
+- Kept Flow’s three tested fallback IDs and reported provider-controlled identity for web model pickers that expose no stable label.
+
 ## 0.49.3 - Aggregate episode image progress
 
 - Replaced one Scene Review request per episode with Story Studio's aggregate
