@@ -1,5 +1,8 @@
 import { DEFAULT_PROVIDER_ID, isMaintainedProvider } from './providers.js';
+import { generationSettingsFor, snapshotProviderModel } from './model-identity.js';
 import { legacyCharacterReferenceDescriptor } from './reference-assets.js';
+
+const MODEL_FAILURE_CODES = new Set(['model-unknown', 'model-selection-changed']);
 
 function removedFailure(provider) {
   const name = String(provider ?? '').trim() || 'invalid provider ID';
@@ -25,6 +28,64 @@ function sceneSourceFailure() {
     title: 'Scene source is no longer supported',
     hint: 'Create or load a Scene Plan in Story Studio, then queue the scene again.',
     raw: 'Project scene generation requires a Scene Plan with stable Scene Review IDs.',
+  };
+}
+
+function modelUnknownFailure(provider) {
+  const name = provider === 'leonardo' ? 'Leonardo AI' : 'Flow';
+  return {
+    code: 'model-unknown',
+    title: `${name} model identity is unavailable`,
+    hint: `Refresh the signed-in ${name} page, choose the model again, and re-queue this item.`,
+    raw: `The queued ${name} model cannot be verified safely.`,
+  };
+}
+
+function failedModelQueueItem(item, provider, now) {
+  const failure = modelUnknownFailure(provider);
+  return {
+    ...item,
+    status: 'failed',
+    error: failure.raw,
+    failure,
+    fleetRetrySafe: false,
+    finishedAt: now,
+    ...(Number.isFinite(item?.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
+  };
+}
+
+function legacyGenerationSettings(item) {
+  return {
+    aspectRatio: item.aspectRatio,
+    aistudioAspectRatio: item.aspectRatio,
+    qwenAspectRatio: item.aspectRatio,
+    chatgptAspectRatio: item.aspectRatio,
+    chatgptMaxWaitSec: item.maxWaitSec,
+  };
+}
+
+function migrateLegacyModel(item, provider, now, active) {
+  if (item.modelSnapshot || !Object.hasOwn(item, 'provider')) return item;
+  if (provider === 'leonardo') {
+    if (item.providerAttempted === true || item.mediaId || item.savedAs) return item;
+    return active ? failedModelQueueItem(item, provider, now) : item;
+  }
+
+  let modelSnapshot;
+  if (provider === 'flow') {
+    if (!item.model) return item;
+    try {
+      modelSnapshot = snapshotProviderModel({ provider, configuredModel: item.model });
+    } catch {
+      return active ? failedModelQueueItem(item, provider, now) : item;
+    }
+  } else {
+    modelSnapshot = snapshotProviderModel({ provider });
+  }
+  return {
+    ...item,
+    modelSnapshot: { ...modelSnapshot },
+    generationSettings: { ...generationSettingsFor(provider, legacyGenerationSettings(item), modelSnapshot) },
   };
 }
 
@@ -63,7 +124,7 @@ export function migrateQueue(queue, now = Date.now()) {
       ? { ...item, referenceDescriptors: [legacyReference], characterRef: undefined }
       : { ...item };
     if (isUnsupportedProjectScene(normalized)) return unsupportedSceneQueueItem(normalized, now);
-    if (isMaintainedProvider(provider)) return normalized;
+    if (isMaintainedProvider(provider)) return migrateLegacyModel(normalized, provider, now, active);
     return {
       ...normalized,
       status: 'failed',
@@ -83,6 +144,7 @@ export function canRetryItem(item) {
     !isUnsupportedProjectScene(item) &&
     isMaintainedProvider(provider) &&
     item?.failure?.code !== 'provider-removed' &&
-    item?.failure?.code !== 'scene-source-retired'
+    item?.failure?.code !== 'scene-source-retired' &&
+    !MODEL_FAILURE_CODES.has(item?.failure?.code)
   );
 }

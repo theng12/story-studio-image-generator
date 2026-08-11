@@ -10,6 +10,8 @@ import {
   isKnownPreSubmitLimit,
   providerLabelForItem,
 } from '../src/lib/failure-policy.js';
+import { flowCommand } from '../src/lib/flow-exec.js';
+import { flowInventoryResult } from '../src/lib/model-identity.js';
 import { summarizeQueueAll } from '../src/lib/queue-all.js';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -221,4 +223,112 @@ test('save routing keeps thumbnail ingest and Scene Review upload but removes sc
   assert.match(generate, /uploadSceneImage\(item\.slug, item\.episodeCode, item\.sceneKey/);
   assert.doesNotMatch(generate, /item\.source === 'prompts'/);
   assert.doesNotMatch(generate, /ingestImage\(item\.slug, item\.episodeCode, 'scene'/);
+});
+
+test('worker verifies the queued model before provider-attempted and generation', () => {
+  const background = source('src/background.js');
+  const process = background.slice(background.indexOf('async function processQueue'), background.indexOf('// Drop everything not yet started'));
+  assert.ok(process.indexOf('verifyQueuedModel') < process.indexOf('providerAttempted = true'));
+  assert.ok(process.indexOf('verifyQueuedModel') < process.indexOf('generateAndSave(item'));
+  assert.match(background, /modelSnapshot/);
+  assert.match(background, /generationSettings/);
+});
+
+test('generation reads Leonardo snapshot settings, not mutable settings', () => {
+  const background = source('src/background.js');
+  const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
+  assert.match(generate, /model: item\.generationSettings\.modelId/);
+  assert.match(generate, /style: item\.generationSettings\.style/);
+  assert.doesNotMatch(generate, /model: settings\.leonardoModel/);
+  assert.doesNotMatch(generate, /style: settings\.leonardoStyle/);
+});
+
+test('Flow discovery is read-only, provider-owned, and never display-text inferred', () => {
+  const flow = source('src/lib/flow-exec.js');
+  const list = flow.slice(flow.indexOf('const listImageModels'), flow.indexOf('const generateImage'));
+  assert.match(list, /listImageModels/);
+  assert.match(list, /imageModelConfigs/);
+  assert.match(list, /data-image-model-key/);
+  assert.doesNotMatch(list, /batchGenerateImages/);
+  assert.doesNotMatch(list, /transportKey/);
+  assert.doesNotMatch(list, /script\[type=.*application\/json/);
+  assert.doesNotMatch(flow, /IMAGE_MODELS\[.*\]\s*\|\|/);
+});
+
+test('Flow queue execution rechecks the exact live snapshot before POST', () => {
+  const background = source('src/background.js');
+  assert.match(background, /refreshFlowModels/);
+  assert.match(background, /flowModelSource/);
+  assert.match(background, /modelSnapshot\.modelId/);
+  assert.ok(background.indexOf('requireCurrentFlowModel') < background.indexOf('providerAttempted = true'));
+  assert.ok(background.indexOf('requireCurrentFlowModel') < background.indexOf('generateAndSave(item'));
+  assert.match(background, /model-selection-changed|model-unknown/);
+});
+
+test('Flow model discovery falls back only when provider-owned records are invalid', async () => {
+  const fetches = [];
+  const execute = (nextData, options = []) => {
+    const context = {
+      window: { __NEXT_DATA__: nextData },
+      document: {
+        querySelector() { return null; },
+        querySelectorAll(selector) {
+          assert.equal(selector, '[role="option"][data-image-model-key]');
+          return options;
+        },
+      },
+      fetch(...args) {
+        fetches.push(args);
+        throw new Error('read-only discovery must not fetch');
+      },
+    };
+    const command = runInNewContext(`(${flowCommand.toString()})`, context);
+    return command({ op: 'listImageModels', payload: {} });
+  };
+
+  const invalid = await execute({ props: { pageProps: { imageModelConfigs: [{ imageModelKey: 'Same', displayName: 'Same' }] } } });
+  assert.equal(invalid.ok, true);
+  assert.deepEqual(flowInventoryResult(invalid.result.entries), {
+    source: 'fallback',
+    models: [
+      { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2' },
+      { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
+      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
+    ],
+  });
+
+  const live = await execute({ props: { pageProps: { imageModelConfigs: [{ imageModelKey: 'FLOW_NEW_01', displayName: 'Provider Model' }] } } });
+  assert.equal(live.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(live.result.entries))), {
+    source: 'live',
+    models: [{ modelId: 'FLOW_NEW_01', modelLabel: 'Provider Model' }],
+  });
+  assert.equal(fetches.length, 0);
+});
+
+test('web contexts expose only semantic visible model identity', () => {
+  for (const file of ['src/content/aistudio-main.js', 'src/content/qwen-main.js', 'src/content/chatgpt-main.js']) {
+    const adapter = source(file);
+    const identity = adapter.slice(adapter.indexOf('function selectedModelIdentity'), adapter.indexOf('function getContext'));
+    assert.match(identity, /data-model-id/);
+    assert.match(identity, /data-model/);
+    assert.match(identity, /data-testid/);
+    assert.match(identity, /model-/);
+    assert.match(identity, /Select model|Choose model/);
+    assert.match(adapter, /modelIdentity:\s*selectedModelIdentity\(\)/);
+  }
+
+  const leonardo = source('src/content/leonardo-main.js');
+  const context = leonardo.slice(leonardo.indexOf('function getContext'), leonardo.indexOf('async function generateImage'));
+  assert.match(context, /modelIdentity:\s*\{\s*id:\s*selectedModel/);
+  assert.match(context, /stable:\s*Boolean\(selectedModel\)/);
+});
+
+test('Flow generation accepts only the queued exact model ID', () => {
+  const flow = source('src/lib/flow-exec.js');
+  const generate = flow.slice(flow.indexOf('const generateImage'), flow.indexOf('const uploadImage'));
+  assert.match(generate, /payload\.modelId/);
+  assert.match(generate, /imageModelName:\s*modelId/);
+  assert.doesNotMatch(generate, /payload\.model\b/);
+  assert.doesNotMatch(flow, /const IMAGE_MODELS/);
 });

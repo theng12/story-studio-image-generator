@@ -289,6 +289,8 @@
     const model = document.querySelector(MODEL_TRIGGER_SELECTOR);
     const style = document.querySelector(STYLE_TRIGGER_SELECTOR);
     const button = document.querySelector(GENERATE_SELECTOR);
+    const selectedModel = new URL(location.href).searchParams.get('model') || '';
+    const modelLabel = (model?.textContent || '').replace(/\s+/g, ' ').trim();
     return {
       provider: 'leonardo',
       ready: visible(prompt) && visible(model) && visible(style) && !!button,
@@ -296,10 +298,11 @@
       hasModel: visible(model),
       hasStyle: visible(style),
       hasGenerate: !!button,
-      selectedModel: new URL(location.href).searchParams.get('model') || '',
+      selectedModel,
       selectedStyle: style?.textContent.trim().replace(/^Style\s*/, '') || '',
       selectedMode: selectedRadio(['FAST', 'QUALITY', 'ULTRA']),
       selectedSize: selectedRadio(['SMALL', 'MEDIUM', 'LARGE']),
+      modelIdentity: { id: selectedModel, label: modelLabel, stable: Boolean(selectedModel) },
       url: location.href,
     };
   }
