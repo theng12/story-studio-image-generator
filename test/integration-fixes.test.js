@@ -11,7 +11,8 @@ import {
   providerLabelForItem,
 } from '../src/lib/failure-policy.js';
 import { flowCommand } from '../src/lib/flow-exec.js';
-import { flowInventoryResult } from '../src/lib/model-identity.js';
+import * as modelIdentity from '../src/lib/model-identity.js';
+import { flowInventoryResult, generationParamsFor } from '../src/lib/model-identity.js';
 import { summarizeQueueAll } from '../src/lib/queue-all.js';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -234,6 +235,52 @@ test('worker verifies the queued model before provider-attempted and generation'
   assert.match(background, /generationSettings/);
 });
 
+test('worker rejects queue identity drift before provider verification or Flow reference upload', () => {
+  const background = source('src/background.js');
+  const verify = background.slice(background.indexOf('async function verifyQueuedModel'), background.indexOf('async function responseToPayload'));
+  const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
+  assert.ok(verify.indexOf('assertQueuedModelIdentity') >= 0);
+  assert.ok(generate.indexOf('assertQueuedModelIdentity') >= 0);
+  assert.ok(verify.indexOf('assertQueuedModelIdentity') < verify.indexOf('requireCurrentFlowModel'));
+  assert.ok(verify.indexOf('assertQueuedModelIdentity') < verify.indexOf('config.contextMessage'));
+  assert.ok(generate.indexOf('assertQueuedModelIdentity') < generate.indexOf('resolveReferenceMediaIds'));
+  assert.ok(generate.indexOf("generationParamsFor('flow'") < generate.indexOf('resolveReferenceMediaIds'));
+});
+
+test('Flow generation identity drift performs zero fetch, upload, or generation work', async () => {
+  const background = source('src/background.js');
+  const body = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status')).trim();
+  const calls = { fetch: 0, upload: 0, generation: 0 };
+  const context = {
+    assertSupportedProjectScene() {},
+    DEFAULT_PROVIDER_ID: 'flow',
+    normalizeFlowProjectId: (value) => value,
+    assertQueuedModelIdentity: modelIdentity.assertQueuedModelIdentity,
+    generationParamsFor,
+    resolveReferenceMediaIds: async () => { calls.upload++; return ['media/reference']; },
+    send: async () => { calls.generation++; return {}; },
+    fetchImagePayload: async () => { calls.fetch++; return {}; },
+  };
+  const generateAndSave = runInNewContext(`(${body})`, context);
+  const snapshot = { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' };
+
+  for (const modelId of ['GEM_PIX_2', 'malformed model id']) {
+    await assert.rejects(
+      generateAndSave({
+        provider: 'flow',
+        target: 'download',
+        prompt: 'A moonlit lake',
+        projectId: 'flow-project',
+        modelSnapshot: snapshot,
+        generationSettings: { ...snapshot, modelId, aspectRatio: '16:9' },
+      }, { flowRecaptchaMaxAttempts: 4 }, { id: 7 }),
+      (error) => error.code === 'model-selection-changed',
+    );
+  }
+
+  assert.deepEqual(calls, { fetch: 0, upload: 0, generation: 0 });
+});
+
 test('every provider handler dispatches through immutable generation parameter construction', () => {
   const background = source('src/background.js');
   const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
@@ -344,6 +391,7 @@ test('both Flow enqueue paths refresh live inventory before snapshotting', () =>
     const snapshot = enqueue.indexOf('snapshotProviderModelAtEnqueue');
     assert.ok(refresh >= 0 && refresh < snapshot);
     assert.doesNotMatch(enqueue, /flowInventoryForEnqueue/);
+    assert.match(enqueue, /flowModelSelection:\s*settings\.imageModel/);
   }
 });
 

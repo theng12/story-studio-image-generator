@@ -62,7 +62,10 @@ export function resolveFlowModel(modelId, inventory) {
 
 export function configuredFlowModel(settings = {}, flowInventory) {
   if (flowInventory?.source !== MODEL_SOURCES.LIVE) return settings.imageModel;
-  if (settings.flowModelSource === MODEL_SOURCES.LIVE) return settings.flowModelId;
+  if (
+    settings.flowModelSource === MODEL_SOURCES.LIVE &&
+    settings.flowModelSelection === settings.imageModel
+  ) return settings.flowModelId;
   return getFlowModel(settings.imageModel)?.internalId || settings.imageModel;
 }
 
@@ -105,15 +108,31 @@ export function generationSettingsFor(provider, settings = {}, modelSnapshot = {
   };
 }
 
+export function assertQueuedModelIdentity(item = {}, provider = item.provider) {
+  const snapshot = item.modelSnapshot;
+  const generation = item.generationSettings;
+  if (!snapshot || !generation) throw modelError('model-unknown', provider);
+  if (
+    snapshot.modelId !== generation.modelId ||
+    snapshot.modelLabel !== generation.modelLabel ||
+    snapshot.modelSource !== generation.modelSource
+  ) throw modelError('model-selection-changed', provider);
+  if (provider === 'flow' && !FLOW_ID.test(String(snapshot.modelId || ''))) {
+    throw modelError('model-unknown', provider);
+  }
+  return snapshot;
+}
+
 export function generationParamsFor(provider, item = {}, operational = {}) {
   assertSupportedProvider(provider);
+  const snapshot = assertQueuedModelIdentity(item, provider);
   const generation = item.generationSettings || {};
   const base = { prompt: item.prompt, aspectRatio: generation.aspectRatio };
   if (provider === 'flow') {
     const params = {
       projectId: operational.projectId,
       prompt: item.prompt,
-      modelId: generation.modelId,
+      modelId: snapshot.modelId,
       aspectRatio: generation.aspectRatio,
       recaptchaMaxAttempts: operational.recaptchaMaxAttempts,
     };
@@ -129,7 +148,7 @@ export function generationParamsFor(provider, item = {}, operational = {}) {
     return {
       ...base,
       style: generation.style,
-      model: generation.modelId,
+      model: snapshot.modelId,
       mode: generation.mode,
       size: generation.size,
       count: generation.count,
