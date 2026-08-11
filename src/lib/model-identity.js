@@ -1,4 +1,4 @@
-import { FLOW_FALLBACK_MODELS, getFlowModel } from './providers.js';
+import { FLOW_FALLBACK_MODELS, PROVIDER_IDS, getFlowModel } from './providers.js';
 
 const FLOW_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,127}$/;
 
@@ -23,6 +23,10 @@ function modelError(code, provider) {
   const error = new Error(`${providerName(provider)} model identity is unavailable. Refresh the signed-in ${providerName(provider)} page and re-queue this generation.`);
   error.code = code;
   return error;
+}
+
+function assertSupportedProvider(provider) {
+  if (!PROVIDER_IDS.includes(provider)) throw modelError('model-unknown', provider);
 }
 
 function liveIdentity(liveModel) {
@@ -57,6 +61,7 @@ export function resolveFlowModel(modelId, inventory) {
 }
 
 export function snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory } = {}) {
+  assertSupportedProvider(provider);
   if (provider === 'flow') {
     if (flowInventory?.source === MODEL_SOURCES.LIVE) {
       const model = resolveFlowModel(configuredModel, flowInventory);
@@ -95,6 +100,7 @@ export function generationSettingsFor(provider, settings = {}, modelSnapshot = {
 }
 
 export function assertProviderModel({ provider, snapshot, current } = {}) {
+  assertSupportedProvider(provider);
   if (!snapshot) throw modelError('model-unknown', provider);
   if (snapshot.modelSource === MODEL_SOURCES.PROVIDER_CONTROLLED) return;
 

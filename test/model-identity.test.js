@@ -111,3 +111,16 @@ test('missing model snapshots fail closed', () => {
     (error) => error.code === 'model-unknown' && /refresh the signed-in Flow page/i.test(error.message),
   );
 });
+
+test('unsupported providers cannot bypass model identity checks', () => {
+  const rejectsGrok = (fn) => assert.throws(
+    fn,
+    (error) => error.code === 'model-unknown' && /grok.*refresh the signed-in grok page/i.test(error.message),
+  );
+  rejectsGrok(() => snapshotProviderModel({ provider: 'grok' }));
+  rejectsGrok(() => assertProviderModel({
+    provider: 'grok',
+    snapshot: { modelId: null, modelLabel: '', modelSource: 'provider-controlled' },
+    current: { id: '', label: '' },
+  }));
+});
