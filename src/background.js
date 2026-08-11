@@ -1535,7 +1535,7 @@ async function executeFleetCommand(command, settings, identity) {
         if (!marker || !(await isPaused())) return reject('not_hub_paused');
         if (cooldownUntil > Date.now()) return reject('local_cooldown_active');
         await chrome.storage.local.remove([PAUSE_KEY, FLEET_HUB_PAUSE_KEY]);
-        await queueStore.update((queue) => queue); // record the state transition in the revision
+        await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
         alarmCreate();
         processQueue();
         break;
@@ -1605,7 +1605,7 @@ async function leonardoModelControls(model) {
 async function resumeQueue() {
   // Manual resume overrides any provider's cooldown — clear them all.
   await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY]);
-  await queueStore.update((queue) => queue); // pause state is part of the Fleet snapshot
+  await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
   alarmCreate();
   processQueue();
   return { ok: true };
@@ -1617,7 +1617,7 @@ async function pauseQueue({ byHub = false, commandId = '' } = {}) {
     await chrome.storage.local.set({ [PAUSE_KEY]: true });
     await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
   }
-  await queueStore.update((queue) => queue); // pause state is part of the Fleet snapshot
+  await queueStore.update((queue) => queue); // persist any pending queue migration before the Fleet snapshot
   // If something is mid-generation it finishes and saves; the loop then stops.
   await writeStatus(processing ? 'Pausing — finishing the current item first…' : 'Queue paused — press Resume to continue.', 'info');
   return { ok: true };
