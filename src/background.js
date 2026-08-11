@@ -20,6 +20,8 @@ import {
   migrateQueue,
   unsupportedSceneQueueItem,
 } from './lib/queue-migration.js';
+import { enqueueItems } from './lib/queue-operations.js';
+import { createQueueStore } from './lib/queue-store.js';
 import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 import {
   ambiguousLeonardoQueueItem,
@@ -166,14 +168,12 @@ async function startNewFlowProject(reason) {
   await saveSettings({ flowProjectId: projectId, flowProjectName: title });
   await chrome.storage.local.set({ [FLOW_COUNT_KEY]: 0 });
   // Send the rest of this batch to the new project too.
-  const q = await getQueue();
-  let moved = false;
-  for (const it of q)
-    if (it.provider === 'flow' && it.status === 'pending') {
-      it.projectId = projectId;
-      moved = true;
+  await queueStore.update((queue) => {
+    for (const item of queue) {
+      if (item.provider === 'flow' && item.status === 'pending') item.projectId = projectId;
     }
-  if (moved) await setQueue(q);
+    return queue;
+  });
   await writeStatus(`Started a new Flow project (${reason}).`, 'info');
   return projectId;
 }
@@ -767,32 +767,24 @@ function diagnoseFailure(error, item = {}) {
   };
 }
 
-async function getQueue() {
-  const { queue: storedQueue = [] } = await chrome.storage.local.get(QUEUE_KEY);
-  const queue = migrateQueue(storedQueue, Date.now());
-  let changed = JSON.stringify(queue) !== JSON.stringify(storedQueue);
-  for (const item of queue) {
-    if (item.status === 'failed' && item.error && !item.failure) {
-      item.failure = diagnoseFailure(item.error, item);
-      changed = true;
-    }
-  }
-  if (changed) await setQueue(queue);
-  return queue;
-}
-let queueWrite = Promise.resolve();
-function setQueue(q) {
-  // Serialize local writes so each persistent change advances the monotonic
-  // revision exactly once, even when an alarm and panel message arrive together.
-  const write = queueWrite.then(async () => {
+const queueStore = createQueueStore({
+  load: async () => (await chrome.storage.local.get(QUEUE_KEY))[QUEUE_KEY],
+  save: async (queue) => {
     const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
     const revision = Math.max(0, Number(stored[FLEET_QUEUE_REVISION_KEY]) || 0) + 1;
-    await chrome.storage.local.set({ [QUEUE_KEY]: q, [FLEET_QUEUE_REVISION_KEY]: revision });
-    return revision;
-  });
-  queueWrite = write.catch(() => {});
-  return write;
-}
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue, [FLEET_QUEUE_REVISION_KEY]: revision });
+  },
+  normalize: (storedQueue) => {
+    const queue = migrateQueue(storedQueue, Date.now());
+    for (const item of queue) {
+      if (item.status === 'failed' && item.error && !item.failure) {
+        item.failure = diagnoseFailure(item.error, item);
+      }
+    }
+    return queue;
+  },
+});
+const getQueue = () => queueStore.read();
 
 async function getQueueRevision() {
   const stored = await chrome.storage.local.get(FLEET_QUEUE_REVISION_KEY);
@@ -806,43 +798,16 @@ function mkItem(o) {
 
 let processing = false;
 
-// Identity of a scene item, used to dedupe (so a double-click — or re-queuing
-// an episode — can't add the same scene twice and waste work/credits).
-function itemKey(it) {
-  return it.episodeCode && it.sceneKey != null
-    ? `${it.provider || 'flow'}::${it.episodeCode}::${it.kind}::${it.source}::${it.sceneKey}`
-    : null;
-}
-
 async function enqueue(items) {
   if (!items?.length) return { ok: true, added: 0, skipped: 0 };
-  let q = await getQueue();
-  // Starting a fresh run: clear the COMPLETED entries so they don't pile up, but
-  // KEEP failed ones (capped) so you can still see what went wrong on this
-  // machine — a fresh batch no longer wipes your failures.
-  if (!q.some((i) => i.status === 'pending' || i.status === 'running')) {
-    q = q.filter((i) => i.status === 'failed').slice(-100);
-  }
-  // A fresh attempt for a scene supersedes its prior failed entry (e.g. a hub
-  // "retry"), so the panel shows the retry, not a stale failure beside it.
-  const incoming = new Set(items.map(itemKey).filter(Boolean));
-  if (incoming.size) q = q.filter((i) => !(i.status === 'failed' && incoming.has(itemKey(i))));
-  const active = new Set(
-    q.filter((i) => i.status === 'pending' || i.status === 'running').map(itemKey).filter(Boolean)
-  );
   let added = 0;
   let skipped = 0;
-  for (const it of items) {
-    const key = itemKey(it);
-    if (key && active.has(key)) {
-      skipped++;
-      continue;
-    }
-    q.push({ ...it, id: it.id || `${Date.now()}_${_seq++}`, status: 'pending', queuedAt: it.queuedAt || Date.now() });
-    if (key) active.add(key);
-    added++;
-  }
-  await setQueue(q);
+  await queueStore.update((queue) => {
+    const result = enqueueItems(queue, items, Date.now());
+    added = result.added;
+    skipped = result.skipped;
+    return result.queue;
+  });
   if (added) {
     alarmCreate();
     processQueue();
@@ -852,26 +817,26 @@ async function enqueue(items) {
 
 // Remove a single item from the queue — only if it hasn't started yet.
 async function removeFromQueue(id) {
-  const q = await getQueue();
-  await setQueue(q.filter((i) => !(i.id === id && i.status === 'pending')));
+  await queueStore.update((queue) => queue.filter((item) => !(item.id === id && item.status === 'pending')));
   return { ok: true };
 }
 
 async function retryFailed(id = null) {
-  const q = await getQueue();
   let retried = 0;
-  for (const item of q) {
-    if (!canRetryItem(item) || (id && item.id !== id)) continue;
-    item.status = 'pending';
-    delete item.error;
-    delete item.failure;
-    delete item.fleetReported; // report this attempt's outcome to the hub again
-    delete item.startedAt;
-    delete item.finishedAt;
-    delete item.durationMs;
-    retried++;
-  }
-  await setQueue(q);
+  await queueStore.update((queue) => {
+    for (const item of queue) {
+      if (!canRetryItem(item) || (id && item.id !== id)) continue;
+      item.status = 'pending';
+      delete item.error;
+      delete item.failure;
+      delete item.fleetReported; // report this attempt's outcome to the hub again
+      delete item.startedAt;
+      delete item.finishedAt;
+      delete item.durationMs;
+      retried++;
+    }
+    return queue;
+  });
   if (retried) {
     await writeStatus(`Retrying ${retried} failed job${retried === 1 ? '' : 's'}…`, 'running');
     alarmCreate();
@@ -888,22 +853,23 @@ function isFleetRetrySafe(item) {
 }
 
 async function retryFleetSafeFailed() {
-  const q = await getQueue();
   let retried = 0;
-  for (const item of q) {
-    if (!isFleetRetrySafe(item)) continue;
-    item.status = 'pending';
-    delete item.error;
-    delete item.failure;
-    delete item.fleetReported;
-    delete item.startedAt;
-    delete item.finishedAt;
-    delete item.durationMs;
-    delete item.fleetRetrySafe;
-    retried++;
-  }
+  await queueStore.update((queue) => {
+    for (const item of queue) {
+      if (!isFleetRetrySafe(item)) continue;
+      item.status = 'pending';
+      delete item.error;
+      delete item.failure;
+      delete item.fleetReported;
+      delete item.startedAt;
+      delete item.finishedAt;
+      delete item.durationMs;
+      delete item.fleetRetrySafe;
+      retried++;
+    }
+    return queue;
+  });
   if (retried) {
-    await setQueue(q);
     await writeStatus(`Retrying ${retried} Fleet-safe failed job${retried === 1 ? '' : 's'}…`, 'running');
     alarmCreate();
     processQueue();
@@ -1088,15 +1054,18 @@ async function processQueue() {
         break;
       }
       settings = await getSettings();
-      q = await getQueue();
-      const currentIdx = q.findIndex((i) => i.id === pendingId && i.status === 'pending');
-      if (currentIdx < 0) continue;
-      q[currentIdx].status = 'running';
-      q[currentIdx].startedAt = q[currentIdx].startedAt || Date.now();
-      delete q[currentIdx].finishedAt;
-      delete q[currentIdx].durationMs;
-      await setQueue(q);
-      const item = q[currentIdx];
+      let item = null;
+      q = await queueStore.update((queue) => {
+        const current = queue.find((candidate) => candidate.id === pendingId && candidate.status === 'pending');
+        if (!current) return queue;
+        current.status = 'running';
+        current.startedAt = current.startedAt || Date.now();
+        delete current.finishedAt;
+        delete current.durationMs;
+        item = current;
+        return queue;
+      });
+      if (!item) continue;
       const provider = item.provider || DEFAULT_PROVIDER_ID;
       const pos = q.filter((i) => i.status === 'done' || i.status === 'failed').length + 1;
       // Prefix reused by live sub-phase progress (e.g. Qwen upload → generate).
@@ -1111,18 +1080,19 @@ async function processQueue() {
         await setNextProviderRun(settings);
         providerAttempted = true;
         const r = await generateAndSave(item, settings, tabs[provider]);
-        q = await getQueue();
-        const it = q.find((i) => i.id === item.id);
-        if (it) {
-          it.status = 'done';
-          delete it.error;
-          delete it.failure;
-          delete it.attempts;
-          it.savedAs = r.savedAs;
-          it.finishedAt = Date.now();
-          it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
-        }
-        await setQueue(q);
+        await queueStore.update((queue) => {
+          const current = queue.find((candidate) => candidate.id === item.id);
+          if (current) {
+            current.status = 'done';
+            delete current.error;
+            delete current.failure;
+            delete current.attempts;
+            current.savedAs = r.savedAs;
+            current.finishedAt = Date.now();
+            current.durationMs = current.finishedAt - (current.startedAt || current.finishedAt);
+          }
+          return queue;
+        });
 
         // Count images into the current Flow project; roll over to a fresh one
         // once it fills up so the tab/project stays light. Between-items, so the
@@ -1145,10 +1115,11 @@ async function processQueue() {
       } catch (e) {
         const cd = providerCooldown(settings, provider);
         if (e?.code === 'scene-source-retired') {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) Object.assign(it, unsupportedSceneQueueItem(it));
-          await setQueue(q);
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) Object.assign(current, unsupportedSceneQueueItem(current));
+            return queue;
+          });
           await writeStatus(String(e.message || e), 'err');
           continue;
         }
@@ -1159,17 +1130,18 @@ async function processQueue() {
         // itself, re-arming if it's still limited. With auto-resume off, hard-
         // pause until the user presses Resume (the prior default behavior).
         if (isKnownPreSubmitLimit(provider, e) || isFlowRecaptchaFailure(e, item)) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) {
-            it.status = 'pending';
-            delete it.error;
-            delete it.failure;
-            delete it.startedAt;
-            delete it.finishedAt;
-            delete it.durationMs;
-          }
-          await setQueue(q);
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) {
+              current.status = 'pending';
+              delete current.error;
+              delete current.failure;
+              delete current.startedAt;
+              delete current.finishedAt;
+              delete current.durationMs;
+            }
+            return queue;
+          });
           const name = PROVIDER_NAME[provider] || provider;
           if (cd.autoResume) {
             const parsed = parseWaitMs(e && e.message);
@@ -1185,7 +1157,7 @@ async function processQueue() {
           } else {
             await chrome.storage.local.set({ [PAUSE_KEY]: true });
             await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
-            await setQueue(await getQueue());
+            await queueStore.update((queue) => queue);
             const detail = e && e.message ? ` ${e.message}` : '';
             await writeStatus(`${name} limit reached — paused.${detail} Resume after it resets, or switch model/provider.`, 'info');
             alarmClear();
@@ -1193,10 +1165,11 @@ async function processQueue() {
           return;
         }
         if (isAmbiguousLeonardoFailure(provider, providerAttempted, e)) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) Object.assign(it, ambiguousLeonardoQueueItem(it, e));
-          await setQueue(q);
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) Object.assign(current, ambiguousLeonardoQueueItem(current, e));
+            return queue;
+          });
           await writeStatus(
             'Leonardo AI submission outcome is unknown — inspect the Leonardo tab before manually retrying.',
             'err'
@@ -1207,13 +1180,14 @@ async function processQueue() {
         // Put safe/resumable work back at the front and let the alarm wake it
         // after the provider tab settles instead of permanently skipping it.
         if (isTabReloadError(e)) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) {
-            it.status = 'pending';
-            delete it.error;
-          }
-          await setQueue(q);
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) {
+              current.status = 'pending';
+              delete current.error;
+            }
+            return queue;
+          });
           await writeStatus('Provider tab interrupted — current job will retry automatically…', 'running');
           alarmCreate();
           return;
@@ -1222,37 +1196,41 @@ async function processQueue() {
         // only while its auto-resume toggle is on, so "off" keeps prior behavior
         // (fail immediately, retry manually with the Retry-failed button).
         if (cd.autoResume && cd.retries > 0 && (item.attempts || 0) < cd.retries) {
-          q = await getQueue();
-          const it = q.find((i) => i.id === item.id);
-          if (it) {
-            it.attempts = (it.attempts || 0) + 1;
-            it.status = 'pending';
-            delete it.error;
-            delete it.failure;
-            delete it.startedAt;
-            delete it.finishedAt;
-            delete it.durationMs;
-          }
-          await setQueue(q);
+          let retryAttempt = (item.attempts || 0) + 1;
+          await queueStore.update((queue) => {
+            const current = queue.find((candidate) => candidate.id === item.id);
+            if (current) {
+              current.attempts = (current.attempts || 0) + 1;
+              retryAttempt = current.attempts;
+              current.status = 'pending';
+              delete current.error;
+              delete current.failure;
+              delete current.startedAt;
+              delete current.finishedAt;
+              delete current.durationMs;
+            }
+            return queue;
+          });
           const name = PROVIDER_NAME[provider] || provider;
-          await writeStatus(`${runStatusPrefix} failed — retry ${(item.attempts || 0) + 1}/${cd.retries} (${name})…`, 'running');
+          await writeStatus(`${runStatusPrefix} failed — retry ${retryAttempt}/${cd.retries} (${name})…`, 'running');
           alarmCreate();
           return;
         }
-        q = await getQueue();
-        const it = q.find((i) => i.id === item.id);
-        if (it) {
-          it.status = 'failed';
-          it.error = String(e.message || e);
-          it.failure = diagnoseFailure(e, it);
-          // A terminal provider failure never proves that no generation was
-          // accepted. Keep remote retry disabled unless a future adapter can
-          // establish that no provider request was made.
-          it.fleetRetrySafe = false;
-          it.finishedAt = Date.now();
-          it.durationMs = it.finishedAt - (it.startedAt || it.finishedAt);
-        }
-        await setQueue(q);
+        await queueStore.update((queue) => {
+          const current = queue.find((candidate) => candidate.id === item.id);
+          if (current) {
+            current.status = 'failed';
+            current.error = String(e.message || e);
+            current.failure = diagnoseFailure(e, current);
+            // A terminal provider failure never proves that no generation was
+            // accepted. Keep remote retry disabled unless a future adapter can
+            // establish that no provider request was made.
+            current.fleetRetrySafe = false;
+            current.finishedAt = Date.now();
+            current.durationMs = current.finishedAt - (current.startedAt || current.finishedAt);
+          }
+          return queue;
+        });
       } finally {
         if (providerAttempted) await setNextProviderRun(settings);
       }
@@ -1273,9 +1251,8 @@ async function processQueue() {
 
 // Drop everything not yet started; let an in-flight item finish on its own.
 async function clearQueue() {
-  const q = (await getQueue()).filter((i) => i.status === 'running');
-  await setQueue(q);
-  if (!q.length) await clearCooldowns();
+  const queue = await queueStore.update((current) => current.filter((item) => item.status === 'running'));
+  if (!queue.length) await clearCooldowns();
   await writeStatus('Queue cleared.', 'info');
   return { ok: true };
 }
@@ -1283,8 +1260,7 @@ async function clearQueue() {
 // The Hub may clear only work that has not started. It must not alter provider
 // cooldowns: those are local safety limits, not Fleet scheduling knobs.
 async function clearPendingFromFleet() {
-  const q = (await getQueue()).filter((i) => i.status !== 'pending');
-  await setQueue(q);
+  await queueStore.update((queue) => queue.filter((item) => item.status !== 'pending'));
   await writeStatus('Pending queue items cleared by Fleet Hub.', 'info');
   return { cleared: true };
 }
@@ -1292,25 +1268,25 @@ async function clearPendingFromFleet() {
 // Resume after a worker restart: re-pend any item that was mid-flight when the
 // worker died, then keep going if anything is pending.
 (async () => {
-  const q = await getQueue();
-  let changed = false;
-  for (const i of q)
-    if (i.status === 'running') {
-      if (i.provider === 'leonardo') {
-        i.status = 'failed';
-        i.error = 'Leonardo generation was interrupted after submission; its outcome is unknown. Check the Leonardo tab before retrying.';
-        i.failure = diagnoseFailure(i.error, i);
-        i.fleetRetrySafe = false;
-        i.finishedAt = Date.now();
-        i.durationMs = i.finishedAt - (i.startedAt || i.finishedAt);
-      } else {
-        i.status = 'pending';
-        delete i.startedAt;
+  const queue = await queueStore.update((current) => {
+    for (const item of current) {
+      if (item.status === 'running') {
+        if (item.provider === 'leonardo') {
+          item.status = 'failed';
+          item.error = 'Leonardo generation was interrupted after submission; its outcome is unknown. Check the Leonardo tab before retrying.';
+          item.failure = diagnoseFailure(item.error, item);
+          item.fleetRetrySafe = false;
+          item.finishedAt = Date.now();
+          item.durationMs = item.finishedAt - (item.startedAt || item.finishedAt);
+        } else {
+          item.status = 'pending';
+          delete item.startedAt;
+        }
       }
-      changed = true;
     }
-  if (changed) await setQueue(q);
-  if (q.some((i) => i.status === 'pending')) {
+    return current;
+  });
+  if (queue.some((item) => item.status === 'pending')) {
     alarmCreate();
     processQueue();
   }
@@ -1441,7 +1417,7 @@ async function fleetHeartbeat({ testOnly = false } = {}) {
   const secret = String(settings.fleetSharedSecret || '').trim();
   if (!secret) return { ok: false, error: 'Enter this agent’s local pairing secret first.' };
 
-  await queueWrite;
+  await queueStore.read();
 
   const [queue, paused, stored, identity, queueRevision, receipts] = await Promise.all([
     getQueue(),
@@ -1543,7 +1519,7 @@ async function executeFleetCommand(command, settings, identity) {
   if (command.targetAgentId !== identity.agentId) return reject('wrong_agent');
   if (command.targetSessionId !== FLEET_SESSION_ID) return reject('stale_session');
   if (!settings.fleetQueueControlEnabled) return reject('queue_control_not_consented');
-  await queueWrite;
+  await queueStore.read();
   if (!Number.isInteger(command.expectedQueueRevision) || command.expectedQueueRevision !== await getQueueRevision()) return reject('stale_queue_revision');
 
   try {
@@ -1559,7 +1535,7 @@ async function executeFleetCommand(command, settings, identity) {
         if (!marker || !(await isPaused())) return reject('not_hub_paused');
         if (cooldownUntil > Date.now()) return reject('local_cooldown_active');
         await chrome.storage.local.remove([PAUSE_KEY, FLEET_HUB_PAUSE_KEY]);
-        await setQueue(q); // record the state transition in the revision
+        await queueStore.update((queue) => queue); // record the state transition in the revision
         alarmCreate();
         processQueue();
         break;
@@ -1629,7 +1605,7 @@ async function leonardoModelControls(model) {
 async function resumeQueue() {
   // Manual resume overrides any provider's cooldown — clear them all.
   await chrome.storage.local.remove([PAUSE_KEY, COOLDOWN_KEY, FLEET_HUB_PAUSE_KEY]);
-  await setQueue(await getQueue()); // pause state is part of the Fleet snapshot
+  await queueStore.update((queue) => queue); // pause state is part of the Fleet snapshot
   alarmCreate();
   processQueue();
   return { ok: true };
@@ -1641,7 +1617,7 @@ async function pauseQueue({ byHub = false, commandId = '' } = {}) {
     await chrome.storage.local.set({ [PAUSE_KEY]: true });
     await chrome.storage.local.remove(FLEET_HUB_PAUSE_KEY);
   }
-  await setQueue(await getQueue()); // pause state is part of the Fleet snapshot
+  await queueStore.update((queue) => queue); // pause state is part of the Fleet snapshot
   // If something is mid-generation it finishes and saves; the loop then stops.
   await writeStatus(processing ? 'Pausing — finishing the current item first…' : 'Queue paused — press Resume to continue.', 'info');
   return { ok: true };
