@@ -466,3 +466,35 @@ test('Flow model options refresh from the runtime inventory', () => {
   assert.match(html, /id="refreshFlowModels"/);
   assert.doesNotMatch(html, /value="nano-banana-2"/);
 });
+
+test('Flow persists a live-only rendered selection with its exact identity', () => {
+  const popup = source('src/popup/popup.js');
+  const change = popup.slice(popup.indexOf("$('flowImageModel').onchange"), popup.indexOf("$('refreshFlowModels').onclick"));
+  const refresh = popup.slice(popup.indexOf('async function refreshFlowModels'), popup.indexOf('function flowPopulate'));
+  const persist = popup.slice(popup.indexOf('function persistSelectedFlowModel'), popup.indexOf('async function refreshFlowModels'));
+
+  assert.match(popup, /let currentFlowModels = \[\]/);
+  assert.match(popup, /let currentFlowModelSource = 'fallback'/);
+  assert.match(change, /persistSelectedFlowModel/);
+  assert.match(persist, /currentFlowModels\.find/);
+  assert.doesNotMatch(persist, /flowModels\(\)\.find/);
+  assert.match(refresh, /currentFlowModels = models\.map/);
+  assert.match(persist, /flowModelSettings\(model, currentFlowModelSource\)/);
+  assert.match(persist, /flowModelId: model\.modelId|flowModelSettings/);
+  assert.match(persist, /flowModelLabel: model\.modelLabel|flowModelSettings/);
+  assert.match(persist, /flowModelSource: currentFlowModelSource|flowModelSettings/);
+});
+
+test('every Flow enqueue waits for the serialized selection boundary', () => {
+  const popup = source('src/popup/popup.js');
+  const standalone = popup.slice(popup.indexOf('async function queueStandalone'), popup.indexOf('function parseStandalonePrompts'));
+  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
+  const enqueue = popup.slice(popup.indexOf('async function doEnqueue'), popup.indexOf('// ── queue view'));
+
+  for (const path of [standalone, enqueue]) {
+    const boundary = path.indexOf('await persistSelectedFlowModel()');
+    const send = path.indexOf('chrome.runtime.sendMessage');
+    assert.ok(boundary >= 0 && boundary < send);
+  }
+  assert.ok(queueAll.indexOf('await persistSelectedFlowModel()') < queueAll.indexOf('for (const e of pending)'));
+});

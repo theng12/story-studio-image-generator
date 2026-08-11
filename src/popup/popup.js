@@ -27,6 +27,9 @@ let liveStatus = null;
 let studioConnection = null;
 let workMode = 'studio';
 let standalonePrompts = [];
+let currentFlowModels = [];
+let currentFlowModelSource = 'fallback';
+let flowModelSaveTail = Promise.resolve();
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -368,11 +371,7 @@ function wire() {
   $('leoMode').onchange = async () => (settings = await saveSettings({ leonardoMode: $('leoMode').value }));
   $('leoSize').onchange = async () => (settings = await saveSettings({ leonardoSize: $('leoSize').value }));
   $('leoCount').onchange = async () => (settings = await saveSettings({ leonardoCount: Number($('leoCount').value) }));
-  $('flowImageModel').onchange = async () => {
-    const model = flowModels().find(({ modelId }) => modelId === $('flowImageModel').value);
-    if (!model) return;
-    settings = await saveSettings(flowModelSettings(model, $('flowModelSource').dataset.source));
-  };
+  $('flowImageModel').onchange = () => persistSelectedFlowModel();
   $('refreshFlowModels').onclick = refreshFlowModels;
   $('flowAspect').onchange = async () => (settings = await saveSettings({ aspectRatio: $('flowAspect').value }));
   $('flowRecaptchaMaxAttempts').onchange = async () => {
@@ -436,20 +435,25 @@ async function setWorkMode(mode) {
 
 async function queueStandalone() {
   if (!standalonePrompts.length) return reviewStandalonePrompts();
-  if ($('provider').value === 'flow' && !hasSelectedFlowModel()) {
+  const provider = $('provider').value;
+  if (provider === 'flow' && !hasSelectedFlowModel()) {
     setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
     return;
   }
-  if ($('provider').value === 'flow' && !settings.flowProjectId) {
+  if (provider === 'flow' && !settings.flowProjectId) {
     setStatus('Select a generation workspace before queuing with this provider.', 'err');
     return;
   }
   const button = $('queueStandalone');
   button.disabled = true;
   try {
+    if (provider === 'flow' && !await persistSelectedFlowModel()) {
+      setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+      return;
+    }
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueStandalone',
-      payload: { prompts: standalonePrompts, label: $('standaloneLabel').value, provider: $('provider').value },
+      payload: { prompts: standalonePrompts, label: $('standaloneLabel').value, provider },
     });
     if (!res?.ok) throw new Error(res?.error || 'Could not queue the images.');
     $('standalonePrompt').value = '';
@@ -757,6 +761,10 @@ async function queueAllPending() {
   $('confirmOk').onclick = async () => {
     dlg.classList.add('hidden');
     setStatus(`Queuing ${pending.length} episode${pending.length > 1 ? 's' : ''}…`, 'running');
+    if (provider === 'flow' && !await persistSelectedFlowModel()) {
+      setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+      return;
+    }
     let queued = 0;
     let eps = 0;
     const failures = [];
@@ -1251,7 +1259,33 @@ function selectedFlowModelId() {
 
 function hasSelectedFlowModel() {
   const select = $('flowImageModel');
-  return Boolean(select?.value && select.selectedIndex >= 0);
+  return Boolean(select?.value && select.selectedIndex >= 0 && currentFlowModels.some((model) => model.modelId === select.value));
+}
+
+function emptyFlowModelSettings() {
+  return {
+    imageModel: '',
+    flowModelId: '',
+    flowModelLabel: '',
+    flowModelSource: currentFlowModelSource,
+    flowModelSelection: '',
+  };
+}
+
+function persistSelectedFlowModel() {
+  const save = flowModelSaveTail.then(async () => {
+    const select = $('flowImageModel');
+    const model = select?.value && select.selectedIndex >= 0
+      ? currentFlowModels.find((entry) => entry.modelId === select.value) || null
+      : null;
+    const savedSettings = await saveSettings(
+      model ? flowModelSettings(model, currentFlowModelSource) : emptyFlowModelSettings()
+    );
+    settings = savedSettings;
+    return Boolean(model);
+  });
+  flowModelSaveTail = save.catch(() => {});
+  return save;
 }
 
 async function refreshFlowModels() {
@@ -1264,7 +1298,9 @@ async function refreshFlowModels() {
     const response = await chrome.runtime.sendMessage({ type: 'refreshFlowModels' }).catch(() => null);
     const source = response?.ok && response.source === 'live' ? 'live' : 'fallback';
     const models = response?.ok && Array.isArray(response.models) ? response.models : flowModels();
-    select.replaceChildren(...models.map(({ modelId, modelLabel }) => {
+    currentFlowModels = models.map(({ modelId, modelLabel }) => ({ modelId, modelLabel }));
+    currentFlowModelSource = source;
+    select.replaceChildren(...currentFlowModels.map(({ modelId, modelLabel }) => {
       const option = document.createElement('option');
       option.value = modelId;
       option.textContent = modelLabel;
@@ -1274,16 +1310,13 @@ async function refreshFlowModels() {
     provenance.textContent = source === 'live'
       ? 'Live from this signed-in Flow workspace'
       : 'Tested fallback catalog; live discovery unavailable';
-    const selected = models.find(({ modelId }) => modelId === previous);
+    const selected = currentFlowModels.find(({ modelId }) => modelId === previous);
     if (!selected) {
       select.selectedIndex = -1;
-      return;
+    } else {
+      select.value = selected.modelId;
     }
-    select.value = selected.modelId;
-    const patch = flowModelSettings(selected, source);
-    if (Object.entries(patch).some(([key, value]) => settings[key] !== value)) {
-      settings = await saveSettings(patch);
-    }
+    await persistSelectedFlowModel();
   } finally {
     button.disabled = false;
   }
@@ -1448,6 +1481,10 @@ function confirmQueue() {
 
 async function doEnqueue(scenes, target, provider, kind) {
   try {
+    if (provider === 'flow' && !await persistSelectedFlowModel()) {
+      setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
+      return;
+    }
     const res = await chrome.runtime.sendMessage({
       type: 'enqueueScenes',
       payload: {
