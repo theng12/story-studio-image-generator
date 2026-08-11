@@ -27,6 +27,7 @@ import {
   assertProviderModel,
   configuredFlowModel,
   flowInventoryResult,
+  generationParamsFor,
   generationSettingsFor,
   snapshotProviderModel,
 } from './lib/model-identity.js';
@@ -546,68 +547,45 @@ async function generateAndSave(item, settings, tab) {
   const provider = item.provider || DEFAULT_PROVIDER_ID;
   const handlers = {
     chatgpt: async () => {
+      const references = await resolveReferenceImages(item, settings, provider);
       const r = await send(tab.id, {
         type: 'chatgpt:generateImage',
-        params: {
-          prompt: item.prompt,
-          aspectRatio: item.generationSettings.aspectRatio,
-          references: await resolveReferenceImages(item, settings, provider),
-          maxWaitSec: item.generationSettings.maxWaitSec,
-        },
+        params: generationParamsFor('chatgpt', item, { references }),
       });
       // The adapter returns in-page PNG bytes when it can, else a URL for the
       // worker to fetch (oaiusercontent can be CORS-locked in the page).
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     aistudio: async () => {
+      const references = await resolveReferenceImages(item, settings, provider);
       return send(tab.id, {
         type: 'aistudio:generateImage',
-        params: {
-          prompt: item.prompt,
-          aspectRatio: item.generationSettings.aspectRatio,
-          references: await resolveReferenceImages(item, settings, provider),
-        },
+        params: generationParamsFor('aistudio', item, { references }),
       });
     },
     flow: async () => {
       const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
       if (!projectId) throw new Error('No Flow project set. Open a Flow project and pick it in the panel.');
-      const params = {
-        projectId,
-        prompt: item.prompt,
-        modelId: item.modelSnapshot.modelId,
-        aspectRatio: item.generationSettings.aspectRatio,
-        recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
-      };
       const referenceIds = await resolveReferenceMediaIds(item, settings, tab);
-      if (referenceIds.length) {
-        params.imageInputs = referenceIds.map((name) => ({ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name }));
-      }
+      const params = generationParamsFor('flow', item, {
+        projectId,
+        recaptchaMaxAttempts: settings.flowRecaptchaMaxAttempts,
+        referenceIds,
+      });
       return send(tab.id, { type: 'flow:generateImage', params });
     },
     qwen: async () => {
+      const references = await resolveReferenceImages(item, settings, provider);
       const r = await send(tab.id, {
         type: 'qwen:generateImage',
-        params: {
-          prompt: item.prompt,
-          aspectRatio: item.generationSettings.aspectRatio,
-          references: await resolveReferenceImages(item, settings, provider),
-        },
+        params: generationParamsFor('qwen', item, { references }),
       });
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     leonardo: async () => {
       const r = await send(tab.id, {
         type: 'leonardo:generateImage',
-        params: {
-          prompt: item.prompt,
-          aspectRatio: item.generationSettings.aspectRatio,
-          style: item.generationSettings.style,
-          model: item.generationSettings.modelId,
-          mode: item.generationSettings.mode,
-          size: item.generationSettings.size,
-          count: item.generationSettings.count,
-        },
+        params: generationParamsFor('leonardo', item),
       });
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },

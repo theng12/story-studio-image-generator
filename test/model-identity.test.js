@@ -126,21 +126,100 @@ test('fallback Flow selection ignores persisted internal IDs across consecutive 
   }, inventory), 'nano-banana-pro');
 });
 
-test('first enqueue can snapshot a newly discovered exact live Flow ID', () => {
+test('first enqueue maps a tested fallback selection to its exact live Flow ID', () => {
   assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
-  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  const inventory = flowInventoryResult([{ id: 'NARWHAL', label: 'Provider Nano Banana 2' }]);
   const snapshot = snapshotProviderModel({
     provider: 'flow',
-    configuredModel: modelIdentity.configuredFlowModel({
-      imageModel: 'nano-banana-2',
-      flowModelId: 'FLOW_LIVE_NEW',
-      flowModelSource: 'live',
-    }, inventory),
+    configuredModel: modelIdentity.configuredFlowModel({ imageModel: 'nano-banana-2' }, inventory),
     flowInventory: inventory,
   });
 
   assert.deepEqual(snapshot, {
-    modelId: 'FLOW_LIVE_NEW', modelLabel: 'Flow Live New', modelSource: 'live',
+    modelId: 'NARWHAL', modelLabel: 'Provider Nano Banana 2', modelSource: 'live',
+  });
+});
+
+test('first live Flow enqueue fails closed when the mapped exact catalog ID is absent', () => {
+  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  assert.throws(
+    () => snapshotProviderModel({
+      provider: 'flow',
+      configuredModel: modelIdentity.configuredFlowModel({ imageModel: 'nano-banana-2' }, inventory),
+      flowInventory: inventory,
+    }),
+    (error) => error.code === 'model-unknown',
+  );
+});
+
+test('explicit live Flow selection remains authoritative over the fallback catalog setting', () => {
+  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  assert.equal(modelIdentity.configuredFlowModel({
+    imageModel: 'nano-banana-2',
+    flowModelId: 'FLOW_LIVE_NEW',
+    flowModelSource: 'live',
+  }, inventory), 'FLOW_LIVE_NEW');
+});
+
+test('generation parameter construction produces every immutable provider payload field', () => {
+  assert.equal(typeof modelIdentity.generationParamsFor, 'function');
+  const references = [{ dataUrl: 'data:image/png;base64,ref', label: 'Character' }];
+  const base = {
+    prompt: 'A moonlit river',
+    modelSnapshot: { modelId: 'NARWHAL' },
+  };
+
+  assert.deepEqual(modelIdentity.generationParamsFor('flow', {
+    ...base,
+    generationSettings: { modelId: 'NARWHAL', aspectRatio: '16:9' },
+  }, {
+    projectId: 'flow-project',
+    recaptchaMaxAttempts: 4,
+    referenceIds: ['media/reference-1'],
+  }), {
+    projectId: 'flow-project',
+    prompt: 'A moonlit river',
+    modelId: 'NARWHAL',
+    aspectRatio: '16:9',
+    recaptchaMaxAttempts: 4,
+    imageInputs: [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: 'media/reference-1' }],
+  });
+  assert.deepEqual(modelIdentity.generationParamsFor('aistudio', {
+    ...base,
+    generationSettings: { modelId: null, aspectRatio: '4:3' },
+  }, { references }), {
+    prompt: 'A moonlit river', aspectRatio: '4:3', references,
+  });
+  assert.deepEqual(modelIdentity.generationParamsFor('qwen', {
+    ...base,
+    generationSettings: { modelId: null, aspectRatio: '3:4' },
+  }, { references }), {
+    prompt: 'A moonlit river', aspectRatio: '3:4', references,
+  });
+  assert.deepEqual(modelIdentity.generationParamsFor('chatgpt', {
+    ...base,
+    generationSettings: { modelId: null, aspectRatio: '1:1', maxWaitSec: 725 },
+  }, { references }), {
+    prompt: 'A moonlit river', aspectRatio: '1:1', references, maxWaitSec: 725,
+  });
+  assert.deepEqual(modelIdentity.generationParamsFor('leonardo', {
+    ...base,
+    generationSettings: {
+      modelId: 'lucid-origin',
+      aspectRatio: '21:9',
+      style: 'Cinematic',
+      mode: 'QUALITY',
+      size: 'LARGE',
+      count: 3,
+    },
+  }), {
+    prompt: 'A moonlit river',
+    aspectRatio: '21:9',
+    style: 'Cinematic',
+    model: 'lucid-origin',
+    mode: 'QUALITY',
+    size: 'LARGE',
+    count: 3,
   });
 });
 

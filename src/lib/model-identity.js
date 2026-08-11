@@ -61,9 +61,9 @@ export function resolveFlowModel(modelId, inventory) {
 }
 
 export function configuredFlowModel(settings = {}, flowInventory) {
-  return settings.flowModelSource === MODEL_SOURCES.LIVE && flowInventory?.source === MODEL_SOURCES.LIVE
-    ? settings.flowModelId
-    : settings.imageModel;
+  if (flowInventory?.source !== MODEL_SOURCES.LIVE) return settings.imageModel;
+  if (settings.flowModelSource === MODEL_SOURCES.LIVE) return settings.flowModelId;
+  return getFlowModel(settings.imageModel)?.internalId || settings.imageModel;
 }
 
 export function snapshotProviderModel({ provider, configuredModel, liveModel, flowInventory } = {}) {
@@ -103,6 +103,41 @@ export function generationSettingsFor(provider, settings = {}, modelSnapshot = {
     count: provider === 'leonardo' ? settings.leonardoCount : undefined,
     maxWaitSec: provider === 'chatgpt' ? settings.chatgptMaxWaitSec : undefined,
   };
+}
+
+export function generationParamsFor(provider, item = {}, operational = {}) {
+  assertSupportedProvider(provider);
+  const generation = item.generationSettings || {};
+  const base = { prompt: item.prompt, aspectRatio: generation.aspectRatio };
+  if (provider === 'flow') {
+    const params = {
+      projectId: operational.projectId,
+      prompt: item.prompt,
+      modelId: generation.modelId,
+      aspectRatio: generation.aspectRatio,
+      recaptchaMaxAttempts: operational.recaptchaMaxAttempts,
+    };
+    if (operational.referenceIds?.length) {
+      params.imageInputs = operational.referenceIds.map((name) => ({
+        imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE',
+        name,
+      }));
+    }
+    return params;
+  }
+  if (provider === 'leonardo') {
+    return {
+      ...base,
+      style: generation.style,
+      model: generation.modelId,
+      mode: generation.mode,
+      size: generation.size,
+      count: generation.count,
+    };
+  }
+  const params = { ...base, references: operational.references || [] };
+  if (provider === 'chatgpt') params.maxWaitSec = generation.maxWaitSec;
+  return params;
 }
 
 export function assertProviderModel({ provider, snapshot, current } = {}) {

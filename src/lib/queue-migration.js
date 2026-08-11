@@ -74,7 +74,7 @@ function ambiguousRecoveryQueueItem(item, now) {
 }
 
 function recoveryEvidenceQueueItem(item, now) {
-  if (item?.status !== 'running') return null;
+  if (item?.status !== 'pending' && item?.status !== 'running') return null;
   if (item.savedAs) {
     const completed = {
       ...item,
@@ -168,6 +168,9 @@ export function migrateQueue(queue, now = Date.now()) {
     const evidence = recoveryEvidenceQueueItem(item, now);
     if (evidence) return evidence;
     const provider = queueProvider(item);
+    if (item?.status === 'running' && provider === 'leonardo') {
+      return ambiguousRecoveryQueueItem(item, now);
+    }
     const active = item?.status === 'pending' || item?.status === 'running';
     const retryableFailure = canRetryItem(item);
     if (!active && !retryableFailure) return { ...item };

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runInNewContext } from 'node:vm';
 
+import { generationParamsFor } from '../src/lib/model-identity.js';
 import { limitProviderReferences } from '../src/lib/providers.js';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -29,12 +30,19 @@ test('bounds reference bytes to each provider capability before an adapter recei
 test('the worker caps resolved references before maintained adapters receive bytes', () => {
   const background = source('src/background.js');
   assert.match(background, /limitProviderReferences\(\s*provider,/);
-  assert.match(background, /references:\s*await resolveReferenceImages\(item, settings, provider\)/);
+  assert.match(background, /const references = await resolveReferenceImages\(item, settings, provider\)/);
+  assert.match(background, /generationParamsFor\((?:'aistudio'|'qwen'|'chatgpt'), item, \{ references \}\)/);
 });
 
 test('Flow maps every bounded reference to Flow reference image inputs', () => {
-  const background = source('src/background.js');
-  assert.match(background, /referenceIds\.map\(\(name\) => \(\{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name \}\)\)/);
+  const params = generationParamsFor('flow', {
+    prompt: 'A mountain lake',
+    generationSettings: { modelId: 'NARWHAL', aspectRatio: '16:9' },
+  }, { referenceIds: references.slice(0, 4).map(({ name }) => name) });
+  assert.deepEqual(params.imageInputs, references.slice(0, 4).map(({ name }) => ({
+    imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE',
+    name,
+  })));
 });
 
 test('AI Studio and ChatGPT clear then attach every reference and verify their final attachment count', () => {
