@@ -1,7 +1,6 @@
 # Story Studio Image Generator extension
 
-This file supplements the monorepo-level `../AGENTS.md`. Follow both when
-working in this extension.
+Repository instructions supplement the global Codex and development-workstation safety rules.
 
 ## Purpose
 
@@ -122,11 +121,8 @@ Before handing off changes:
 1. Run `node --check` on every JavaScript file when Node is available.
 2. Parse `manifest.json` and confirm every declared content script exists.
 3. Run `git diff --check`.
-4. Test the changed provider in Chrome with one image before a batch.
-5. Verify Story Studio ingestion when save behavior changes.
-6. Bump `manifest.json` for user-facing changes.
-7. Commit verified work and push it to the tracked GitHub branch unless the
-   user explicitly asks to keep the changes local or separate the commit.
+4. Verify Story Studio ingestion when save behavior changes.
+5. Bump `manifest.json` for user-facing changes.
 
 Do not commit generated assets, captured requests, cookies, credentials, or API
 keys. Preserve unrelated local changes and the user's active queue data.
