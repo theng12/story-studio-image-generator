@@ -17,7 +17,11 @@ import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 import { summarizeQueueAll } from '../lib/queue-all.js';
-import { episodeFilterState, sceneImageProgress } from '../lib/episode-progress.js';
+import {
+  createEpisodeAssetLoadRunner,
+  episodeFilterState,
+  sceneImageProgress,
+} from '../lib/episode-progress.js';
 import {
   captureQueueAllContext,
   captureSceneEnqueueContext,
@@ -42,6 +46,7 @@ let standalonePrompts = [];
 let currentFlowModels = [];
 let currentFlowModelSource = 'fallback';
 let flowModelSaveTail = Promise.resolve();
+const episodeAssetLoad = createEpisodeAssetLoadRunner();
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -325,6 +330,7 @@ function wire() {
   $('cooldownMinutes').onchange = saveCooldownCustom;
   $('cooldownRetries').onchange = saveCooldownRetries;
   $('project').onchange = onProjectChange;
+  $('episode').onchange = clearLoadedEpisodeAssets;
   $('loadScenes').onclick = loadScenes;
   $('refreshScenes').onclick = loadScenes;
   $('selectAll').onchange = (e) => {
@@ -748,6 +754,15 @@ function applyEpisodeFilter() {
     opt.textContent = `${opt.value}${title ? ' — ' + title : ''} · ${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
   }
   esel.value = state.selectedCode;
+  if (currentEpisode && currentEpisode.code !== state.selectedCode) clearLoadedEpisodeAssets();
+}
+
+function clearLoadedEpisodeAssets() {
+  episodeAssetLoad.cancel();
+  currentEpisode = null;
+  currentScenes = [];
+  renderScenes();
+  $('scenesSummary').textContent = '';
 }
 
 // Queue every missing scene image across all pending episodes in the project.
@@ -844,6 +859,7 @@ async function queueAllPending() {
 async function onProjectChange() {
   const sel = $('project');
   const slug = sel.value;
+  clearLoadedEpisodeAssets();
   $('episode').innerHTML = '';
   if (!slug) return;
   currentProject = { slug, name: sel.selectedOptions[0]?.dataset.name || slug };
@@ -885,45 +901,53 @@ async function loadScenes() {
   const esel = $('episode');
   const code = esel.value;
   if (!slug || !code) {
+    clearLoadedEpisodeAssets();
     setStatus('Pick a project and episode first.', 'err');
     return;
   }
-  currentEpisode = { code, title: esel.selectedOptions[0]?.dataset.title || '' };
-  await saveSettings({ lastEpisode: code });
   const kind = currentKind();
-  $('loadScenes').disabled = true;
-  $('refreshScenes').disabled = true;
-  setStatus(`Loading ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
-  try {
-    let scenes;
-    let label;
-    if (kind === 'thumbnail') {
-      scenes = await loadThumbnails(slug, currentEpisode);
-      currentSource = 'prompts';
-      label = 'Thumbnail Prompts';
-    } else {
-      const r = await loadScenePlan(slug, currentEpisode);
-      scenes = r.scenes;
-      currentSource = 'plan';
-      label = 'Scene Plan';
-    }
-    currentScenes = scenes;
-    loadedKind = currentKind();
-    renderScenes();
-    const done = scenes.filter((s) => s.hasImage).length;
-    const noun = kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
-    const have = 'have images';
-    $('scenesSummary').textContent = `${noun} (${label}) — ${done}/${scenes.length} ${have}`;
-    const emptyMsg = `No ${noun.toLowerCase()} found for this episode.`;
-    setStatus(scenes.length ? '' : emptyMsg, scenes.length ? 'info' : 'err');
-  } catch (e) {
-    setStatus(`Couldn't load: ${e.message}`, 'err');
-  } finally {
-    $('loadScenes').disabled = false;
-    // Refresh stays live once an episode is loaded, so a cut-off run can be
-    // re-pulled in place without touching the tab.
-    $('refreshScenes').disabled = false;
-  }
+  const episode = { code, title: esel.selectedOptions[0]?.dataset.title || '' };
+  await episodeAssetLoad.run(
+    async () => {
+      await saveSettings({ lastEpisode: code });
+      if (kind === 'thumbnail') {
+        return { scenes: await loadThumbnails(slug, episode), source: 'prompts', label: 'Thumbnail Prompts' };
+      }
+      const result = await loadScenePlan(slug, episode);
+      return { scenes: result.scenes, source: 'plan', label: 'Scene Plan' };
+    },
+    {
+      onStart() {
+        currentEpisode = episode;
+        currentScenes = [];
+        renderScenes();
+        $('scenesSummary').textContent = '';
+        $('loadScenes').disabled = true;
+        $('refreshScenes').disabled = true;
+        setStatus(`Loading ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'}…`, 'running');
+      },
+      onSuccess({ scenes, source, label }) {
+        currentSource = source;
+        currentScenes = scenes;
+        loadedKind = kind;
+        renderScenes();
+        const done = scenes.filter((s) => s.hasImage).length;
+        const noun = kind === 'thumbnail' ? 'Thumbnails' : 'Scenes';
+        $('scenesSummary').textContent = `${noun} (${label}) — ${done}/${scenes.length} have images`;
+        const emptyMsg = `No ${noun.toLowerCase()} found for this episode.`;
+        setStatus(scenes.length ? '' : emptyMsg, scenes.length ? 'info' : 'err');
+      },
+      onError(error) {
+        setStatus(`Couldn't load: ${error.message}`, 'err');
+      },
+      onFinish() {
+        $('loadScenes').disabled = false;
+        // Refresh stays live once an episode is loaded, so a cut-off run can
+        // be re-pulled in place without touching the tab.
+        $('refreshScenes').disabled = false;
+      },
+    },
+  );
 }
 
 // Thumbnails always come from the Image Prompts generator's `thumbnails` array
@@ -1465,17 +1489,15 @@ async function checkWebGenerator(provider) {
 
 // Reload the list when switching between scene and thumbnail image prompts.
 async function onMediaTypeChange() {
+  const hadLoadedEpisode = currentEpisode !== null;
   applyEpisodeFilter();
   if (!$('episode').value) {
-    currentEpisode = null;
-    currentScenes = [];
+    clearLoadedEpisodeAssets();
     loadedKind = currentKind();
-    renderScenes();
-    $('scenesSummary').textContent = '';
     setStatus(`No episodes have ${loadedKind === 'thumbnail' ? 'thumbnail prompts' : 'a Scene Plan'}.`, 'info');
     return;
   }
-  if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
+  if (hadLoadedEpisode && currentKind() !== loadedKind) {
     await loadScenes();
   }
 }

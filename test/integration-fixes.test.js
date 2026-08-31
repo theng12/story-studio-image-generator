@@ -239,17 +239,20 @@ test('episode loading keeps Story Studio aggregates instead of recounting every 
 
 test('thumbnail mode wires the aggregate thumbnail filter without per-episode requests', () => {
   const popup = source('src/popup/popup.js');
+  const wire = popup.slice(popup.indexOf('function wire()'), popup.indexOf('// ── settings'));
   const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
   const filter = popup.slice(popup.indexOf('function applyEpisodeFilter'), popup.indexOf('// Queue every missing scene'));
   const mediaChange = popup.slice(popup.indexOf('async function onMediaTypeChange'), popup.indexOf('// ── confirm'));
 
   assert.match(popup, /episodeFilterState/);
   assert.match(projectChange, /thumbnail_images/);
+  assert.match(projectChange, /clearLoadedEpisodeAssets\(\)/);
   assert.match(filter, /currentKind\(\)/);
   assert.match(filter, /progressByCode/);
   assert.match(mediaChange, /applyEpisodeFilter\(\)/);
   assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
-  assert.match(mediaChange, /currentScenes = \[\]/);
+  assert.match(mediaChange, /clearLoadedEpisodeAssets\(\)/);
+  assert.match(wire, /\$\('episode'\)\.onchange = clearLoadedEpisodeAssets/);
   assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });
 
