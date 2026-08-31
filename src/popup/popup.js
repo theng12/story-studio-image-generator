@@ -1466,6 +1466,15 @@ async function checkWebGenerator(provider) {
 // Reload the list when switching between scene and thumbnail image prompts.
 async function onMediaTypeChange() {
   applyEpisodeFilter();
+  if (!$('episode').value) {
+    currentEpisode = null;
+    currentScenes = [];
+    loadedKind = currentKind();
+    renderScenes();
+    $('scenesSummary').textContent = '';
+    setStatus(`No episodes have ${loadedKind === 'thumbnail' ? 'thumbnail prompts' : 'a Scene Plan'}.`, 'info');
+    return;
+  }
   if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
     await loadScenes();
   }

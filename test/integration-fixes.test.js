@@ -248,6 +248,8 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   assert.match(filter, /currentKind\(\)/);
   assert.match(filter, /progressByCode/);
   assert.match(mediaChange, /applyEpisodeFilter\(\)/);
+  assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
+  assert.match(mediaChange, /currentScenes = \[\]/);
   assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });
 
