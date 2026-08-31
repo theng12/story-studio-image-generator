@@ -31,3 +31,28 @@ export function episodeFilterState(rows, { kind, filter, selectedCode }) {
     progressByCode,
   };
 }
+
+export function createEpisodeAssetLoadRunner() {
+  let revision = 0;
+  return {
+    cancel() {
+      revision++;
+    },
+    async run(load, { onStart, onSuccess, onError, onFinish = () => {} }) {
+      const current = ++revision;
+      onStart();
+      try {
+        const value = await load();
+        if (current !== revision) return false;
+        onSuccess(value);
+        return true;
+      } catch (error) {
+        if (current !== revision) return false;
+        onError?.(error);
+        return false;
+      } finally {
+        if (current === revision) onFinish();
+      }
+    },
+  };
+}

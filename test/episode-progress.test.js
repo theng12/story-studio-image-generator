@@ -69,3 +69,51 @@ test('thumbnail todo selects the first episode with a missing thumbnail asset', 
     },
   );
 });
+
+test('episode asset loads clear old rows and only the newest request may commit', async () => {
+  assert.equal(typeof episodeProgress.createEpisodeAssetLoadRunner, 'function');
+  const runner = episodeProgress.createEpisodeAssetLoadRunner();
+  let rows = ['old scene'];
+  let resolveScene;
+  let resolveThumbnail;
+  const handlers = {
+    onStart: () => { rows = []; },
+    onSuccess: (value) => { rows = value; },
+  };
+
+  const scene = runner.run(
+    () => new Promise((resolve) => { resolveScene = resolve; }),
+    handlers,
+  );
+  assert.deepEqual(rows, []);
+  const thumbnail = runner.run(
+    () => new Promise((resolve) => { resolveThumbnail = resolve; }),
+    handlers,
+  );
+
+  resolveThumbnail(['new thumbnail']);
+  await thumbnail;
+  resolveScene(['stale scene']);
+  await scene;
+
+  assert.deepEqual(rows, ['new thumbnail']);
+});
+
+test('a failed current episode asset load keeps cleared rows empty', async () => {
+  assert.equal(typeof episodeProgress.createEpisodeAssetLoadRunner, 'function');
+  const runner = episodeProgress.createEpisodeAssetLoadRunner();
+  let rows = ['old scene'];
+  let failure = '';
+
+  await runner.run(
+    async () => { throw new Error('thumbnail status unavailable'); },
+    {
+      onStart: () => { rows = []; },
+      onSuccess: (value) => { rows = value; },
+      onError: (error) => { failure = error.message; },
+    },
+  );
+
+  assert.deepEqual(rows, []);
+  assert.equal(failure, 'thumbnail status unavailable');
+});
