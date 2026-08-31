@@ -16,11 +16,11 @@ import {
 import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
-import { summarizeQueueAll } from '../lib/queue-all.js';
+import { pendingEpisodeRows, queuePendingEpisodes, summarizeQueueAll } from '../lib/queue-all.js';
 import {
   createEpisodeAssetLoadRunner,
   episodeFilterState,
-  sceneImageProgress,
+  thumbnailAvailability,
 } from '../lib/episode-progress.js';
 import {
   captureQueueAllContext,
@@ -741,8 +741,9 @@ const episodeNum = (code) => {
 function applyEpisodeFilter() {
   const filter = settings.episodeFilter || 'todo';
   const esel = $('episode');
+  const kind = currentKind();
   const state = episodeFilterState(allEpisodes, {
-    kind: currentKind(),
+    kind,
     filter,
     selectedCode: esel.value,
   });
@@ -751,10 +752,32 @@ function applyEpisodeFilter() {
     const progress = state.progressByCode[opt.value];
     const title = opt.dataset.title;
     opt.hidden = !visible.has(opt.value);
-    opt.textContent = `${opt.value}${title ? ' — ' + title : ''} · ${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
+    const progressText = kind === 'thumbnail' && progress.markedDone
+      ? 'Marked done ✓'
+      : kind === 'thumbnail' && progress.total === 0
+        ? 'Pending'
+        : `${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
+    opt.textContent = `${opt.value}${title ? ' — ' + title : ''} · ${progressText}`;
   }
+  const noun = kind === 'thumbnail' ? 'thumbnail images' : 'scene images';
+  $('episodeFilter').querySelector('[data-f="todo"]').title = `Episodes that still need ${noun}`;
+  $('episodeFilter').querySelector('[data-f="done"]').title = `Episodes whose ${noun} are done`;
+  $('episodeFilter').querySelector('[data-f="all"]').title = `Every episode with ${kind === 'thumbnail' ? 'Thumbnail Prompts' : 'a Scene Plan'}`;
+  $('includeExistingLabel').textContent = `Include ${kind === 'thumbnail' ? 'thumbnails' : 'scenes'} that already have an image`;
+  $('queueAllPending').title = `Queue every missing ${kind === 'thumbnail' ? 'thumbnail' : 'scene'} across all “To do” episodes in this project`;
   esel.value = state.selectedCode;
   if (currentEpisode && currentEpisode.code !== state.selectedCode) clearLoadedEpisodeAssets();
+  return state;
+}
+
+function noEpisodeStatus(kind) {
+  if (kind !== 'thumbnail') return 'No episodes have a Scene Plan.';
+  const availability = thumbnailAvailability(allEpisodes);
+  if (availability.withoutPrompts) {
+    return `${availability.done} thumbnail episode${availability.done === 1 ? '' : 's'} marked done. ` +
+      `${availability.withoutPrompts} episode${availability.withoutPrompts === 1 ? '' : 's'} do not have Thumbnail Prompts in Story Studio yet.`;
+  }
+  return 'No pending Thumbnail Prompts match this filter.';
 }
 
 function clearLoadedEpisodeAssets() {
@@ -767,15 +790,15 @@ function clearLoadedEpisodeAssets() {
   $('refreshScenes').disabled = false;
 }
 
-// Queue every missing scene image across all pending episodes in the project.
+// Queue every missing image for the selected asset kind across pending episodes.
 async function queueAllPending() {
   if (!currentProject) return setStatus('Pick a project first.', 'err');
-  if (currentKind() === 'thumbnail')
-    return setStatus('“Queue all pending” is for scene images — switch “Make” to Scene images.', 'err');
+  const kind = currentKind();
   const provider = $('provider').value;
   const initial = captureQueueAllContext({
     project: currentProject,
     provider,
+    kind,
     episodes: [],
     flowModelApproval: provider === 'flow' ? selectedFlowModelApproval() : null,
   });
@@ -789,27 +812,44 @@ async function queueAllPending() {
     return setStatus(`Couldn't list episodes: ${e.message}`, 'err');
   }
   const episodes = Array.isArray(rows) ? rows : rows.episodes || [];
-  const scenePlanEpisodes = episodes.filter((e) => !!(e.status || {}).scene_plan);
-  if (!scenePlanEpisodes.length)
-    return setStatus('No Scene Plans found. Create or load a Scene Plan in Story Studio, then try again.', 'err');
-  const pending = scenePlanEpisodes.filter((e) => !sceneImageProgress(e).complete);
-  if (!pending.length) return setStatus('No pending episodes — everything is done. 🎉', 'info');
+  const eligible = episodes.filter((e) => kind === 'thumbnail'
+    ? !!(e.status || {}).thumb_prompts
+    : !!(e.status || {}).scene_plan);
+  if (!eligible.length) {
+    const source = kind === 'thumbnail' ? 'Thumbnail Prompts' : 'Scene Plans';
+    return setStatus(`No ${source} found. Create them in Story Studio, then try again.`, 'err');
+  }
+  const pending = pendingEpisodeRows(episodes, kind);
+  if (!pending.length) {
+    if (kind === 'thumbnail') {
+      const availability = thumbnailAvailability(episodes);
+      if (availability.withoutPrompts) {
+        return setStatus(
+          `No pending Thumbnail Prompts to queue. ${availability.withoutPrompts} episode${availability.withoutPrompts === 1 ? '' : 's'} do not have Thumbnail Prompts in Story Studio yet.`,
+          'info',
+        );
+      }
+    }
+    return setStatus('No pending episodes — everything is done. 🎉', 'info');
+  }
   const approved = captureQueueAllContext({
     project,
     provider,
+    kind,
     episodes: pending,
     flowModelApproval: initial.flowModelApproval,
   });
   const dlg = $('confirm');
   $('confirmTitle').textContent = `Queue all pending on ${PROVIDER_LABEL[approved.provider] || approved.provider}?`;
   const flowApproval = approved.flowModelApproval;
+  const assetLabel = approved.kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const modelNote = flowApproval
     ? ` Images use ${flowApproval.modelLabel} (${flowApproval.modelSource === 'live' ? 'live workspace' : 'tested fallback'}).`
     : '';
   $('confirmBody').textContent =
-    `Loads ${approved.episodes.length} pending episode${approved.episodes.length > 1 ? 's' : ''} and queues every missing scene image via ` +
+    `Loads ${approved.episodes.length} pending episode${approved.episodes.length > 1 ? 's' : ''} and queues every missing ${assetLabel} image via ` +
     `${PROVIDER_LABEL[approved.provider] || approved.provider} → Story Studio folders. ` +
-    `Already-queued scenes are skipped.${modelNote} This can be a lot of scenes — continue?`;
+    `Already-queued images are skipped.${modelNote} This can be a lot of images — continue?`;
   $('confirmOk').textContent = 'Queue all pending';
   dlg.classList.remove('hidden');
   $('confirmOk').onclick = async () => {
@@ -819,40 +859,14 @@ async function queueAllPending() {
       setStatus('Select a current Flow model, refresh the signed-in Flow workspace, and re-queue.', 'err');
       return;
     }
-    let queued = 0;
-    let eps = 0;
-    const failures = [];
-    for (const episode of approved.episodes) {
-      const code = episode.code;
-      try {
-        const r = await loadScenePlan(approved.project.slug, episode);
-        const missing = (r.scenes || []).filter((s) => !s.hasImage && (s.prompt || '').trim());
-        if (!missing.length) continue;
-        const payload = captureSceneEnqueueContext({
-          project: approved.project,
-          episode,
-          source: r.source,
-          scenes: missing,
-          kind: 'scene',
-          target: 'project',
-          provider: approved.provider,
-          flowModelApproval: approved.flowModelApproval,
-        });
-        const res = await chrome.runtime.sendMessage({
-          type: 'enqueueScenes',
-          payload,
-        });
-        if (!res?.ok) {
-          failures.push({ code, error: res?.error || 'The extension did not accept this episode.' });
-        } else {
-          queued += res.added || 0;
-          eps++;
-        }
-      } catch (error) {
-        failures.push({ code, error: error?.message || error });
-      }
-    }
-    const summary = summarizeQueueAll({ queued, episodes: eps, failures });
+    const result = await queuePendingEpisodes({
+      context: approved,
+      loadAssets: async ({ kind: assetKind, slug, episode }) => assetKind === 'thumbnail'
+        ? { scenes: await loadThumbnails(slug, episode), source: 'prompts' }
+        : loadScenePlan(slug, episode),
+      enqueue: (payload) => chrome.runtime.sendMessage({ type: 'enqueueScenes', payload }),
+    });
+    const summary = summarizeQueueAll(result);
     setStatus(summary.text, summary.kind);
     pollQueue();
   };
@@ -891,7 +905,8 @@ async function onProjectChange() {
       esel.appendChild(opt);
     }
     if (settings.lastEpisode && allEpisodes.some((e) => e.code === settings.lastEpisode)) esel.value = settings.lastEpisode;
-    applyEpisodeFilter();
+    const filterState = applyEpisodeFilter();
+    if (!filterState.selectedCode) setStatus(noEpisodeStatus(currentKind()), 'info');
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
   }
@@ -957,15 +972,14 @@ async function loadScenes() {
 async function loadThumbnails(slug, ep) {
   const data = await client.imagePrompts(slug, ep.code, ep.title);
   const thumbs = data?.thumbnails || [];
-  const present = new Set();
-  try {
-    const st = await client.imageStatus(slug, ep.code);
-    const missing = new Set((st?.thumbnails?.missing || []).map(Number));
-    const total = st?.thumbnails?.total || thumbs.length;
-    for (let n = 1; n <= total; n++) if (!missing.has(n)) present.add(n);
-  } catch {
-    /* status optional */
+  const status = await client.imageStatus(slug, ep.code);
+  if (!status?.thumbnails || !Array.isArray(status.thumbnails.missing)) {
+    throw new Error(`Story Studio did not return verifiable thumbnail status for ${ep.code}. No images were queued.`);
   }
+  const present = new Set();
+  const missing = new Set(status.thumbnails.missing.map(Number));
+  const total = status.thumbnails.total || thumbs.length;
+  for (let n = 1; n <= total; n++) if (!missing.has(n)) present.add(n);
   return thumbs.map((t) => ({
     source: 'prompts',
     kind: 'thumbnail',
@@ -1496,7 +1510,7 @@ async function onMediaTypeChange() {
   if (!$('episode').value) {
     clearLoadedEpisodeAssets();
     loadedKind = currentKind();
-    setStatus(`No episodes have ${loadedKind === 'thumbnail' ? 'thumbnail prompts' : 'a Scene Plan'}.`, 'info');
+    setStatus(noEpisodeStatus(loadedKind), 'info');
     return;
   }
   if (hadLoadedEpisode) {

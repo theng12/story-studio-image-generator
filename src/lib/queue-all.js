@@ -10,8 +10,9 @@ function safeError(value, max = 180) {
     .slice(0, max);
 }
 
-export function summarizeQueueAll({ queued = 0, episodes = 0, failures = [] } = {}) {
-  const success = `Queued ${countLabel(queued, 'scene')} across ${countLabel(episodes, 'episode')}.`;
+export function summarizeQueueAll({ queued = 0, episodes = 0, failures = [], kind = 'scene' } = {}) {
+  const asset = kind === 'thumbnail' ? 'thumbnail' : 'scene';
+  const success = `Queued ${countLabel(queued, asset)} across ${countLabel(episodes, 'episode')}.`;
   if (!failures.length) return { kind: 'done', text: success };
 
   const codes = failures.slice(0, 8).map(({ code }) => String(code || 'unknown')).join(', ');
@@ -22,3 +23,51 @@ export function summarizeQueueAll({ queued = 0, episodes = 0, failures = [] } = 
     text: `${success} Failed ${countLabel(failures.length, 'episode')} (${codes}${remaining}). First error: ${firstError}`,
   };
 }
+
+export function pendingEpisodeRows(rows, kind) {
+  const progress = kind === 'thumbnail' ? thumbnailImageProgress : sceneImageProgress;
+  return rows
+    .filter((row) => kind === 'thumbnail'
+      ? (row?.status || row?.st || {}).thumb_prompts === true
+      : (row?.status || row?.st || {}).scene_plan === true)
+    .filter((row) => !progress(row).complete);
+}
+
+export async function queuePendingEpisodes({ context, loadAssets, enqueue }) {
+  let queued = 0;
+  let episodes = 0;
+  const failures = [];
+  for (const episode of context.episodes) {
+    try {
+      const result = await loadAssets({
+        kind: context.kind,
+        slug: context.project.slug,
+        episode,
+      });
+      const missing = (result.scenes || []).filter((scene) => !scene.hasImage && (scene.prompt || '').trim());
+      if (!missing.length) continue;
+      const payload = captureSceneEnqueueContext({
+        project: context.project,
+        episode,
+        source: result.source,
+        scenes: missing,
+        kind: context.kind,
+        target: 'project',
+        provider: context.provider,
+        flowModelApproval: context.flowModelApproval,
+      });
+      const response = await enqueue(payload);
+      if (!response?.ok) {
+        failures.push({ code: episode.code, error: response?.error || 'The extension did not accept this episode.' });
+      } else {
+        queued += response.added || 0;
+        episodes++;
+      }
+    } catch (error) {
+      failures.push({ code: episode.code, error: error?.message || error });
+    }
+  }
+  return { queued, episodes, failures, kind: context.kind };
+}
+import { captureSceneEnqueueContext } from './enqueue-context.js';
+import { sceneImageProgress, thumbnailImageProgress } from './episode-progress.js';

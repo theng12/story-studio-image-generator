@@ -9,10 +9,10 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
-test('release version includes unified prompt loading', () => {
+test('release version includes marked-done thumbnail batches', () => {
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-  assert.equal(manifest.version, '0.50.2');
-  assert.match(changelog, /## 0\.50\.2 - Unified prompt loading/);
+  assert.equal(manifest.version, '0.50.3');
+  assert.match(changelog, /## 0\.50\.3 - Marked-done thumbnail batches/);
 });
 
 test('manifest contains no retired provider hosts or content scripts', () => {

@@ -22,11 +22,12 @@ export function captureSceneEnqueueContext({ project, episode, source, scenes, k
   };
 }
 
-export function captureQueueAllContext({ project, provider, episodes, flowModelApproval } = {}) {
+export function captureQueueAllContext({ project, provider, episodes, kind, flowModelApproval } = {}) {
   const approval = captureFlowApproval(flowModelApproval);
   return {
     project: { slug: project?.slug, name: project?.name || project?.slug || '' },
     provider,
+    kind,
     episodes: (Array.isArray(episodes) ? episodes : []).map((episode) => ({
       code: episode?.episode_code || episode?.code,
       title: episode?.title || '',
