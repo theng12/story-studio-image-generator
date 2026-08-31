@@ -3,6 +3,15 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.1 - Thumbnail asset integrity
+
+- Filtered thumbnail episodes using Story Studio's aggregate files-on-disk
+  status instead of historical workflow completion flags.
+- Switching between scene and thumbnail generation now refreshes episode
+  counts and selects the first episode that is actually missing that asset.
+- Kept project loading to one aggregate episode request, including for large
+  projects, rather than checking thumbnail status episode by episode.
+
 ## 0.50.0 - Image Generator hardening
 
 - Serialized queue mutations so panel, alarm, recovery, and Fleet actions cannot overwrite one another.
