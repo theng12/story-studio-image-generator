@@ -24,14 +24,35 @@ test('scene image progress does not infer completion when Story Studio has not a
   assert.deepEqual(progress, { total: 6, present: 6, complete: false });
 });
 
-test('thumbnail progress follows files on disk instead of the historical workflow flag', () => {
+test('thumbnail progress honors Story Studio marked done even when files are missing', () => {
   assert.equal(typeof episodeProgress.thumbnailImageProgress, 'function');
   const progress = episodeProgress.thumbnailImageProgress({
     status: { thumbnails: true },
     thumbnail_images: { total: 3, present: 1, complete: false },
   });
 
-  assert.deepEqual(progress, { total: 3, present: 1, complete: false });
+  assert.deepEqual(progress, { total: 3, present: 1, complete: true, markedDone: true });
+});
+
+test('thumbnail progress reads marked done from normalized episode rows', () => {
+  const progress = episodeProgress.thumbnailImageProgress({
+    st: { thumbnails: true },
+  });
+
+  assert.deepEqual(progress, { total: 0, present: 0, complete: true, markedDone: true });
+});
+
+test('thumbnail availability separates queueable work from episodes without prompts', () => {
+  assert.deepEqual(episodeProgress.thumbnailAvailability([
+    { status: { thumb_prompts: true, thumbnails: true } },
+    { status: { thumb_prompts: true, thumbnails: false } },
+    { status: { thumb_prompts: false, thumbnails: false } },
+  ]), {
+    withPrompts: 2,
+    done: 1,
+    pending: 1,
+    withoutPrompts: 1,
+  });
 });
 
 test('thumbnail todo selects the first episode with a missing thumbnail asset', () => {
@@ -54,6 +75,11 @@ test('thumbnail todo selects the first episode with a missing thumbnail asset', 
       scene_images: { total: 8, present: 8, complete: true },
       thumbnail_images: { total: 2, present: 0, complete: false },
     },
+    {
+      code: 'EP0003',
+      st: { scene_plan: true, thumb_prompts: true, thumbnails: true },
+      thumbnail_images: { total: 2, present: 0, complete: false },
+    },
   ];
 
   assert.deepEqual(
@@ -62,9 +88,10 @@ test('thumbnail todo selects the first episode with a missing thumbnail asset', 
       visibleCodes: ['EP0002'],
       selectedCode: 'EP0002',
       progressByCode: {
-        EP0000: { total: 0, present: 0, complete: false },
-        EP0001: { total: 2, present: 2, complete: true },
-        EP0002: { total: 2, present: 0, complete: false },
+        EP0000: { total: 0, present: 0, complete: false, markedDone: false },
+        EP0001: { total: 2, present: 2, complete: true, markedDone: false },
+        EP0002: { total: 2, present: 0, complete: false, markedDone: false },
+        EP0003: { total: 2, present: 0, complete: true, markedDone: true },
       },
     },
   );

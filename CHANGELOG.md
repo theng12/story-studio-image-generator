@@ -3,6 +3,16 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.3 - Marked-done thumbnail batches
+
+- Treated Story Studio's existing thumbnail **Mark as done** state as
+  authoritative even when old image files have been removed.
+- Enabled **Queue all pending** for thumbnails so one confirmed action loads
+  every pending episode's Thumbnail Prompts and adds its missing images to the
+  persistent queue.
+- Made episode progress and helper copy follow the selected scene or thumbnail
+  image type.
+
 ## 0.50.2 - Unified prompt loading
 
 - Renamed the shared project action to **Load image prompts** so the same button
