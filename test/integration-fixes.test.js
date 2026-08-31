@@ -261,6 +261,19 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });
 
+test('one load image prompts action covers scene and thumbnail modes', () => {
+  const popupHtml = source('src/popup/popup.html');
+  const popup = source('src/popup/popup.js');
+  const loader = popup.slice(popup.indexOf('async function loadScenes()'), popup.indexOf('// Thumbnails always'));
+
+  assert.equal((popupHtml.match(/id="loadScenes"/g) || []).length, 1);
+  assert.match(popupHtml, /id="loadScenes"[^>]*>Load image prompts<\/button>/);
+  assert.doesNotMatch(popupHtml, />Load scenes<\/button>/);
+  assert.match(loader, /kind === 'thumbnail'/);
+  assert.match(loader, /loadThumbnails/);
+  assert.match(loader, /loadScenePlan/);
+});
+
 test('direct enqueue rejects non-plan scenes before settings, references, or queue writes', () => {
   const background = source('src/background.js');
   const enqueueScenes = background.slice(background.indexOf('async function enqueueScenes'), background.indexOf('async function enqueueStandalone'));
