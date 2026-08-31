@@ -52,7 +52,7 @@ test('queue-all captures one project/provider and immutable episode records', ()
     { episode_code: 'TN0001', title: 'One' },
     { code: 'TN0002', title: 'Two' },
   ];
-  const captured = captureQueueAllContext({ project, provider: 'qwen', episodes });
+  const captured = captureQueueAllContext({ project, provider: 'qwen', episodes, kind: 'thumbnail' });
 
   project.slug = 'project-b';
   episodes[0].episode_code = 'TN9999';
@@ -61,6 +61,7 @@ test('queue-all captures one project/provider and immutable episode records', ()
   assert.deepEqual(captured, {
     project: { slug: 'project-a', name: 'Project A' },
     provider: 'qwen',
+    kind: 'thumbnail',
     episodes: [
       { code: 'TN0001', title: 'One' },
       { code: 'TN0002', title: 'Two' },
