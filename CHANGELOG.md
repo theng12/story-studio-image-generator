@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.2 - Unified prompt loading
+
+- Renamed the shared project action to **Load image prompts** so the same button
+  clearly covers both Scene Plan and Thumbnail Prompts modes.
+
 ## 0.50.1 - Thumbnail asset integrity
 
 - Filtered thumbnail episodes using Story Studio's aggregate files-on-disk
