@@ -15,7 +15,24 @@ export function sceneImageProgress(row) {
 }
 
 export function thumbnailImageProgress(row) {
-  return assetProgress(row, 'thumbnail_images');
+  const progress = assetProgress(row, 'thumbnail_images');
+  const markedDone = row?.status?.thumbnails === true || row?.st?.thumbnails === true;
+  return {
+    ...progress,
+    complete: markedDone || progress.complete,
+    markedDone,
+  };
+}
+
+export function thumbnailAvailability(rows) {
+  const withPrompts = rows.filter((row) => (row?.st || row?.status || {}).thumb_prompts === true);
+  const done = withPrompts.filter((row) => thumbnailImageProgress(row).complete).length;
+  return {
+    withPrompts: withPrompts.length,
+    done,
+    pending: withPrompts.length - done,
+    withoutPrompts: rows.length - withPrompts.length,
+  };
 }
 
 export function episodeFilterState(rows, { kind, filter, selectedCode }) {
