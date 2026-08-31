@@ -73,9 +73,9 @@ export class StudioClient {
     return this._json('/projects');
   }
 
-  // Episode rows include status.scene_plan and top-level scene_images:
-  // { total, present, complete }. complete means every planned image exists;
-  // Scene Review approval is intentionally independent.
+  // Episode rows include top-level scene_images and thumbnail_images aggregates:
+  // { total, present, complete }. Completion follows files on disk, not workflow
+  // flags; Scene Review approval remains independent.
   listEpisodes(slug) {
     return this._json(`/projects/${encodeURIComponent(slug)}/episodes`);
   }

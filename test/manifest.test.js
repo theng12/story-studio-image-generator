@@ -9,10 +9,10 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
-test('release version includes Image Generator hardening', () => {
+test('release version includes thumbnail asset integrity', () => {
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-  assert.equal(manifest.version, '0.50.0');
-  assert.match(changelog, /## 0\.50\.0 - Image Generator hardening/);
+  assert.equal(manifest.version, '0.50.1');
+  assert.match(changelog, /## 0\.50\.1 - Thumbnail asset integrity/);
 });
 
 test('manifest contains no retired provider hosts or content scripts', () => {
