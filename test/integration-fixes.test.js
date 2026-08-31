@@ -221,11 +221,12 @@ test('current and queue-all scene discovery use Scene Review only and require a 
   assert.match(queueAll, /loadScenePlan/);
 });
 
-test('episode loading uses Story Studio aggregate scene progress instead of recounting every Scene Review', () => {
+test('episode loading keeps Story Studio aggregates instead of recounting every Scene Review', () => {
   const popup = source('src/popup/popup.js');
   const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
 
-  assert.match(projectChange, /sceneImageProgress\(e\)/);
+  assert.match(projectChange, /scene_images: e\.scene_images/);
+  assert.match(projectChange, /thumbnail_images: e\.thumbnail_images/);
   assert.doesNotMatch(projectChange, /client\.sceneReview/);
   assert.doesNotMatch(projectChange, /fetchEpisodeCounts|episodeCountRun/);
   assert.equal((projectChange.match(/applyEpisodeFilter\(\)/g) || []).length, 1);
@@ -234,6 +235,30 @@ test('episode loading uses Story Studio aggregate scene progress instead of reco
     'the active filter must validate the restored episode selection',
   );
   assert.doesNotMatch(popup, /async function fetchEpisodeCounts|episodeCountRun|allEpisodes\.find|setTimeout\(r, 120\)/);
+});
+
+test('thumbnail mode wires the aggregate thumbnail filter without per-episode requests', () => {
+  const popup = source('src/popup/popup.js');
+  const wire = popup.slice(popup.indexOf('function wire()'), popup.indexOf('// ── settings'));
+  const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
+  const filter = popup.slice(popup.indexOf('function applyEpisodeFilter'), popup.indexOf('// Queue every missing scene'));
+  const clear = popup.slice(popup.indexOf('function clearLoadedEpisodeAssets'), popup.indexOf('// Queue every missing scene'));
+  const mediaChange = popup.slice(popup.indexOf('async function onMediaTypeChange'), popup.indexOf('// ── confirm'));
+
+  assert.match(popup, /episodeFilterState/);
+  assert.match(projectChange, /thumbnail_images/);
+  assert.match(projectChange, /clearLoadedEpisodeAssets\(\)/);
+  assert.match(filter, /currentKind\(\)/);
+  assert.match(filter, /progressByCode/);
+  assert.match(mediaChange, /applyEpisodeFilter\(\)/);
+  assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
+  assert.match(mediaChange, /clearLoadedEpisodeAssets\(\)/);
+  assert.match(mediaChange, /if \(hadLoadedEpisode\) \{/);
+  assert.doesNotMatch(mediaChange, /currentKind\(\) !== loadedKind/);
+  assert.match(clear, /\$\('loadScenes'\)\.disabled = false/);
+  assert.match(clear, /\$\('refreshScenes'\)\.disabled = false/);
+  assert.match(wire, /\$\('episode'\)\.onchange = clearLoadedEpisodeAssets/);
+  assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });
 
 test('direct enqueue rejects non-plan scenes before settings, references, or queue writes', () => {
