@@ -242,6 +242,7 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   const wire = popup.slice(popup.indexOf('function wire()'), popup.indexOf('// ── settings'));
   const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
   const filter = popup.slice(popup.indexOf('function applyEpisodeFilter'), popup.indexOf('// Queue every missing scene'));
+  const clear = popup.slice(popup.indexOf('function clearLoadedEpisodeAssets'), popup.indexOf('// Queue every missing scene'));
   const mediaChange = popup.slice(popup.indexOf('async function onMediaTypeChange'), popup.indexOf('// ── confirm'));
 
   assert.match(popup, /episodeFilterState/);
@@ -252,6 +253,10 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   assert.match(mediaChange, /applyEpisodeFilter\(\)/);
   assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
   assert.match(mediaChange, /clearLoadedEpisodeAssets\(\)/);
+  assert.match(mediaChange, /if \(hadLoadedEpisode\) \{/);
+  assert.doesNotMatch(mediaChange, /currentKind\(\) !== loadedKind/);
+  assert.match(clear, /\$\('loadScenes'\)\.disabled = false/);
+  assert.match(clear, /\$\('refreshScenes'\)\.disabled = false/);
   assert.match(wire, /\$\('episode'\)\.onchange = clearLoadedEpisodeAssets/);
   assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });

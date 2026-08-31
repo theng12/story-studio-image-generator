@@ -763,6 +763,8 @@ function clearLoadedEpisodeAssets() {
   currentScenes = [];
   renderScenes();
   $('scenesSummary').textContent = '';
+  $('loadScenes').disabled = false;
+  $('refreshScenes').disabled = false;
 }
 
 // Queue every missing scene image across all pending episodes in the project.
@@ -1497,7 +1499,7 @@ async function onMediaTypeChange() {
     setStatus(`No episodes have ${loadedKind === 'thumbnail' ? 'thumbnail prompts' : 'a Scene Plan'}.`, 'info');
     return;
   }
-  if (hadLoadedEpisode && currentKind() !== loadedKind) {
+  if (hadLoadedEpisode) {
     await loadScenes();
   }
 }
