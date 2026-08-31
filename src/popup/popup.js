@@ -17,7 +17,7 @@ import { PROVIDERS, getProvider } from '../lib/providers.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 import { summarizeQueueAll } from '../lib/queue-all.js';
-import { sceneImageProgress } from '../lib/episode-progress.js';
+import { episodeFilterState, sceneImageProgress } from '../lib/episode-progress.js';
 import {
   captureQueueAllContext,
   captureSceneEnqueueContext,
@@ -34,7 +34,7 @@ let currentSource = 'plan'; // 'plan' (scene_plan.json) | 'prompts' (03/04 promp
 let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
-let allEpisodes = []; // [{ code, title, st, total, present, done }]
+let allEpisodes = []; // [{ code, title, st, scene_images, thumbnail_images }]
 let liveStatus = null;
 let studioConnection = null;
 let workMode = 'studio';
@@ -731,20 +731,23 @@ const episodeNum = (code) => {
   return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
 };
 
-// Show/hide episode options for the active filter using Story Studio's
-// aggregate planned-image completion state.
+// Show/hide episode options using the aggregate for the selected asset kind.
 function applyEpisodeFilter() {
   const filter = settings.episodeFilter || 'todo';
   const esel = $('episode');
-  const doneByCode = new Map(allEpisodes.map((e) => [e.code, e.done]));
-  let firstVisible = '';
+  const state = episodeFilterState(allEpisodes, {
+    kind: currentKind(),
+    filter,
+    selectedCode: esel.value,
+  });
+  const visible = new Set(state.visibleCodes);
   for (const opt of esel.options) {
-    const done = doneByCode.get(opt.value);
-    const show = filter === 'all' ? true : filter === 'done' ? done === true : done !== true;
-    opt.hidden = !show;
-    if (show && !firstVisible) firstVisible = opt.value;
+    const progress = state.progressByCode[opt.value];
+    const title = opt.dataset.title;
+    opt.hidden = !visible.has(opt.value);
+    opt.textContent = `${opt.value}${title ? ' — ' + title : ''} · ${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
   }
-  if (firstVisible && (esel.selectedOptions[0]?.hidden || !esel.value)) esel.value = firstVisible;
+  esel.value = state.selectedCode;
 }
 
 // Queue every missing scene image across all pending episodes in the project.
@@ -851,8 +854,13 @@ async function onProjectChange() {
     // selected-episode or queue-all operation rather than a project-load cost.
     allEpisodes = (Array.isArray(rows) ? rows : rows.episodes || [])
       .map((e) => {
-        const { total, present, complete } = sceneImageProgress(e);
-        return { code: e.episode_code || e.code, title: e.title || '', st: e.status || {}, total, present, done: complete };
+        return {
+          code: e.episode_code || e.code,
+          title: e.title || '',
+          st: e.status || {},
+          scene_images: e.scene_images,
+          thumbnail_images: e.thumbnail_images,
+        };
       })
       .filter((e) => e.st.scene_plan || e.st.scene_prompts || e.st.thumb_prompts)
       .sort((a, b) => episodeNum(a.code) - episodeNum(b.code) || String(a.code).localeCompare(String(b.code)));
@@ -862,7 +870,6 @@ async function onProjectChange() {
       const opt = document.createElement('option');
       opt.value = e.code;
       opt.dataset.title = e.title;
-      opt.textContent = `${e.code}${e.title ? ' — ' + e.title : ''} · ${e.present}/${e.total}${e.done ? ' ✓' : ''}`;
       esel.appendChild(opt);
     }
     if (settings.lastEpisode && allEpisodes.some((e) => e.code === settings.lastEpisode)) esel.value = settings.lastEpisode;
@@ -1458,6 +1465,7 @@ async function checkWebGenerator(provider) {
 
 // Reload the list when switching between scene and thumbnail image prompts.
 async function onMediaTypeChange() {
+  applyEpisodeFilter();
   if (currentEpisode && currentScenes.length && currentKind() !== loadedKind) {
     await loadScenes();
   }
