@@ -132,7 +132,25 @@ try {
 }
 
 // ── provider tab plumbing ────────────────────────────────────────────────────
-async function ensureProviderTab(provider = 'flow') {
+// One tab per provider, ever: calls are serialised per provider, and the tab this
+// worker opened is remembered (session storage survives worker restarts) so a
+// tab query that comes back empty can never make us open a second one.
+const ensuringTab = {};
+const OWNED_TABS_KEY = 'ownedProviderTabs';
+async function ownedTab(provider) {
+  const stored = await chrome.storage.session?.get(OWNED_TABS_KEY).catch(() => null);
+  const id = stored?.[OWNED_TABS_KEY]?.[provider];
+  if (!Number.isInteger(id)) return null;
+  return chrome.tabs.get(id).catch(() => null);
+}
+async function rememberOwnedTab(provider, tabId) {
+  const stored = await chrome.storage.session?.get(OWNED_TABS_KEY).catch(() => null);
+  await chrome.storage.session?.set({ [OWNED_TABS_KEY]: { ...(stored?.[OWNED_TABS_KEY] || {}), [provider]: tabId } }).catch(() => {});
+}
+function ensureProviderTab(provider = 'flow') {
+  return (ensuringTab[provider] ||= findOrOpenProviderTab(provider).finally(() => delete ensuringTab[provider]));
+}
+async function findOrOpenProviderTab(provider) {
   const cfg = PROVIDER[provider];
   if (!cfg) throw providerRemovedError(provider);
   const tabs = await chrome.tabs.query({ url: cfg.match });
@@ -142,17 +160,25 @@ async function ensureProviderTab(provider = 'flow') {
       await chrome.tabs.update(ready.id, { autoDiscardable: false }).catch(() => {});
     return ready;
   }
-  const tab = tabs[0] || (await chrome.tabs.create({ url: cfg.url, active: false }));
+  let tab = tabs[0] || (await ownedTab(provider));
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: cfg.url, active: false });
+    await rememberOwnedTab(provider, tab.id);
+  }
   if (provider === 'leonardo' || provider === 'qwen')
     await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+  if (tab.status === 'complete') return tab;
   await new Promise((resolve) => {
+    const done = () => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      setTimeout(resolve, 1200); // let content scripts + grecaptcha/signing init
+    };
     const listener = (tabId, info) => {
-      if (tabId === tab.id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(resolve, 1200); // let content scripts + grecaptcha/signing init
-      }
+      if (tabId === tab.id && info.status === 'complete') done();
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // The load may have finished between the query and the listener attaching.
+    chrome.tabs.get(tab.id).then((t) => { if (t?.status === 'complete') done(); }).catch(() => {});
   });
   return tab;
 }
