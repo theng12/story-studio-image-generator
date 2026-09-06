@@ -53,7 +53,7 @@ async function loadBackground({ local = {}, sync = {}, storageDelayMs = 0, fetch
   return {
     local,
     sync,
-    async send(message, sender = {}) {
+    async send(message, sender = {}, timeoutMs = 1000) {
       return new Promise((resolve, reject) => {
         let settled = false;
         const done = (value) => {
@@ -64,7 +64,7 @@ async function loadBackground({ local = {}, sync = {}, storageDelayMs = 0, fetch
         if (!asyncResponse && !settled) resolve(undefined);
         setTimeout(() => {
           if (!settled && asyncResponse) reject(new Error(`Timed out waiting for ${message.type}`));
-        }, 1000);
+        }, timeoutMs);
       });
     },
     restore() {
@@ -294,6 +294,31 @@ test('Fleet heartbeat snapshots queue and revision atomically and rejects a comm
     assert.equal(receipt.reason, 'stale_queue_revision');
     assert.equal(local.fleetV2QueueRevision, 8);
     assert.deepEqual(local.queue.map(({ id }) => id), ['failed-before-heartbeat', 'local-change']);
+  } finally {
+    worker.restore();
+  }
+});
+
+test('a provider tab is opened at most once even when the tab query cannot see it', async () => {
+  const created = [];
+  const tab = { id: 41, status: 'complete', url: 'https://labs.google/fx/tools/flow' };
+  const worker = await loadBackground();
+  try {
+    globalThis.chrome.tabs = {
+      query: async () => [], // what the user's Chrome did: existing Flow tabs invisible
+      create: async (opts) => { created.push(opts.url); return { id: 41, status: 'loading' }; },
+      get: async (id) => (id === 41 ? tab : Promise.reject(new Error('No tab'))),
+      update: async () => tab,
+      onUpdated: { addListener() {}, removeListener() {} },
+    };
+    globalThis.chrome.scripting = { executeScript: async () => [{ result: { ok: true, result: { entries: [] } } }] };
+    globalThis.chrome.storage.session = storageArea({});
+    // Two overlapping calls, then two sequential ones — one queue-all can do both.
+    const slow = (type) => worker.send({ type }, {}, 4000);
+    await Promise.all([slow('refreshFlowModels'), slow('refreshFlowModels')]);
+    await slow('refreshFlowModels');
+    await slow('flowContext');
+    assert.deepEqual(created, ['https://labs.google/fx/tools/flow']);
   } finally {
     worker.restore();
   }

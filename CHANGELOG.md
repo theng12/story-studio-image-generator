@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.5 - One provider tab, ever
+
+- Stopped **Queue all pending** (and any other action that needs a provider
+  tab) from opening a new Google Flow tab per episode. The extension now
+  remembers the tab it opened, serialises overlapping requests, and no longer
+  hangs when a tab finished loading before it started watching.
+
 ## 0.50.4 - Clear failed jobs
 
 - Added **Clear failed** to Queue actions so a batch that finished with
