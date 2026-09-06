@@ -9,10 +9,10 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
-test('release version includes clear failed jobs', () => {
+test('release version includes one provider tab ever', () => {
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-  assert.equal(manifest.version, '0.50.4');
-  assert.match(changelog, /## 0\.50\.4 - Clear failed jobs/);
+  assert.equal(manifest.version, '0.50.5');
+  assert.match(changelog, /## 0\.50\.5 - One provider tab, ever/);
 });
 
 test('manifest contains no retired provider hosts or content scripts', () => {
