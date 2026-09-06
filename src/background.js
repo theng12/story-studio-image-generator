@@ -1450,6 +1450,19 @@ async function clearQueue() {
   return { ok: true };
 }
 
+// Drop failed items so a batch can be re-queued from scratch. Provider
+// cooldowns are untouched: they are safety limits, not batch state.
+async function clearFailed() {
+  let cleared = 0;
+  await queueStore.update((current) => {
+    const kept = current.filter((item) => item.status !== 'failed');
+    cleared = current.length - kept.length;
+    return kept;
+  });
+  if (cleared) await writeStatus(`Cleared ${cleared} failed job${cleared === 1 ? '' : 's'}.`, 'info');
+  return { ok: true, cleared };
+}
+
 // The Hub may clear only work that has not started. It must not alter provider
 // cooldowns: those are local safety limits, not Fleet scheduling knobs.
 async function clearPendingFromFleet(expectedRevision) {
@@ -1849,6 +1862,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     case 'clearQueue':
       reply(clearQueue());
+      return true;
+    case 'clearFailed':
+      reply(clearFailed());
       return true;
     case 'getQueue':
       // Reopening the panel nudges a stalled queue — but never overrides an

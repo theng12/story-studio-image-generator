@@ -188,6 +188,23 @@ test('an explicit manual retry starts a fresh submission-checkpoint lifecycle', 
   }
 });
 
+test('clear failed drops only failed items and leaves pending work', async () => {
+  const failed = { ...leonardoRunning(), id: 'f1', status: 'failed', failure: { code: 'ambiguous', raw: 'x' } };
+  const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
+  const worker = await loadBackground({
+    local: { queue: [failed, pending], queuePaused: true, fleetV2QueueRevision: 3 },
+  });
+  try {
+    const response = await worker.send({ type: 'clearFailed' });
+    assert.equal(response.ok, true);
+    assert.equal(response.cleared, 1);
+    assert.deepEqual(worker.local.queue.map((i) => i.id), ['p1']);
+    assert.equal(worker.local.queue[0].status, 'pending');
+  } finally {
+    worker.restore();
+  }
+});
+
 test('background-owned concurrent settings patches cannot overwrite unrelated fields', async () => {
   const worker = await loadBackground({
     sync: {

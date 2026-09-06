@@ -528,7 +528,7 @@ header .settings-gear:hover { background: var(--surface); }
 .active-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; }
 .active-controls .btn { min-width: 0; padding: 8px 5px; border-radius: 8px; font-size: 12px; }
 .active-controls #pauseQueue, .active-controls #retryFailed { color: var(--link); }
-.active-controls #clearQueue { color: var(--danger); }
+.active-controls #clearQueue, .active-controls #clearFailed { color: var(--danger); }
 .queue-action-group { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--divider); }
 .queue-action-heading { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .queue-action-group .active-controls { margin-top: 8px; }

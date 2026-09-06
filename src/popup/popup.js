@@ -372,6 +372,11 @@ function wire() {
     await chrome.runtime.sendMessage({ type: resuming ? 'resumeQueue' : 'pauseQueue' });
     pollQueue();
   };
+  $('clearFailed').onclick = async () => {
+    const res = await chrome.runtime.sendMessage({ type: 'clearFailed' });
+    if (!res?.cleared) setStatus('No failed jobs to clear.', 'info');
+    pollQueue();
+  };
   $('retryFailed').onclick = async () => {
     const res = await chrome.runtime.sendMessage({ type: 'retryFailed' });
     if (!res?.retried) setStatus('No failed jobs to retry.', 'info');
@@ -1746,6 +1751,7 @@ async function pollQueue() {
   pause.textContent = paused ? '▶ Resume' : '❚❚ Pause';
   $('retryFailed').disabled = !hasFailed;
   $('clearQueue').disabled = !hasPending;
+  $('clearFailed').disabled = !hasFailed;
   updateGenStatus(queue, paused);
   // Live per-scene status + tab-visibility reminder — run every tick, even when
   // the queue-list DOM itself is unchanged.

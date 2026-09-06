@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.4 - Clear failed jobs
+
+- Added **Clear failed** to Queue actions so a batch that finished with
+  failures can be dropped and re-queued from scratch instead of lingering in
+  the list. Provider cooldowns are left alone.
+
 ## 0.50.3 - Marked-done thumbnail batches
 
 - Treated Story Studio's existing thumbnail **Mark as done** state as
