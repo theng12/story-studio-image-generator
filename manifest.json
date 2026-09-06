@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.3",
+  "version": "0.50.4",
   "description": "Create and organize image assets for Story Studio projects.",
   "permissions": [
     "downloads",
