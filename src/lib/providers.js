@@ -15,7 +15,7 @@ export const PROVIDERS = Object.freeze([
     id: 'flow',
     label: 'Google Flow',
     models: FLOW_FALLBACK_MODELS,
-    workspace: { url: 'https://labs.google/fx/tools/flow', match: 'https://labs.google/fx/*' },
+    workspace: { url: 'https://flow.google.com/', match: 'https://flow.google.com/*' },
     scripts: null,
     contextMessage: 'flow:getContext',
     downloadHosts: [],

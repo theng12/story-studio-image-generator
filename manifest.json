@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.5",
+  "version": "0.50.6",
   "description": "Create and organize image assets for Story Studio projects.",
   "permissions": [
     "downloads",
@@ -14,7 +14,7 @@
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "https://labs.google/*",
+    "https://flow.google.com/*",
     "https://aistudio.google.com/*",
     "https://chat.qwen.ai/*",
     "https://cdn.qwenlm.ai/*",

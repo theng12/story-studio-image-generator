@@ -17,6 +17,7 @@ import {
   normalizeSettings,
   persistSettings,
   providerCooldown,
+  flowWorkspace,
 } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
@@ -50,7 +51,6 @@ import {
   providerLabelForItem,
 } from './lib/failure-policy.js';
 
-const FLOW_URL = 'https://labs.google/fx/tools/flow';
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
 const FLOW_MODEL_INVENTORY_KEY = 'flowImageModelInventory';
@@ -150,9 +150,15 @@ async function rememberOwnedTab(provider, tabId) {
 function ensureProviderTab(provider = 'flow') {
   return (ensuringTab[provider] ||= findOrOpenProviderTab(provider).finally(() => delete ensuringTab[provider]));
 }
-async function findOrOpenProviderTab(provider) {
+// Flow's address is a setting; every other provider's workspace is fixed.
+async function providerWorkspace(provider) {
+  if (provider === 'flow') return flowWorkspace(await getSettings());
   const cfg = PROVIDER[provider];
   if (!cfg) throw providerRemovedError(provider);
+  return cfg;
+}
+async function findOrOpenProviderTab(provider) {
+  const cfg = await providerWorkspace(provider);
   const tabs = await chrome.tabs.query({ url: cfg.match });
   const ready = tabs.find((t) => t.status === 'complete');
   if (ready) {
@@ -205,7 +211,7 @@ async function startNewFlowProject(reason) {
   }
   // Point the tab at the new (real) project so it's active + light.
   try {
-    await chrome.tabs.update(tab.id, { url: `${FLOW_URL}/project/${projectId}`, autoDiscardable: false });
+    await chrome.tabs.update(tab.id, { url: flowWorkspace(await getSettings()).project(projectId), autoDiscardable: false });
     await new Promise((resolve) => {
       const done = () => {
         chrome.tabs.onUpdated.removeListener(listener);
@@ -236,8 +242,12 @@ async function startNewFlowProject(reason) {
 // Panel "↗ Open provider" click: focus an existing tab for the provider's
 // generation page, or open a new active one.
 async function openProviderPage(provider) {
-  const cfg = PROVIDER[provider];
-  if (!cfg) return { ok: false, error: providerRemovedError(provider).message };
+  let cfg;
+  try {
+    cfg = await providerWorkspace(provider);
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
   const tabs = await chrome.tabs.query({ url: cfg.match });
   if (tabs[0]) {
     await chrome.tabs.update(tabs[0].id, { active: true });
@@ -375,8 +385,9 @@ async function waitForTabReady(tabId, timeoutMs = 60000) {
 async function send(tabId, message) {
   if (String(message?.type || '').startsWith('flow:')) {
     const tab = await chrome.tabs.get(tabId);
-    if (!/^https:\/\/labs\.google\/fx\//i.test(tab?.url || '')) {
-      throw new Error('Refusing to run a Flow command outside labs.google/fx.');
+    const { origin } = flowWorkspace(await getSettings());
+    if (!String(tab?.url || '').startsWith(`${origin}/`)) {
+      throw new Error(`Refusing to run a Flow command outside ${origin}.`);
     }
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId },
