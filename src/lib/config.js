@@ -22,6 +22,9 @@ export const DEFAULTS = {
   // or paste a project UUID in Settings.
   flowProjectId: '',
   flowProjectName: '',
+  // Where Google Flow lives. Google moved it once already (labs.google/fx →
+  // flow.google.com); the next move is a Settings edit, not a release.
+  flowWorkspaceUrl: 'https://flow.google.com',
 
   // A Flow project accumulates every generated image and gets heavy over time, so
   // roll over to a fresh project automatically after this many images (0 or the
@@ -174,6 +177,7 @@ export function normalizeSettings(settings) {
   delete settings.perchanceStyle;
   delete settings.perchanceCount;
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
+  settings.flowWorkspaceUrl = normalizeFlowWorkspaceUrl(settings.flowWorkspaceUrl);
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.aistudioAspectRatio)) settings.aistudioAspectRatio = DEFAULTS.aistudioAspectRatio;
   if (!QWEN_ASPECT_RATIOS.has(settings.chatgptAspectRatio)) settings.chatgptAspectRatio = DEFAULTS.chatgptAspectRatio;
@@ -205,6 +209,22 @@ export function normalizeFlowProjectId(value) {
   if (!raw) return '';
   const match = raw.match(/(?:\/project\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i);
   return match ? match[1].toLowerCase() : raw;
+}
+
+// Only the https origin is kept: the worker builds tab URLs, the tab-match
+// pattern and the "is this really a Flow tab" guard from it.
+export function normalizeFlowWorkspaceUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    if (url.protocol === 'https:' && url.hostname) return url.origin;
+  } catch {
+    /* fall through to the default */
+  }
+  return DEFAULTS.flowWorkspaceUrl;
+}
+export function flowWorkspace(settings) {
+  const origin = normalizeFlowWorkspaceUrl(settings?.flowWorkspaceUrl);
+  return { origin, url: `${origin}/`, match: `${origin}/*`, project: (id) => `${origin}/project/${id}` };
 }
 
 export async function getSettings() {

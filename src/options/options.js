@@ -11,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 const FIELDS = [
   'theme',
   'studioBaseUrl',
+  'flowWorkspaceUrl',
   'fleetHubUrl',
   'fleetAgentName',
   'fleetSharedSecret',
@@ -26,6 +27,7 @@ async function load() {
   $('studioUsername').value = creds.username || '';
   refreshGrantStatus();
   refreshFleetGrant();
+  refreshFlowGrant();
 }
 
 let savedTimer = null;
@@ -209,6 +211,33 @@ async function grantFleet() {
   }
 }
 
+async function refreshFlowGrant() {
+  const el = $('flowGrantStatus');
+  const pat = originPattern($('flowWorkspaceUrl').value.trim());
+  if (!pat) {
+    el.textContent = 'Enter a full https:// address.';
+    el.style.color = 'var(--warn)';
+    return;
+  }
+  const granted = await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
+  el.textContent = granted ? '✓ Access granted' : 'Not granted — click to grant.';
+  el.style.color = granted ? 'var(--ok)' : 'var(--warn)';
+}
+
+async function grantFlow() {
+  const el = $('flowGrantStatus');
+  const pat = originPattern($('flowWorkspaceUrl').value.trim());
+  if (!pat) return refreshFlowGrant();
+  try {
+    const granted = await chrome.permissions.request({ origins: [pat] });
+    el.textContent = granted ? '✓ Access granted.' : 'Permission declined.';
+    el.style.color = granted ? 'var(--ok)' : 'var(--err)';
+  } catch (e) {
+    el.textContent = `Grant failed: ${e.message}`;
+    el.style.color = 'var(--err)';
+  }
+}
+
 async function testFleet() {
   const status = $('fleetTestStatus');
   status.textContent = 'Testing Hub connection…';
@@ -236,6 +265,8 @@ $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
 $('testConnection').onclick = testConnection;
 $('grantFleet').onclick = grantFleet;
+$('grantFlow').onclick = grantFlow;
+$('flowWorkspaceUrl').addEventListener('input', refreshFlowGrant);
 $('testFleet').onclick = testFleet;
 $('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
