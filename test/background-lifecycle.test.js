@@ -301,7 +301,7 @@ test('Fleet heartbeat snapshots queue and revision atomically and rejects a comm
 
 test('a provider tab is opened at most once even when the tab query cannot see it', async () => {
   const created = [];
-  const tab = { id: 41, status: 'complete', url: 'https://labs.google/fx/tools/flow' };
+  const tab = { id: 41, status: 'complete', url: 'https://flow.google.com/project/abc' };
   const worker = await loadBackground();
   try {
     globalThis.chrome.tabs = {
@@ -318,7 +318,7 @@ test('a provider tab is opened at most once even when the tab query cannot see i
     await Promise.all([slow('refreshFlowModels'), slow('refreshFlowModels')]);
     await slow('refreshFlowModels');
     await slow('flowContext');
-    assert.deepEqual(created, ['https://labs.google/fx/tools/flow']);
+    assert.deepEqual(created, ['https://flow.google.com/']);
   } finally {
     worker.restore();
   }

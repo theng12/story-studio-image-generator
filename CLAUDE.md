@@ -7,28 +7,32 @@ then saves them back into the episode. Video generation lives in the sibling
 `story-studio-audio-generator` — same architecture (see parent `../CLAUDE.md`). Full
 writeup in `README.md`.
 
-## Flow automation — how it actually works (verified live 2026-06-27)
+## Flow automation — how it actually works (verified live 2026-09-07)
 
-Fully API-driven from a logged-in `labs.google/fx` tab:
+Google moved Flow from `labs.google/fx/tools/flow` to **`flow.google.com`** and
+rebuilt it as a Google "boq" Angular app. The address is a setting
+(`flowWorkspaceUrl`, Settings → Google Flow) so the next move is a paste, not a
+release. Everything runs from a signed-in Flow *project* tab
+(`/project/<uuid>`), executed in the page by `src/lib/flow-exec.js`:
 
-- **Auth:** `Authorization: Bearer <access_token>`, token from the page's own
-  NextAuth session — `GET /fx/api/auth/session` → `{ user, expires, access_token }`.
-  A logged-in tab must stay open: the session lives there *and* the call must run
-  same-origin from the content script.
-- **reCAPTCHA is ENFORCED** (server-side, blanking it → `403 reCAPTCHA evaluation
-  failed`). It is minted on the Flow page by the narrowly scoped
-  `src/lib/flow-exec.js` execution helper; do not move this work into the
-  background worker.
-- Generation goes through `flowMedia:batch…`; assets come back as a `fifeUrl` CDN
-  link, fetched same-origin.
-- **Creating a project** (for auto-rollover) is a *different* API — a same-origin
-  Next.js tRPC call on labs.google, cookie-auth, no aisandbox token / reCAPTCHA
-  (verified live 2026-07-09): `POST /fx/api/trpc/project.createProject`
-  `{ json: { projectTitle, toolName: 'PINHOLE' } }` →
-  `result.data.json.result.projectId`. Navigating to an *un-created* `/project/<uuid>`
-  just shows "Something went wrong" — you must create it first. The Flow
-  execution helper creates the project before `background.startNewFlowProject`
-  navigates there.
+- **Transport:** every call is a same-origin, cookie-authenticated POST to
+  `/_/AiSandboxAngularFrontend/data/batchexecute` with one RPC id, a positional
+  array payload in `f.req`, and the page's anti-forgery token (`at`, from
+  `WIZ_global_data.SNlM0e`; `f.sid` and `bl` come from the same object). The
+  old NextAuth session endpoint and the `aisandbox-pa.googleapis.com` bearer
+  API are dead (401 even with a fresh token).
+- **reCAPTCHA is still ENFORCED**, same site key, minted in the page with action
+  `IMAGE_GENERATION` (generate) or `UPLOAD_IMAGE` (reference upload). Keep this
+  work in the page helper, never in the background worker.
+- **Generate** = RPC `ogiZ0b`. Answers synchronously with a signed
+  `flow-content.google/image/<mediaId>` URL, fetched same-origin. Measured free
+  images at 16:9: Nano Banana Pro ~21 s, Nano Banana 2 ~26 s, Nano Banana 2 Lite ~14 s.
+- **Reference upload** = RPC `maseQ` (base64 PNG in the payload) → media id,
+  cited in the generate payload's image-inputs slot.
+- **Models:** the app has no page-side manifest; the helper lists the three the
+  picker shows (`GEM_PIX_2` Pro, `NARWHAL` 2, `HARBOR_SEAL` 2 Lite).
+- **Not yet captured on the new app:** create-project (auto-rollover fails soft
+  and keeps the current project) and aspect ratios other than 16:9.
 
 ## Scene plan & save-back (companion mode)
 
