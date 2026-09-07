@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, getSettings, normalizeSettings } from '../src/lib/config.js';
+import { DEFAULTS, getSettings, normalizeSettings, normalizeFlowWorkspaceUrl, flowWorkspace } from '../src/lib/config.js';
 
 test('normalizes removed provider selections to Flow', () => {
   const settings = normalizeSettings({ ...DEFAULTS, provider: 'piclumen' });
@@ -86,4 +86,12 @@ test('removes a retired Pollinations token from local storage during settings mi
   } finally {
     delete globalThis.chrome;
   }
+});
+
+test('the Flow address keeps only an https origin and falls back to the default', () => {
+  assert.equal(normalizeFlowWorkspaceUrl('https://flow.google.com/project/abc?x=1'), 'https://flow.google.com');
+  assert.equal(normalizeFlowWorkspaceUrl('http://flow.google.com'), 'https://flow.google.com');
+  assert.equal(normalizeFlowWorkspaceUrl('not a url'), 'https://flow.google.com');
+  const ws = flowWorkspace({ flowWorkspaceUrl: 'https://labs.google/fx/tools/flow' });
+  assert.deepEqual([ws.url, ws.match, ws.project('id-1')], ['https://labs.google/', 'https://labs.google/*', 'https://labs.google/project/id-1']);
 });

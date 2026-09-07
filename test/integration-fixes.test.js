@@ -468,15 +468,11 @@ test('every provider handler dispatches through immutable generation parameter c
   assert.match(generate, /recaptchaMaxAttempts:\s*settings\.flowRecaptchaMaxAttempts/);
 });
 
-test('Flow discovery is read-only, provider-owned, and never display-text inferred', () => {
+test('Flow discovery is read-only and lists only the models the Flow picker shows', () => {
   const flow = source('src/lib/flow-exec.js');
   const list = flow.slice(flow.indexOf('const listImageModels'), flow.indexOf('const preparedRequests'));
-  assert.match(list, /listImageModels/);
-  assert.match(list, /imageModelConfigs/);
-  assert.match(list, /data-image-model-key/);
-  assert.doesNotMatch(list, /batchGenerateImages/);
-  assert.doesNotMatch(list, /transportKey/);
-  assert.doesNotMatch(list, /script\[type=.*application\/json/);
+  assert.match(list, /KNOWN_MODELS/);
+  assert.doesNotMatch(list, /fetch\(|rpc\(/);
   assert.doesNotMatch(flow, /IMAGE_MODELS\[.*\]\s*\|\|/);
 });
 
@@ -490,43 +486,27 @@ test('Flow queue execution rechecks the exact live snapshot before POST', () => 
   assert.match(background, /model-selection-changed|model-unknown/);
 });
 
-test('Flow model discovery falls back only when provider-owned records are invalid', async () => {
+test('Flow model discovery never touches the network and yields the known picker models', async () => {
   const fetches = [];
-  const execute = (nextData, options = []) => {
-    const context = {
-      window: { __NEXT_DATA__: nextData },
-      document: {
-        querySelector() { return null; },
-        querySelectorAll(selector) {
-          assert.equal(selector, '[role="option"][data-image-model-key]');
-          return options;
-        },
-      },
-      fetch(...args) {
-        fetches.push(args);
-        throw new Error('read-only discovery must not fetch');
-      },
-    };
-    const command = runInNewContext(`(${flowCommand.toString()})`, context);
-    return command({ op: 'listImageModels', payload: {} });
+  const context = {
+    window: {},
+    document: { querySelector() { return null; }, querySelectorAll() { return []; } },
+    location: { pathname: '/project/12345678-1234-1234-1234-123456789abc', href: 'https://flow.google.com/project/12345678-1234-1234-1234-123456789abc' },
+    fetch(...args) {
+      fetches.push(args);
+      throw new Error('read-only discovery must not fetch');
+    },
   };
-
-  const invalid = await execute({ props: { pageProps: { imageModelConfigs: [{ imageModelKey: 'Same', displayName: 'Same' }] } } });
-  assert.equal(invalid.ok, true);
-  assert.deepEqual(flowInventoryResult(invalid.result.entries), {
-    source: 'fallback',
+  const command = runInNewContext(`(${flowCommand.toString()})`, context);
+  const listed = await command({ op: 'listImageModels', payload: {} });
+  assert.equal(listed.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries))), {
+    source: 'live',
     models: [
+      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
       { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2' },
       { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
-      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
     ],
-  });
-
-  const live = await execute({ props: { pageProps: { imageModelConfigs: [{ imageModelKey: 'FLOW_NEW_01', displayName: 'Provider Model' }] } } });
-  assert.equal(live.ok, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(live.result.entries))), {
-    source: 'live',
-    models: [{ modelId: 'FLOW_NEW_01', modelLabel: 'Provider Model' }],
   });
   assert.equal(fetches.length, 0);
 });
@@ -558,7 +538,7 @@ test('Flow generation accepts only the queued exact model ID', () => {
   const submit = flow.slice(flow.indexOf('const submitPreparedImage'), flow.indexOf('const generateImage'));
   assert.match(prepare, /payload\.modelId/);
   assert.match(prepare, /preparedRequests\.set/);
-  assert.match(submit, /imageModelName:\s*prepared\.modelId/);
+  assert.match(submit, /prepared\.modelId,/);
   assert.doesNotMatch(`${prepare}\n${submit}`, /payload\.model\b/);
   assert.doesNotMatch(flow, /const IMAGE_MODELS/);
 });
@@ -721,10 +701,15 @@ test('Flow command rejects missing and malformed exact model IDs without network
   }
 });
 
-test('Flow prepares read-only state before persisting ambiguity and submits only afterward', async () => {
-  const events = [];
-  const context = {
+function flowRpcBody(rpcId, result) {
+  const row = JSON.stringify([['wrb.fr', rpcId, JSON.stringify(result), null, null, null, 'generic']]);
+  return `)]}'\n\n${row.length}\n${row}\n`;
+}
+const flowGeneration = [[['media-id', null, 'workflow-id', null, null, null, [[null, 7, null, null, null, null, 1, 'A moonlit lake', 25, null, null, 'workflow-id', null, 'https://flow-content.google/image/media-id?sig=1', 3]], null, [1376, 768]]]];
+function flowContext(events, { rpcStatus = 200 } = {}) {
+  return {
     window: {
+      WIZ_global_data: { SNlM0e: 'anti-forgery', FdrFJe: 'session-id', cfb2h: 'build' },
       grecaptcha: {
         enterprise: {
           ready(callback) { callback(); },
@@ -736,39 +721,24 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
       },
     },
     document: { querySelector() { return null; }, querySelectorAll() { return []; } },
-    location: { pathname: '', href: 'https://labs.google/fx/tools/flow' },
+    location: { pathname: '', href: 'https://flow.google.com/' },
     crypto,
     Math,
     Date,
     URL,
+    URLSearchParams,
     Uint8Array,
     btoa,
     setTimeout,
-    fetch: async (url) => {
-      if (url === '/fx/api/auth/session') {
-        events.push('session');
-        return { ok: true, json: async () => ({ access_token: 'session-token' }) };
-      }
-      if (String(url).includes('batchGenerateImages')) {
+    fetch: async (url, init) => {
+      if (String(url).includes('/batchexecute?')) {
         events.push('generation-request');
-        return {
-          ok: true,
-          json: async () => ({
-            media: [{
-              name: 'media/name',
-              image: {
-                generatedImage: {
-                  fifeUrl: 'https://flow-content.google/generated.png',
-                  mediaId: 'media-id',
-                  seed: 7,
-                },
-                dimensions: { width: 1280, height: 720 },
-              },
-            }],
-          }),
-        };
+        assert.equal(init.headers['X-Same-Domain'], '1');
+        assert.match(String(init.body), /^f\.req=.*&at=anti-forgery$/);
+        if (rpcStatus !== 200) return { ok: false, status: rpcStatus, text: async () => 'reCAPTCHA evaluation failed' };
+        return { ok: true, status: 200, text: async () => flowRpcBody('ogiZ0b', flowGeneration) };
       }
-      if (url === 'https://flow-content.google/generated.png') {
+      if (String(url).startsWith('https://flow-content.google/image/media-id')) {
         events.push('download');
         return {
           ok: true,
@@ -779,7 +749,11 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
       throw new Error(`Unexpected request: ${url}`);
     },
   };
-  const execute = runInNewContext(`(${flowCommand.toString()})`, context);
+}
+
+test('Flow prepares read-only state before persisting ambiguity and submits only afterward', async () => {
+  const events = [];
+  const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext(events));
   const payload = {
     projectId: '12345678-1234-1234-1234-123456789abc',
     prompt: 'A moonlit lake',
@@ -790,7 +764,7 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
 
   const prepared = await execute({ op: 'prepareGenerateImage', payload });
   assert.equal(prepared.ok, true);
-  assert.deepEqual(events, ['recaptcha', 'session']);
+  assert.deepEqual(events, ['recaptcha']);
 
   events.push('persist-checkpoint');
   const submitted = await execute({
@@ -798,50 +772,15 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
     payload: { preparationId: prepared.result.preparationId },
   });
 
-  assert.equal(submitted.ok, true);
-  assert.deepEqual(events, [
-    'recaptcha',
-    'session',
-    'persist-checkpoint',
-    'generation-request',
-    'download',
-  ]);
+  assert.equal(submitted.ok, true, submitted.error);
+  assert.equal(submitted.result.mediaId, 'media-id');
+  assert.deepEqual([submitted.result.width, submitted.result.height], [1376, 768]);
+  assert.deepEqual(events, ['recaptcha', 'persist-checkpoint', 'generation-request', 'download']);
 });
 
 test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', async () => {
-  const context = {
-    window: {
-      grecaptcha: {
-        enterprise: {
-          ready(callback) { callback(); },
-          execute() { return Promise.resolve('fresh-token'); },
-        },
-      },
-    },
-    document: { querySelector() { return null; }, querySelectorAll() { return []; } },
-    location: { pathname: '', href: 'https://labs.google/fx/tools/flow' },
-    crypto,
-    Math,
-    Date,
-    URL,
-    Uint8Array,
-    btoa,
-    setTimeout,
-    fetch: async (url) => {
-      if (url === '/fx/api/auth/session') {
-        return { ok: true, json: async () => ({ access_token: 'session-token' }) };
-      }
-      if (String(url).includes('batchGenerateImages')) {
-        return {
-          ok: false,
-          status: 403,
-          json: async () => ({ error: { message: 'reCAPTCHA evaluation failed' } }),
-        };
-      }
-      throw new Error(`Unexpected request: ${url}`);
-    },
-  };
-  const execute = runInNewContext(`(${flowCommand.toString()})`, context);
+  const events = [];
+  const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext(events, { rpcStatus: 403 }));
   const prepared = await execute({
     op: 'prepareGenerateImage',
     payload: {

@@ -3,6 +3,18 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.6 - Google Flow moved
+
+- Followed Google Flow to its new home at **flow.google.com** and its rebuilt
+  app: image generation and reference upload now speak the new site's own
+  protocol. The old address stopped working entirely, which is what made
+  every image fail and opened a useless tab per episode.
+- Added **Settings → Google Flow → Flow address** with its own Grant site
+  access button, so the next time Google moves Flow you paste the new address
+  instead of waiting for an update.
+- Flow's create-project button is not available on the new app yet; auto
+  rollover keeps the current project instead of failing the batch.
+
 ## 0.50.5 - One provider tab, ever
 
 - Stopped **Queue all pending** (and any other action that needs a provider

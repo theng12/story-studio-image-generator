@@ -54,6 +54,21 @@
       <div class="hint" id="loginStatus" aria-live="polite"></div>
     </section>
 
+    <section class="card settings-section">
+      <div class="label">Google Flow</div>
+      <label class="connection-url">
+        <span class="label">Flow address</span>
+        <input type="text" id="flowWorkspaceUrl" placeholder="https://flow.google.com" />
+      </label>
+      <p class="hint connection-copy">Where Google Flow lives. If Google moves it again, paste the new address here and grant site access — no update needed.</p>
+      <div class="connection-actions">
+        <button id="grantFlow" class="btn small">Grant site access</button>
+      </div>
+      <div class="connection-feedback">
+        <span id="flowGrantStatus" class="muted small" aria-live="polite"></span>
+      </div>
+    </section>
+
     <!-- Provider, workspace, model, ratio, style, pacing, and cooldown choices
          are intentional side-panel controls: they apply to the batch being set
          up and must have one visible source of truth. -->
