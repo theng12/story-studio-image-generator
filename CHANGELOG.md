@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.9 - One queue-all action
+
+- Removed the duplicate **Queue all pending** link below the prompt list. The
+  remaining boxed action continues to queue every missing image in the project.
+
 ## 0.50.8 - Earliest episodes first
 
 - **Queue all pending** now sorts eligible episodes by episode number before

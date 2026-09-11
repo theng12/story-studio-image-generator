@@ -368,7 +368,6 @@ function wire() {
   $('sceneSearch').oninput = filterScenesList;
   $('selectFailed').onclick = selectFailedScenes;
   $('queueAllPending').onclick = queueAllPending;
-  $('queueAllPendingSecondary').onclick = queueAllPending;
   $('queueEpisode').onclick = () => {
     if (!currentEpisode || !currentScenes.length) {
       setStatus('Load this episode’s scenes first.', 'info');
