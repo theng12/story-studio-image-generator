@@ -80,6 +80,12 @@ export class StudioClient {
     return this._json(`/projects/${encodeURIComponent(slug)}/episodes`);
   }
 
+  episodeStatus(slug, code) {
+    return this._json(
+      `/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/status?invalidate=1`
+    );
+  }
+
   // The authoritative per-scene list for an episode, including the per-scene
   // image prompt (`visual_prompt`), whether an image already exists
   // (`image_filename`), approval and staleness. Resolves by episode CODE — no

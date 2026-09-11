@@ -19,7 +19,11 @@ import { initTheme } from '../lib/theme.js';
 import { pendingEpisodeRows, queuePendingEpisodes, summarizeQueueAll } from '../lib/queue-all.js';
 import {
   createEpisodeAssetLoadRunner,
+  createEpisodeRefreshQueue,
+  createVisibleEpisodeIndex,
   episodeFilterState,
+  episodeProgressLabel,
+  newlySettledEpisodeCodes,
   thumbnailAvailability,
 } from '../lib/episode-progress.js';
 import {
@@ -39,6 +43,8 @@ let loadedKind = 'scene'; // 'scene' | 'thumbnail' — what's currently loaded
 let currentEpisode = null; // { code, title }
 let currentProject = null; // { slug, name }
 let allEpisodes = []; // [{ code, title, st, scene_images, thumbnail_images }]
+let episodeRowsByCode = new Map();
+let episodeOptionsByCode = new Map();
 let liveStatus = null;
 let studioConnection = null;
 let workMode = 'studio';
@@ -46,7 +52,12 @@ let standalonePrompts = [];
 let currentFlowModels = [];
 let currentFlowModelSource = 'fallback';
 let flowModelSaveTail = Promise.resolve();
+let episodeListRevision = 0;
 const episodeAssetLoad = createEpisodeAssetLoadRunner();
+const episodeRefreshQueue = createEpisodeRefreshQueue();
+const visibleEpisodeIndex = createVisibleEpisodeIndex();
+let episodeRefreshInFlight = false;
+const EPISODE_REFRESH_RETRY_MS = 10_000;
 
 const HUMAN_PACE_PRESETS = {
   off: { label: 'Off', min: 0, max: 0 },
@@ -330,7 +341,12 @@ function wire() {
   $('cooldownMinutes').onchange = saveCooldownCustom;
   $('cooldownRetries').onchange = saveCooldownRetries;
   $('project').onchange = onProjectChange;
-  $('episode').onchange = clearLoadedEpisodeAssets;
+  $('episode').onchange = () => {
+    // A newly visible Done-filter option is intentionally not inserted into
+    // the hot-path index. Rebuild only if the user chooses one.
+    if (!visibleEpisodeIndex.has($('episode').value)) applyEpisodeFilter();
+    clearLoadedEpisodeAssets();
+  };
   $('loadScenes').onclick = loadScenes;
   $('refreshScenes').onclick = loadScenes;
   $('selectAll').onchange = (e) => {
@@ -375,6 +391,18 @@ function wire() {
   $('clearFailed').onclick = async () => {
     const res = await chrome.runtime.sendMessage({ type: 'clearFailed' });
     if (!res?.cleared) setStatus('No failed jobs to clear.', 'info');
+    pollQueue();
+  };
+  $('clearCompleted').onclick = async () => {
+    const res = await chrome.runtime.sendMessage({ type: 'clearCompleted' });
+    if (!res?.cleared) setStatus('No completed jobs to clear.', 'info');
+    if (currentProject) {
+      episodeRefreshQueue.add(
+        (res?.completedEpisodes || [])
+          .filter((episode) => episode.slug === currentProject.slug)
+          .map((episode) => episode.code),
+      );
+    }
     pollQueue();
   };
   $('retryFailed').onclick = async () => {
@@ -757,13 +785,10 @@ function applyEpisodeFilter() {
     const progress = state.progressByCode[opt.value];
     const title = opt.dataset.title;
     opt.hidden = !visible.has(opt.value);
-    const progressText = kind === 'thumbnail' && progress.markedDone
-      ? 'Marked done ✓'
-      : kind === 'thumbnail' && progress.total === 0
-        ? 'Pending'
-        : `${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
+    const progressText = episodeProgressLabel(progress);
     opt.textContent = `${opt.value}${title ? ' — ' + title : ''} · ${progressText}`;
   }
+  visibleEpisodeIndex.reset(state.visibleCodes);
   const noun = kind === 'thumbnail' ? 'thumbnail images' : 'scene images';
   $('episodeFilter').querySelector('[data-f="todo"]').title = `Episodes that still need ${noun}`;
   $('episodeFilter').querySelector('[data-f="done"]').title = `Episodes whose ${noun} are done`;
@@ -880,40 +905,158 @@ async function queueAllPending() {
 async function onProjectChange() {
   const sel = $('project');
   const slug = sel.value;
+  episodeListRevision++;
+  episodeRefreshQueue.clear();
+  currentProject = null;
+  allEpisodes = [];
+  episodeRowsByCode.clear();
+  episodeOptionsByCode.clear();
+  visibleEpisodeIndex.reset([]);
   clearLoadedEpisodeAssets();
   $('episode').innerHTML = '';
   if (!slug) return;
   currentProject = { slug, name: sel.selectedOptions[0]?.dataset.name || slug };
   await saveSettings({ lastProject: slug });
   try {
-    const rows = await client.listEpisodes(slug);
-    // Normalize the aggregate row once; loading a Scene Review stays an explicit
-    // selected-episode or queue-all operation rather than a project-load cost.
-    allEpisodes = (Array.isArray(rows) ? rows : rows.episodes || [])
-      .map((e) => {
-        return {
-          code: e.episode_code || e.code,
-          title: e.title || '',
-          st: e.status || {},
-          scene_images: e.scene_images,
-          thumbnail_images: e.thumbnail_images,
-        };
-      })
-      .filter((e) => e.st.scene_plan || e.st.scene_prompts || e.st.thumb_prompts)
-      .sort((a, b) => episodeNum(a.code) - episodeNum(b.code) || String(a.code).localeCompare(String(b.code)));
-    const esel = $('episode');
-    esel.innerHTML = '';
-    for (const e of allEpisodes) {
-      const opt = document.createElement('option');
-      opt.value = e.code;
-      opt.dataset.title = e.title;
-      esel.appendChild(opt);
-    }
-    if (settings.lastEpisode && allEpisodes.some((e) => e.code === settings.lastEpisode)) esel.value = settings.lastEpisode;
-    const filterState = applyEpisodeFilter();
-    if (!filterState.selectedCode) setStatus(noEpisodeStatus(currentKind()), 'info');
+    await refreshEpisodeOptions(slug);
   } catch (e) {
     setStatus(`Couldn't load episodes: ${e.message}`, 'err');
+  }
+}
+
+async function refreshEpisodeOptions(slug) {
+  const revision = ++episodeListRevision;
+  const selectedCode = $('episode').value || settings.lastEpisode;
+  const rows = await client.listEpisodes(slug);
+  if (revision !== episodeListRevision || currentProject?.slug !== slug || $('project').value !== slug) return false;
+  // Normalize the aggregate row once; loading a Scene Review stays an explicit
+  // selected-episode or queue-all operation rather than a project-load cost.
+  allEpisodes = (Array.isArray(rows) ? rows : rows.episodes || [])
+    .map(normalizeEpisodeRow)
+    .filter((e) => e.st.scene_plan || e.st.scene_prompts || e.st.thumb_prompts)
+    .sort((a, b) => episodeNum(a.code) - episodeNum(b.code) || String(a.code).localeCompare(String(b.code)));
+  episodeRowsByCode = new Map(allEpisodes.map((episode) => [episode.code, episode]));
+  renderEpisodeOptions(selectedCode);
+  return true;
+}
+
+function normalizeEpisodeRow(episode) {
+  return {
+    code: episode.episode_code || episode.code,
+    title: episode.title || '',
+    st: episode.status || {},
+    scene_images: episode.scene_images,
+    thumbnail_images: episode.thumbnail_images,
+  };
+}
+
+function renderEpisodeOptions(selectedCode) {
+  const esel = $('episode');
+  esel.innerHTML = '';
+  episodeOptionsByCode.clear();
+  for (const episode of allEpisodes) {
+    const option = document.createElement('option');
+    option.value = episode.code;
+    option.dataset.title = episode.title;
+    esel.appendChild(option);
+    episodeOptionsByCode.set(episode.code, option);
+  }
+  if (selectedCode && allEpisodes.some((episode) => episode.code === selectedCode)) esel.value = selectedCode;
+  const filterState = applyEpisodeFilter();
+  if (!filterState.selectedCode) setStatus(noEpisodeStatus(currentKind()), 'info');
+}
+
+function updateEpisodeOption(option, episode) {
+  const state = episodeFilterState([episode], {
+    kind: currentKind(),
+    filter: settings.episodeFilter || 'todo',
+    selectedCode: episode.code,
+  });
+  const progress = state.progressByCode[episode.code];
+  option.dataset.title = episode.title;
+  option.textContent = `${episode.code}${episode.title ? ' — ' + episode.title : ''} · ${episodeProgressLabel(progress)}`;
+  option.hidden = !state.visibleCodes.includes(episode.code);
+}
+
+function updateEpisodeOptions(codes) {
+  const esel = $('episode');
+  const selectedCode = esel.value;
+  let selectedSuccessor = null;
+  for (const code of codes) {
+    const episode = episodeRowsByCode.get(code);
+    const option = episodeOptionsByCode.get(code);
+    if (!episode || !option) continue;
+    const wasVisible = !option.hidden;
+    updateEpisodeOption(option, episode);
+    if (wasVisible && option.hidden) {
+      const successor = visibleEpisodeIndex.remove(code);
+      if (code === selectedCode || code === selectedSuccessor) selectedSuccessor = successor;
+    }
+  }
+  if (selectedSuccessor === null) return;
+
+  const nextCode = visibleEpisodeIndex.has(selectedSuccessor)
+    ? selectedSuccessor
+    : visibleEpisodeIndex.first();
+  esel.value = nextCode;
+  if (currentEpisode?.code !== esel.value) clearLoadedEpisodeAssets();
+  if (!nextCode) setStatus(noEpisodeStatus(currentKind()), 'info');
+}
+
+async function refreshSettledEpisodes(slug, codes) {
+  const revision = episodeListRevision;
+  const refreshed = await Promise.allSettled(
+    codes.map((code) => client.episodeStatus(slug, code)),
+  );
+  if (revision !== episodeListRevision || currentProject?.slug !== slug || $('project').value !== slug) {
+    return { stale: true, completed: [], failed: [] };
+  }
+  const updatedCodes = [];
+  const completed = [];
+  const failed = [];
+  let firstError = null;
+  refreshed.forEach((result, index) => {
+    const requestedCode = codes[index];
+    if (result.status === 'rejected') {
+      failed.push(requestedCode);
+      firstError ||= result.reason;
+      return;
+    }
+    const episode = normalizeEpisodeRow(result.value);
+    const code = episode.code || requestedCode;
+    completed.push(requestedCode);
+    const existing = episodeRowsByCode.get(code);
+    if (!existing) return;
+    Object.assign(existing, episode, { code });
+    updatedCodes.push(code);
+  });
+  updateEpisodeOptions(updatedCodes);
+  return { stale: false, completed, failed, firstError };
+}
+
+async function flushEpisodeRefreshQueue() {
+  if (episodeRefreshInFlight || !currentProject) return;
+  const codes = episodeRefreshQueue.snapshot();
+  if (!codes.length) return;
+
+  const slug = currentProject.slug;
+  episodeRefreshInFlight = true;
+  try {
+    const result = await refreshSettledEpisodes(slug, codes);
+    if (result.stale) return;
+    episodeRefreshQueue.complete(result.completed);
+    episodeRefreshQueue.defer(result.failed, EPISODE_REFRESH_RETRY_MS);
+    if (result.failed.length) {
+      setStatus(
+        `Images were saved, but ${result.failed.length} episode status refresh${result.failed.length === 1 ? '' : 'es'} will retry: ${result.firstError?.message || result.firstError}`,
+        'err',
+      );
+    }
+  } catch (error) {
+    episodeRefreshQueue.defer(codes, EPISODE_REFRESH_RETRY_MS);
+    setStatus(`Images were saved, but episode status couldn't refresh: ${error.message}`, 'err');
+  } finally {
+    episodeRefreshInFlight = false;
   }
 }
 
@@ -1729,6 +1872,7 @@ function queuedModelLabel(item) {
 }
 
 let lastQueueSig = '';
+let previousQueue = null;
 async function pollQueue() {
   const [{ queue = [], paused = false } = {}, st] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'getQueue' }).then((r) => r || {}),
@@ -1745,6 +1889,7 @@ async function pollQueue() {
   const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
   const hasPending = queue.some((i) => i.status === 'pending');
   const hasFailed = queue.some((i) => i.status === 'failed');
+  const hasCompleted = queue.some((i) => i.status === 'done');
   const pause = $('pauseQueue');
   pause.classList.toggle('hidden', !hasWork && !paused);
   pause.dataset.paused = String(paused);
@@ -1752,6 +1897,7 @@ async function pollQueue() {
   $('retryFailed').disabled = !hasFailed;
   $('clearQueue').disabled = !hasPending;
   $('clearFailed').disabled = !hasFailed;
+  $('clearCompleted').disabled = !hasCompleted;
   updateGenStatus(queue, paused);
   // Live per-scene status + tab-visibility reminder — run every tick, even when
   // the queue-list DOM itself is unchanged.
@@ -1761,6 +1907,12 @@ async function pollQueue() {
   $('tabReminder').classList.toggle('hidden', !needsTab);
   if (needsTab)
     $('tabReminder').textContent = `Keep the ${PROVIDER_LABEL[prov] || prov} tab visible (active tab, not minimized) while this runs — hidden tabs get throttled.`;
+  const settledEpisodes = currentProject
+    ? newlySettledEpisodeCodes(previousQueue, queue, currentProject.slug)
+    : [];
+  previousQueue = queue.map(({ id, slug, episodeCode, status }) => ({ id, slug, episodeCode, status }));
+  episodeRefreshQueue.add(settledEpisodes);
+  await flushEpisodeRefreshQueue();
   // Only rebuild the list when its contents actually change. A blind 1.5 s
   // re-render would wipe an open "Technical details" panel (and any text the
   // user is mid-selection on) — the raw error would flash for one tick and vanish.
