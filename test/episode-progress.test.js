@@ -12,16 +12,36 @@ test('scene image completion accepts the Story Studio aggregate independently of
     scene_review: { approved: false },
   });
 
-  assert.deepEqual(progress, { total: 6, present: 6, complete: true });
+  assert.deepEqual(progress, { total: 6, present: 6, complete: true, markedDone: false });
 });
 
-test('scene image progress does not infer completion when Story Studio has not accepted it', () => {
+test('scene image progress honors Story Studio marked done when the aggregate is incomplete', () => {
   const progress = sceneImageProgress({
     status: { images: true },
     scene_images: { total: 6, present: 6, complete: false },
   });
 
-  assert.deepEqual(progress, { total: 6, present: 6, complete: false });
+  assert.deepEqual(progress, { total: 6, present: 6, complete: true, markedDone: true });
+});
+
+test('scene image progress reads marked done from normalized episode rows', () => {
+  const progress = sceneImageProgress({
+    st: { images: true },
+    scene_images: { total: 0, present: 0, complete: false },
+  });
+
+  assert.deepEqual(progress, { total: 0, present: 0, complete: true, markedDone: true });
+});
+
+test('episode progress labels replace meaningless zero counts with the actual state', () => {
+  assert.equal(
+    episodeProgress.episodeProgressLabel({ total: 0, present: 0, complete: true, markedDone: true }),
+    'Marked done ✓',
+  );
+  assert.equal(
+    episodeProgress.episodeProgressLabel({ total: 0, present: 0, complete: false, markedDone: false }),
+    'Pending',
+  );
 });
 
 test('thumbnail progress honors Story Studio marked done even when files are missing', () => {
@@ -95,6 +115,77 @@ test('thumbnail todo selects the first episode with a missing thumbnail asset', 
       },
     },
   );
+});
+
+test('only newly settled episode queues request an aggregate refresh', () => {
+  const previous = [
+    { id: 'a', episodeCode: 'EP0001', status: 'running' },
+    { id: 'b', episodeCode: 'EP0001', status: 'pending' },
+    { id: 'c', episodeCode: 'EP0002', status: 'running' },
+    { id: 'standalone', status: 'running' },
+  ];
+  const current = [
+    { id: 'a', episodeCode: 'EP0001', status: 'done' },
+    { id: 'b', episodeCode: 'EP0001', status: 'running' },
+    { id: 'c', episodeCode: 'EP0002', status: 'done' },
+    { id: 'standalone', status: 'done' },
+  ];
+
+  assert.deepEqual(episodeProgress.newlySettledEpisodeCodes(previous, current), ['EP0002']);
+  assert.deepEqual(episodeProgress.newlySettledEpisodeCodes(null, current), []);
+});
+
+test('a final failed job refreshes an episode that already saved partial work', () => {
+  const previous = [
+    { id: 'saved', episodeCode: 'EP0003', status: 'done' },
+    { id: 'last', episodeCode: 'EP0003', status: 'running' },
+  ];
+  const current = [
+    { id: 'saved', episodeCode: 'EP0003', status: 'done' },
+    { id: 'last', episodeCode: 'EP0003', status: 'failed' },
+  ];
+
+  assert.deepEqual(episodeProgress.newlySettledEpisodeCodes(previous, current), ['EP0003']);
+});
+
+test('queue cleanup still refreshes episodes with saved work', () => {
+  const doneAndPending = [
+    { id: 'saved', slug: 'project', episodeCode: 'EP0004', status: 'done' },
+    { id: 'waiting', slug: 'project', episodeCode: 'EP0004', status: 'pending' },
+  ];
+
+  assert.deepEqual(
+    episodeProgress.newlySettledEpisodeCodes(doneAndPending, [doneAndPending[0]], 'project'),
+    ['EP0004'],
+  );
+  assert.deepEqual(
+    episodeProgress.newlySettledEpisodeCodes([doneAndPending[0]], [], 'project'),
+    ['EP0004'],
+  );
+});
+
+test('episode refresh work remains pending until a successful refresh completes it', () => {
+  const refreshes = episodeProgress.createEpisodeRefreshQueue();
+  refreshes.add(['EP0001', 'EP0002']);
+
+  assert.deepEqual(refreshes.snapshot(), ['EP0001', 'EP0002']);
+  assert.deepEqual(refreshes.snapshot(), ['EP0001', 'EP0002']);
+  refreshes.complete(['EP0001']);
+  assert.deepEqual(refreshes.snapshot(), ['EP0002']);
+  refreshes.defer(['EP0002'], 10_000, 1_000);
+  assert.deepEqual(refreshes.snapshot(10_999), []);
+  assert.deepEqual(refreshes.snapshot(11_000), ['EP0002']);
+  refreshes.clear();
+  assert.deepEqual(refreshes.snapshot(), []);
+});
+
+test('visible episode navigation removes the selected episode without scanning', () => {
+  const visible = episodeProgress.createVisibleEpisodeIndex();
+  visible.reset(['EP0001', 'EP0002', 'EP0003']);
+
+  assert.equal(visible.remove('EP0002'), 'EP0003');
+  assert.equal(visible.remove('EP0003'), 'EP0001');
+  assert.equal(visible.remove('EP0001'), '');
 });
 
 test('episode asset loads clear old rows and only the newest request may commit', async () => {
