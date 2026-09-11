@@ -3,6 +3,17 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.7 - Queue and episode cleanup
+
+- Added **Clear completed** to remove finished queue history without touching
+  pending, running, or failed jobs.
+- **Clear pending** now removes only pending jobs and preserves completed,
+  failed, and currently running work.
+- Scene episode filters now honor Story Studio's **Mark as done** state and
+  show **Pending** instead of an unhelpful `0/0` when no image count exists.
+- Refresh only the completed episode's status after its queued images settle,
+  so it leaves **To do** immediately without rescanning large projects.
+
 ## 0.50.6 - Google Flow moved
 
 - Followed Google Flow to its new home at **flow.google.com** and its rebuilt

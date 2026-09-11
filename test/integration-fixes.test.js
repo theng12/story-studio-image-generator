@@ -306,11 +306,20 @@ test('current and queue-all scene discovery use Scene Review only and require a 
 test('episode loading keeps Story Studio aggregates instead of recounting every Scene Review', () => {
   const popup = source('src/popup/popup.js');
   const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
+  const settledRefresh = popup.slice(popup.indexOf('async function refreshSettledEpisodes'), popup.indexOf('// ── scenes'));
 
-  assert.match(projectChange, /scene_images: e\.scene_images/);
-  assert.match(projectChange, /thumbnail_images: e\.thumbnail_images/);
+  assert.match(projectChange, /scene_images: episode\.scene_images/);
+  assert.match(projectChange, /thumbnail_images: episode\.thumbnail_images/);
   assert.doesNotMatch(projectChange, /client\.sceneReview/);
   assert.doesNotMatch(projectChange, /fetchEpisodeCounts|episodeCountRun/);
+  assert.match(settledRefresh, /client\.episodeStatus/);
+  assert.doesNotMatch(settledRefresh, /client\.listEpisodes/);
+  assert.match(settledRefresh, /Promise\.allSettled/);
+  assert.match(settledRefresh, /updateEpisodeOptions/);
+  assert.doesNotMatch(settledRefresh, /renderEpisodeOptions/);
+  assert.doesNotMatch(settledRefresh, /nextElementSibling/);
+  assert.match(settledRefresh, /episodeRefreshQueue\.complete\(result\.completed\)/);
+  assert.match(settledRefresh, /episodeRefreshQueue\.defer\(result\.failed/);
   assert.equal((projectChange.match(/applyEpisodeFilter\(\)/g) || []).length, 1);
   assert.ok(
     projectChange.indexOf('settings.lastEpisode') < projectChange.indexOf('applyEpisodeFilter()'),
@@ -319,7 +328,7 @@ test('episode loading keeps Story Studio aggregates instead of recounting every 
   assert.doesNotMatch(popup, /async function fetchEpisodeCounts|episodeCountRun|allEpisodes\.find|setTimeout\(r, 120\)/);
 });
 
-test('thumbnail mode wires the aggregate thumbnail filter without per-episode requests', () => {
+test('thumbnail mode wires the aggregate thumbnail filter without per-episode Scene Review requests', () => {
   const popup = source('src/popup/popup.js');
   const wire = popup.slice(popup.indexOf('function wire()'), popup.indexOf('// ── settings'));
   const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
@@ -332,8 +341,7 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   assert.match(projectChange, /clearLoadedEpisodeAssets\(\)/);
   assert.match(filter, /currentKind\(\)/);
   assert.match(filter, /progressByCode/);
-  assert.match(filter, /progress\.markedDone/);
-  assert.match(filter, /Marked done/);
+  assert.match(filter, /episodeProgressLabel\(progress\)/);
   assert.match(mediaChange, /applyEpisodeFilter\(\)/);
   assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
   assert.match(mediaChange, /clearLoadedEpisodeAssets\(\)/);
@@ -343,7 +351,11 @@ test('thumbnail mode wires the aggregate thumbnail filter without per-episode re
   assert.doesNotMatch(mediaChange, /currentKind\(\) !== loadedKind/);
   assert.match(clear, /\$\('loadScenes'\)\.disabled = false/);
   assert.match(clear, /\$\('refreshScenes'\)\.disabled = false/);
-  assert.match(wire, /\$\('episode'\)\.onchange = clearLoadedEpisodeAssets/);
+  assert.match(wire, /\$\('episode'\)\.onchange = \(\) =>/);
+  assert.match(wire, /visibleEpisodeIndex\.has/);
+  assert.match(wire, /clearLoadedEpisodeAssets\(\)/);
+  assert.match(wire, /res\?\.completedEpisodes/);
+  assert.match(wire, /episodeRefreshQueue\.add/);
   assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
 });
 

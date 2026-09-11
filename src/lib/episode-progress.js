@@ -11,7 +11,13 @@ function assetProgress(row, field) {
 
 // Story Studio accepts completion once every planned image exists; approval is separate.
 export function sceneImageProgress(row) {
-  return assetProgress(row, 'scene_images');
+  const progress = assetProgress(row, 'scene_images');
+  const markedDone = row?.status?.images === true || row?.st?.images === true;
+  return {
+    ...progress,
+    complete: markedDone || progress.complete,
+    markedDone: markedDone && !progress.complete,
+  };
 }
 
 export function thumbnailImageProgress(row) {
@@ -32,6 +38,111 @@ export function thumbnailAvailability(rows) {
     done,
     pending: withPrompts.length - done,
     withoutPrompts: rows.length - withPrompts.length,
+  };
+}
+
+export function episodeProgressLabel(progress) {
+  if (progress.markedDone) return 'Marked done ✓';
+  if (progress.total === 0) return progress.complete ? 'Done ✓' : 'Pending';
+  return `${progress.present}/${progress.total}${progress.complete ? ' ✓' : ''}`;
+}
+
+export function newlySettledEpisodeCodes(previousQueue, queue, slug = null) {
+  if (!Array.isArray(previousQueue)) return [];
+  const previousById = new Map(previousQueue.map((item) => [item.id, item]));
+  const currentIds = new Set(queue.map((item) => item.id));
+  const byEpisode = new Map();
+  const transitioned = new Set();
+  const savedEvidence = new Set();
+  const removedDone = new Set();
+
+  for (const item of queue) {
+    if ((slug && item.slug !== slug) || !item.episodeCode) continue;
+    const items = byEpisode.get(item.episodeCode) || [];
+    items.push(item);
+    byEpisode.set(item.episodeCode, items);
+    if (item.status === 'done') savedEvidence.add(item.episodeCode);
+    if (
+      ['pending', 'running'].includes(previousById.get(item.id)?.status)
+      && ['done', 'failed'].includes(item.status)
+    ) transitioned.add(item.episodeCode);
+  }
+
+  for (const item of previousQueue) {
+    if ((slug && item.slug !== slug) || !item.episodeCode || currentIds.has(item.id)) continue;
+    if (['pending', 'running', 'done'].includes(item.status)) transitioned.add(item.episodeCode);
+    if (item.status === 'done') {
+      savedEvidence.add(item.episodeCode);
+      removedDone.add(item.episodeCode);
+    }
+  }
+
+  return [...transitioned].filter((code) => {
+    const items = byEpisode.get(code) || [];
+    const settled = items.every((item) => !['pending', 'running'].includes(item.status));
+    return removedDone.has(code) || (savedEvidence.has(code) && settled);
+  });
+}
+
+export function createEpisodeRefreshQueue() {
+  const pending = new Map();
+  return {
+    add(codes) {
+      for (const code of codes) if (code && !pending.has(code)) pending.set(code, 0);
+    },
+    snapshot(now = Date.now()) {
+      return [...pending]
+        .filter(([, retryAt]) => retryAt <= now)
+        .map(([code]) => code);
+    },
+    complete(codes) {
+      for (const code of codes) pending.delete(code);
+    },
+    defer(codes, delayMs, now = Date.now()) {
+      for (const code of codes) if (pending.has(code)) pending.set(code, now + delayMs);
+    },
+    clear() {
+      pending.clear();
+    },
+  };
+}
+
+export function createVisibleEpisodeIndex() {
+  const links = new Map();
+  let firstCode = '';
+  let lastCode = '';
+
+  function add(code) {
+    if (!code || links.has(code)) return;
+    links.set(code, { previous: lastCode, next: '' });
+    if (lastCode) links.get(lastCode).next = code;
+    else firstCode = code;
+    lastCode = code;
+  }
+
+  return {
+    reset(codes) {
+      links.clear();
+      firstCode = '';
+      lastCode = '';
+      for (const code of codes) add(code);
+    },
+    remove(code) {
+      const link = links.get(code);
+      if (!link) return firstCode;
+      if (link.previous) links.get(link.previous).next = link.next;
+      else firstCode = link.next;
+      if (link.next) links.get(link.next).previous = link.previous;
+      else lastCode = link.previous;
+      links.delete(code);
+      return link.next || firstCode;
+    },
+    has(code) {
+      return links.has(code);
+    },
+    first() {
+      return firstCode;
+    },
   };
 }
 
