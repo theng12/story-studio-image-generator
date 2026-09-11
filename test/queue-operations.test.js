@@ -129,3 +129,17 @@ test('project work keeps the existing scene identity', () => {
   assert.equal(result.added, 0);
   assert.equal(result.skipped, 1);
 });
+
+test('newly sorted queue-all work does not jump ahead of existing active jobs', () => {
+  const existing = [
+    { id: 'running', status: 'running', provider: 'flow', episodeCode: 'SS0176', kind: 'thumbnail', source: 'prompts', sceneKey: 1 },
+    { id: 'pending', status: 'pending', provider: 'flow', episodeCode: 'SS0175', kind: 'thumbnail', source: 'prompts', sceneKey: 1 },
+  ];
+  const incoming = [
+    { id: 'earlier', provider: 'flow', episodeCode: 'SS0153', kind: 'thumbnail', source: 'prompts', sceneKey: 1 },
+  ];
+
+  const result = enqueueItems(existing, incoming, 1000);
+
+  assert.deepEqual(result.queue.map((item) => item.id), ['running', 'pending', 'earlier']);
+});
