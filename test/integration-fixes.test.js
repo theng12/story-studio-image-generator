@@ -314,6 +314,15 @@ test('queue-all batches thumbnail prompts and respects thumbnail completion', ()
   assert.match(queueAll, /kind === 'thumbnail'/);
 });
 
+test('the popup exposes one project-wide queue-all control', () => {
+  const html = source('src/popup/popup.html');
+  const popup = source('src/popup/popup.js');
+
+  assert.equal(html.match(/>Queue all pending<\/button>/g)?.length, 1);
+  assert.doesNotMatch(html, /queueAllPendingSecondary/);
+  assert.doesNotMatch(popup, /queueAllPendingSecondary/);
+});
+
 test('current and queue-all scene discovery use Scene Review only and require a Scene Plan', () => {
   const popup = source('src/popup/popup.js');
   const loadScenes = popup.slice(popup.indexOf('async function loadScenes()'), popup.indexOf('// Thumbnails always'));
