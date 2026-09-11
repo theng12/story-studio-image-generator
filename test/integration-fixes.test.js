@@ -131,6 +131,35 @@ test('thumbnail queue-all executes only prompt-ready unmarked episodes with capt
   assert.equal(summarizeQueueAll(result).text, 'Queued 1 thumbnail across 1 episode.');
 });
 
+test('queue-all enqueues newly selected episodes from earliest to latest', async () => {
+  const rows = [
+    { episode_code: 'SS0176', status: { thumb_prompts: true, thumbnails: false } },
+    { episode_code: 'SS0157', status: { thumb_prompts: true, thumbnails: false } },
+    { episode_code: 'SS0153', status: { thumb_prompts: true, thumbnails: false } },
+  ];
+  const context = captureQueueAllContext({
+    project: { slug: 'story-sprout', name: 'Story Sprout' },
+    provider: 'flow',
+    kind: 'thumbnail',
+    episodes: pendingEpisodeRows(rows, 'thumbnail'),
+  });
+  const enqueued = [];
+
+  await queuePendingEpisodes({
+    context,
+    loadAssets: async () => ({
+      source: 'prompts',
+      scenes: [{ key: 1, prompt: 'Thumbnail prompt', hasImage: false }],
+    }),
+    enqueue: async (payload) => {
+      enqueued.push(payload.episodeCode);
+      return { ok: true, added: 1 };
+    },
+  });
+
+  assert.deepEqual(enqueued, ['SS0153', 'SS0157', 'SS0176']);
+});
+
 test('thumbnail queue-all fails closed before enqueue when status loading fails', async () => {
   let enqueued = false;
   const result = await queuePendingEpisodes({

@@ -30,7 +30,14 @@ export function pendingEpisodeRows(rows, kind) {
     .filter((row) => kind === 'thumbnail'
       ? (row?.status || row?.st || {}).thumb_prompts === true
       : (row?.status || row?.st || {}).scene_plan === true)
-    .filter((row) => !progress(row).complete);
+    .filter((row) => !progress(row).complete)
+    .sort((a, b) => {
+      const aCode = String(a?.episode_code || a?.code || '');
+      const bCode = String(b?.episode_code || b?.code || '');
+      const aNumber = Number(aCode.match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+      const bNumber = Number(bCode.match(/\d+/)?.[0] || Number.MAX_SAFE_INTEGER);
+      return aNumber - bNumber || aCode.localeCompare(bCode);
+    });
 }
 
 export async function queuePendingEpisodes({ context, loadAssets, enqueue }) {
