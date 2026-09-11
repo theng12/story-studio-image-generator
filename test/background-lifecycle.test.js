@@ -205,6 +205,51 @@ test('clear failed drops only failed items and leaves pending work', async () =>
   }
 });
 
+test('clear pending preserves completed and failed history', async () => {
+  const done = { ...leonardoRunning(), id: 'd1', status: 'done' };
+  const failed = { ...leonardoRunning(), id: 'f1', status: 'failed' };
+  const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
+  const running = { ...leonardoRunning(), id: 'r1', status: 'running' };
+  const worker = await loadBackground({
+    local: { queue: [done, failed, pending, running], queuePaused: true, fleetV2QueueRevision: 3 },
+  });
+  try {
+    const response = await worker.send({ type: 'clearQueue' });
+    assert.equal(response.ok, true);
+    assert.equal(response.cleared, 1);
+    assert.deepEqual(worker.local.queue.map((i) => i.id), ['d1', 'f1', 'r1']);
+  } finally {
+    worker.restore();
+  }
+});
+
+test('clear completed drops only done items and preserves actionable queue state', async () => {
+  const done = {
+    ...leonardoRunning(),
+    id: 'd1',
+    status: 'done',
+    source: 'prompts',
+    slug: 'project-one',
+    episodeCode: 'EP0001',
+    savedAs: 'EP0001_Thumb01_v1.png',
+  };
+  const failed = { ...leonardoRunning(), id: 'f1', status: 'failed', failure: { code: 'ambiguous', raw: 'x' } };
+  const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
+  const running = { ...leonardoRunning(), id: 'r1', status: 'running' };
+  const worker = await loadBackground({
+    local: { queue: [done, failed, pending, running], queuePaused: true, fleetV2QueueRevision: 3 },
+  });
+  try {
+    const response = await worker.send({ type: 'clearCompleted' });
+    assert.equal(response.ok, true);
+    assert.equal(response.cleared, 1);
+    assert.deepEqual(response.completedEpisodes, [{ slug: 'project-one', code: 'EP0001' }]);
+    assert.deepEqual(worker.local.queue.map((i) => i.id), ['f1', 'p1', 'r1']);
+  } finally {
+    worker.restore();
+  }
+});
+
 test('background-owned concurrent settings patches cannot overwrite unrelated fields', async () => {
   const worker = await loadBackground({
     sync: {

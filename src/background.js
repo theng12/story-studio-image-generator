@@ -1481,10 +1481,15 @@ async function processQueue() {
 
 // Drop everything not yet started; let an in-flight item finish on its own.
 async function clearQueue() {
-  const queue = await queueStore.update((current) => current.filter((item) => item.status === 'running'));
-  if (!queue.length) await clearCooldowns();
-  await writeStatus('Queue cleared.', 'info');
-  return { ok: true };
+  let cleared = 0;
+  const queue = await queueStore.update((current) => {
+    const kept = current.filter((item) => item.status !== 'pending');
+    cleared = current.length - kept.length;
+    return kept;
+  });
+  if (!queue.some((item) => item.status === 'pending' || item.status === 'running')) await clearCooldowns();
+  if (cleared) await writeStatus(`Cleared ${cleared} pending job${cleared === 1 ? '' : 's'}.`, 'info');
+  return { ok: true, cleared };
 }
 
 // Drop failed items so a batch can be re-queued from scratch. Provider
@@ -1498,6 +1503,22 @@ async function clearFailed() {
   });
   if (cleared) await writeStatus(`Cleared ${cleared} failed job${cleared === 1 ? '' : 's'}.`, 'info');
   return { ok: true, cleared };
+}
+
+async function clearCompleted() {
+  let cleared = 0;
+  const episodes = new Map();
+  await queueStore.update((current) => {
+    for (const item of current) {
+      if (item.status !== 'done' || !item.slug || !item.episodeCode || item.slug === 'standalone') continue;
+      episodes.set(`${item.slug}\u0000${item.episodeCode}`, { slug: item.slug, code: item.episodeCode });
+    }
+    const kept = current.filter((item) => item.status !== 'done');
+    cleared = current.length - kept.length;
+    return kept;
+  });
+  if (cleared) await writeStatus(`Cleared ${cleared} completed job${cleared === 1 ? '' : 's'}.`, 'info');
+  return { ok: true, cleared, completedEpisodes: [...episodes.values()] };
 }
 
 // The Hub may clear only work that has not started. It must not alter provider
@@ -1902,6 +1923,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     case 'clearFailed':
       reply(clearFailed());
+      return true;
+    case 'clearCompleted':
+      reply(clearCompleted());
       return true;
     case 'getQueue':
       // Reopening the panel nudges a stalled queue — but never overrides an
