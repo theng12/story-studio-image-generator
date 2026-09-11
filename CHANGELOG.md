@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.8 - Earliest episodes first
+
+- **Queue all pending** now sorts eligible episodes by episode number before
+  loading prompts, so generation starts with the earliest unfinished episode.
+
 ## 0.50.7 - Queue and episode cleanup
 
 - Added **Clear completed** to remove finished queue history without touching
