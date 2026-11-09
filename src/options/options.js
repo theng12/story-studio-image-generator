@@ -6,6 +6,7 @@ import {
 } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme, setTheme } from '../lib/theme.js';
+import { createImageGatewayWorkerId } from '../lib/gateway-worker.js';
 
 const $ = (id) => document.getElementById(id);
 const FIELDS = [
@@ -15,8 +16,11 @@ const FIELDS = [
   'fleetHubUrl',
   'fleetAgentName',
   'fleetSharedSecret',
+  'gatewayUrl',
+  'gatewayToken',
+  'gatewayWorkerId',
 ];
-const CHECKBOX_FIELDS = ['fleetAgentEnabled', 'fleetTelemetryEnabled', 'fleetQueueControlEnabled'];
+const CHECKBOX_FIELDS = ['fleetAgentEnabled', 'fleetTelemetryEnabled', 'fleetQueueControlEnabled', 'gatewayModeEnabled'];
 
 async function load() {
   await initTheme();
@@ -28,6 +32,7 @@ async function load() {
   refreshGrantStatus();
   refreshFleetGrant();
   refreshFlowGrant();
+  refreshGatewayFields();
 }
 
 let savedTimer = null;
@@ -270,6 +275,44 @@ $('flowWorkspaceUrl').addEventListener('input', refreshFlowGrant);
 $('testFleet').onclick = testFleet;
 $('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
+
+// ── Gateway Studio image worker settings ────────────────────────────────────
+function refreshGatewayFields() {
+ const enabled = $('gatewayModeEnabled')?.checked;
+ const fields = $('gatewayFields');
+ if (fields) fields.classList.toggle('hidden', !enabled);
+}
+
+async function generateGatewayId() {
+ const id = createImageGatewayWorkerId();
+ if ($('gatewayWorkerId')) $('gatewayWorkerId').value = id;
+ await autoSave();
+}
+
+async function testGatewayConnection() {
+ const status = $('gatewayTestStatus');
+ if (!status) return;
+ status.textContent = 'Testing Gateway connection…';
+ status.style.color = 'var(--muted)';
+ await save();
+ try {
+ const result = await chrome.runtime.sendMessage({ type: 'gateway:testConnection' });
+ if (result?.ok) {
+ status.textContent = `✓ Gateway reachable${result.workerId ? ` (worker ${result.workerId})` : ''}.`;
+ status.style.color = 'var(--ok)';
+ } else {
+ status.textContent = result?.error || 'Couldn’t connect to Gateway.';
+ status.style.color = 'var(--err)';
+ }
+ } catch (error) {
+ status.textContent = `Couldn’t connect: ${error.message}`;
+ status.style.color = 'var(--err)';
+ }
+}
+
+if ($('gatewayModeEnabled')) $('gatewayModeEnabled').addEventListener('change', () => { refreshGatewayFields(); autoSave(); });
+if ($('generateGatewayWorkerId')) $('generateGatewayWorkerId').onclick = generateGatewayId;
+if ($('testGateway')) $('testGateway').onclick = testGatewayConnection;
 // Wire auto-save: text fields on input, selects on change.
 for (const f of FIELDS) {
   const el = $(f);

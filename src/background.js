@@ -50,6 +50,19 @@ import {
   isKnownPreSubmitLimit,
   providerLabelForItem,
 } from './lib/failure-policy.js';
+import {
+  claimImageJob,
+  reportImageProgress,
+  reportImageResult,
+  reportImageFailure,
+  testImageGateway,
+} from './lib/gateway-client.js';
+import {
+  createImageGatewayWorkerId,
+  imageGatewayJobToItem,
+  isImageGatewayJobQueued,
+  normalizeImageGatewayJob,
+} from './lib/gateway-worker.js';
 
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
@@ -87,6 +100,11 @@ const FLEET_COMMAND_RECEIPTS_KEY = 'fleetV2CommandReceipts';
 const FLEET_HUB_PAUSE_KEY = 'fleetV2HubPause';
 const SEEN_PROJECT_KEY = 'lastSeenFlowProjectId';
 const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
+// Gateway image worker claim polling alarm (30s). Only scheduled while gateway
+// mode is enabled; wakes the worker to poll for new jobs without blocking the
+// regular provider queue.
+const GATEWAY_ALARM = 'gatewayTick';
+const GATEWAY_WORKER_ID_KEY = 'gatewayWorkerId';
 // Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
 // cooldown is scoped to the provider that hit its limit and never blocks others.
 const COOLDOWN_KEY = 'cooldownUntil';
@@ -1888,6 +1906,67 @@ async function pauseQueue({ byHub = false, commandId = '', expectedRevision } = 
   return { ok: true };
 }
 
+// ── Gateway image worker claim loop ─────────────────────────────────────────
+// Polls for new image jobs when gateway mode is enabled. Runs on its own alarm
+// (30s) so it never blocks or interferes with the regular provider queue.
+// Claimed jobs enter the same durable queue as story/standalone items.
+let gatewayPolling = false;
+
+async function gatewayClaimLoop() {
+  if (gatewayPolling) return;
+  const settings = await getSettings();
+  if (!settings.gatewayModeEnabled) return;
+  gatewayPolling = true;
+  try {
+    const queue = await getQueue();
+    // Single in-flight: don't claim if a gateway job is already running/pending.
+    const hasGatewayInFlight = queue.some(
+      (i) => i.target === 'gateway' && (i.status === 'pending' || i.status === 'running')
+    );
+    if (hasGatewayInFlight) return;
+    let job;
+    try {
+      job = await claimImageJob(settings);
+    } catch (error) {
+      // Claim errors are logged but don't pause the loop — transient network
+      // issues shouldn't kill polling permanently.
+      await writeStatus(`Gateway claim failed: ${String(error?.message || error).slice(0, 200)}`, 'err');
+      return;
+    }
+    if (!job) return; // 204 / null = no work available
+    // Dedup: skip if this jobId is already in the queue (any status).
+    if (isImageGatewayJobQueued(queue, job.jobId)) return;
+    let item;
+    try {
+      item = imageGatewayJobToItem(job, settings);
+    } catch (error) {
+      // Schema rejection BEFORE provider invocation. Report failure back to
+      // Gateway so the job isn't silently lost.
+      try {
+        await reportImageFailure(settings, job.jobId, error, false);
+      } catch { /* best-effort */ }
+      await writeStatus(`Gateway job rejected: ${String(error?.message || error).slice(0, 200)}`, 'err');
+      return;
+    }
+    await enqueue([item]);
+    await writeStatus(`Gateway job claimed: ${item.label}`, 'info');
+  } finally {
+    gatewayPolling = false;
+  }
+}
+
+function gatewayAlarmCreate() {
+  try {
+    chrome.alarms?.create(GATEWAY_ALARM, { periodInMinutes: 0.5 });
+  } catch { /* alarms unavailable */ }
+}
+
+function gatewayAlarmClear() {
+  try {
+    chrome.alarms?.clear(GATEWAY_ALARM);
+  } catch { /* ignore */ }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = (p) =>
     p.then((r) => sendResponse(r)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
@@ -1993,7 +2072,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'resumeQueue':
       reply(resumeQueue());
       return true;
+    case 'gateway:testConnection':
+      // User-triggered health test only. Validates matching ok/workerId/kind.
+      reply(getSettings().then((s) => testImageGateway(s)));
+      return true;
     default:
       return false;
   }
+});
+
+// Gateway alarm listener: wake the worker to poll for new image jobs.
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === GATEWAY_ALARM) gatewayClaimLoop();
+});
+
+// Start/stop gateway polling when settings change. The claim loop itself
+// checks gatewayModeEnabled every tick, so this is just alarm lifecycle.
+getSettings().then((settings) => {
+  if (settings.gatewayModeEnabled) gatewayAlarmCreate();
+  else gatewayAlarmClear();
 });

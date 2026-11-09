@@ -468,18 +468,27 @@ function wire() {
 
 function renderWorkMode() {
   const studioMode = workMode === 'studio';
+  const gatewayMode = workMode === 'gateway';
   $('studioWorkflow').classList.toggle('hidden', !studioMode);
   $('scenesCard').classList.toggle('hidden', !studioMode);
-  $('standaloneWorkflow').classList.toggle('hidden', studioMode);
-  $('saveDestination').textContent = studioMode ? 'Story Studio KH' : 'Downloads';
+  $('standaloneWorkflow').classList.toggle('hidden', studioMode || gatewayMode);
+  $('assetSettingsCard').classList.toggle('hidden', gatewayMode);
+  $('saveDestination').textContent = studioMode ? 'Story Studio KH' : gatewayMode ? 'Gateway Studio' : 'Downloads';
   $('workingMode').value = workMode;
 }
 
 async function setWorkMode(mode) {
-  workMode = mode === 'standalone' ? 'standalone' : 'studio';
+  if (mode === 'gateway') {
+    workMode = 'gateway';
+  } else if (mode === 'standalone') {
+    workMode = 'standalone';
+  } else {
+    workMode = 'studio';
+  }
   await chrome.storage.local.set({ imageGeneratorWorkMode: workMode });
   renderWorkMode();
   if (workMode === 'studio') await loadProjects();
+  else if (workMode === 'gateway') setStatus('Gateway mode claims image jobs from the configured Gateway server. Enable in Settings.', 'info');
   else setStatus('Standalone mode uses a local prompt and Downloads.', 'info');
 }
 

@@ -117,6 +117,37 @@
       </div>
     </section>
 
+    <section class="card settings-section">
+      <div class="label">Gateway Studio (image worker)</div>
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" id="gatewayModeEnabled" />
+          <span>Enable Gateway image worker mode</span>
+        </label>
+        <div class="hint">Third mode: claims image jobs from a Gateway Studio server. Off by default. Story Studio and Standalone modes are unaffected.</div>
+      </div>
+      <div id="gatewayFields" class="hidden">
+        <div class="field">
+          <span class="label">Gateway URL</span>
+          <input type="text" id="gatewayUrl" placeholder="http://localhost:8766" />
+        </div>
+        <div class="field">
+          <span class="label">Worker token</span>
+          <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Bearer token for /api/workers/*" />
+          <div class="hint">Stored locally, never synced or logged.</div>
+        </div>
+        <div class="field">
+          <span class="label">Worker ID</span>
+          <input type="text" id="gatewayWorkerId" placeholder="imgworker_…" />
+          <div class="row">
+            <button id="generateGatewayWorkerId" class="btn small">Generate new ID</button>
+            <button id="testGateway" class="btn small">Test connection</button>
+          </div>
+          <div id="gatewayTestStatus" class="hint" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
     <div class="row end settings-footer">
       <span id="saved" class="muted small"></span>
       <button id="save" class="btn primary">Save</button>

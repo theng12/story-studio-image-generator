@@ -60,9 +60,14 @@ export async function claimImageJob(settings) {
     json: { workerId, kind: 'image' },
     timeoutMs: 35000,
   });
+  // 204 = no job available (idle). Null result is valid idle.
   if (!result) return null;
   const job = result.job && typeof result.job === 'object' ? result.job : result;
-  return job?.jobId ? job : null;
+  if (!job?.jobId) throw new Error('Gateway claim returned a malformed response (no jobId).');
+  if (job.kind && job.kind !== 'image') {
+    throw new Error(`Gateway claim returned wrong kind "${job.kind}" (expected image).`);
+  }
+  return job;
 }
 
 export async function reportImageProgress(settings, jobId, phase, message = '') {
@@ -79,11 +84,17 @@ export async function reportImageResult(settings, jobId, buffer, mediaType = 'im
   const form = new FormData();
   form.append('mediaType', mediaType);
   form.append('file', new Blob([buffer], { type: mediaType }), `${jobId}.${ext}`);
-  return request(settings, `/api/workers/jobs/${encodeURIComponent(jobId)}/result`, {
+  const result = await request(settings, `/api/workers/jobs/${encodeURIComponent(jobId)}/result`, {
     method: 'POST',
     body: form,
     timeoutMs: 120000,
   });
+  // HTTP 200 + {ok:true,ignored:true} means another terminal answer already won.
+  // NOT artifact acceptance: staged refs/result must be preserved, job stays held.
+  if (result && typeof result === 'object' && result.ok === true && result.ignored === true) {
+    return { ok: true, ignored: true };
+  }
+  return result;
 }
 
 export async function reportImageFailure(settings, jobId, error, ambiguous = false) {
@@ -94,7 +105,23 @@ export async function reportImageFailure(settings, jobId, error, ambiguous = fal
   });
 }
 
+// Health must return matching ok/workerId/kind. Malformed responses are errors,
+// not idle — a broken health endpoint must never silently pass as "no work".
 export async function testImageGateway(settings) {
+  const workerId = String(settings?.gatewayWorkerId || '').trim();
+  if (!workerId) throw new Error('Gateway worker id is not set.');
   const health = await request(settings, '/api/workers/health', { timeoutMs: 8000 });
-  return { ok: true, ...(health || {}) };
+  if (!health || typeof health !== 'object') {
+    throw new Error('Gateway health returned a malformed response.');
+  }
+  if (health.ok !== true) {
+    throw new Error(`Gateway health reported not ok: ${String(health.error || 'unknown').slice(0, 200)}`);
+  }
+  if (health.workerId && health.workerId !== workerId) {
+    throw new Error(`Gateway health worker id mismatch (expected ${workerId}, got ${health.workerId}).`);
+  }
+  if (health.kinds && Array.isArray(health.kinds) && !health.kinds.includes('image')) {
+    throw new Error('Gateway does not support image kind.');
+  }
+  return { ok: true, ...health };
 }
