@@ -111,6 +111,13 @@ export const DEFAULTS = {
   fleetQueueControlEnabled: false,
   fleetHubUrl: '',
   fleetAgentName: '',
+
+  // Gateway Studio image worker (third mode). Off by default; the user opts in
+  // by filling URL + token + worker id. Health test is user-triggered only.
+  gatewayModeEnabled: false,
+  gatewayUrl: '',
+  gatewayToken: '',
+  gatewayWorkerId: '',
 };
 
 const STORAGE_KEY = 'settings';
