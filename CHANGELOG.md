@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.10 — 2026-11-09
+
+- Added an optional Gateway Studio mode alongside Story Studio and Standalone.
+- Keep references and completed images when a connection is interrupted, without generating again.
+- Deliver a retained image again from its queue entry after checking the connection.
+- Gateway mode requires a compatible server with image workers enabled.
+
 ## 0.50.9 - One queue-all action
 
 - Removed the duplicate **Queue all pending** link below the prompt list. The

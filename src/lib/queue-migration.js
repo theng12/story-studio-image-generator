@@ -19,8 +19,11 @@ function queueProvider(item) {
 }
 
 export function isUnsupportedProjectScene(item) {
+  if (item?.target === 'gateway') return item.source !== 'gateway' || typeof item.gatewayJobId !== 'string' || !item.gatewayJobId;
   return item?.target !== 'download' && item?.kind !== 'thumbnail' && item?.source !== 'plan';
 }
+
+export const gatewayNeedsReview = (item) => item?.target === 'gateway' && item.gatewayAcknowledged !== true;
 
 function sceneSourceFailure() {
   return {
@@ -96,6 +99,11 @@ function recoveryEvidenceQueueItem(item, now) {
 export function recoverInterruptedQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
+    if (gatewayNeedsReview(item) && item.status === 'running') {
+      return { ...item, status: 'failed', fleetRetrySafe: false, finishedAt: now,
+        failure: { code: 'gateway-held', title: 'Gateway work is held', hint: 'Deliver retained bytes again or review the job in Gateway.', raw: 'Worker restarted. Retained bytes may be delivered again; generation will not repeat.' },
+        error: 'Gateway work is held after worker restart.' };
+    }
     const evidence = recoveryEvidenceQueueItem(item, now);
     if (evidence) return evidence;
     if (item?.status !== 'running') return { ...item };
@@ -193,6 +201,7 @@ export function canRetryItem(item) {
   const provider = queueProvider(item);
   return (
     item?.status === 'failed' &&
+    item?.target !== 'gateway' &&
     !isUnsupportedProjectScene(item) &&
     isMaintainedProvider(provider) &&
     item?.failure?.code !== 'provider-removed' &&

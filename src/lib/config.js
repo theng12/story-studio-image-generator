@@ -122,6 +122,8 @@ export const DEFAULTS = {
 
 const STORAGE_KEY = 'settings';
 const PROVIDER_SECRETS_KEY = 'providerSecrets';
+const GATEWAY_CONNECTION_KEY = 'gatewayConnection';
+const GATEWAY_LOCAL_FIELDS = ['gatewayModeEnabled', 'gatewayUrl', 'gatewayToken', 'gatewayWorkerId'];
 const QWEN_ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4']);
 
 function normalizeDelay(value, fallback) {
@@ -237,17 +239,26 @@ export function flowWorkspace(settings) {
 export async function getSettings() {
   const [synced, local] = await Promise.all([
     chrome.storage.sync.get(STORAGE_KEY),
-    chrome.storage.local.get(PROVIDER_SECRETS_KEY),
+    chrome.storage.local.get([PROVIDER_SECRETS_KEY, GATEWAY_CONNECTION_KEY]),
   ]);
   const storedSettings = { ...(synced[STORAGE_KEY] || {}) };
+  const gateway = { ...(local[GATEWAY_CONNECTION_KEY] || {}) };
+  for (const key of GATEWAY_LOCAL_FIELDS) {
+    if (!Object.hasOwn(gateway, key) && Object.hasOwn(storedSettings, key)) gateway[key] = storedSettings[key];
+    delete storedSettings[key];
+  }
+  if (JSON.stringify(gateway) !== JSON.stringify(local[GATEWAY_CONNECTION_KEY] || {})) {
+    await chrome.storage.local.set({ [GATEWAY_CONNECTION_KEY]: gateway });
+  }
   const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
   if (Object.hasOwn(secrets, 'pollinationsToken')) {
     delete secrets.pollinationsToken;
     await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
   }
   delete storedSettings.fleetSharedSecret;
-  const next = normalizeSettings({ ...DEFAULTS, ...storedSettings });
+  const next = normalizeSettings({ ...DEFAULTS, ...storedSettings, ...gateway });
   const syncNext = { ...next };
+  for (const key of GATEWAY_LOCAL_FIELDS) delete syncNext[key];
   if (JSON.stringify(syncNext) !== JSON.stringify(synced[STORAGE_KEY] || {})) {
     await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   }
@@ -268,6 +279,12 @@ export async function persistSettings(next, patch = {}) {
     await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
   }
   const syncNext = { ...next };
+  const gateway = {};
+  for (const key of GATEWAY_LOCAL_FIELDS) {
+    gateway[key] = next[key];
+    delete syncNext[key];
+  }
+  await chrome.storage.local.set({ [GATEWAY_CONNECTION_KEY]: gateway });
   delete syncNext.fleetSharedSecret;
   await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   return next;

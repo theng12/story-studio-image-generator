@@ -1,224 +1,67 @@
-// Gateway image worker — full-path mocked fixtures. No network, no browser,
-// no provider calls. Covers: schema rejection (zero provider calls), same-job
-// dedup, accepted result then cleanup, reference preservation, ambiguous result
-// failure HOLD without regeneration even on Resume/restart.
-
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  createImageGatewayWorkerId,
-  gatewayImageHasReferenceBytes,
-  imageGatewayJobToItem,
-  isImageGatewayJobQueued,
-  normalizeImageGatewayJob,
-} from '../src/lib/gateway-worker.js';
+import { gatewayBinding, imageGatewayJobToItem, normalizeImageGatewayJob } from '../src/lib/gateway-worker.js';
+import { assertQueuedModelIdentity } from '../src/lib/model-identity.js';
+import { canRetryItem, isUnsupportedProjectScene, recoverInterruptedQueue } from '../src/lib/queue-migration.js';
+import { enqueueItems } from '../src/lib/queue-operations.js';
+import { claimImageJob, reportImageFailure, reportImageResult, testImageGateway } from '../src/lib/gateway-client.js';
 
-const GOOD_JOB = {
-  jobId: 'img_job_1',
-  kind: 'image',
-  prompt: 'A quiet village at dusk.',
-  modelKey: 'nano-banana-2',
-  modelLabel: 'Nano Banana 2',
-  aspectRatio: '16:9',
-  flowProjectId: '5852b0c6-e4a4-455a-8215-5513c208c29d',
-};
+export const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j9ZkAAAAASUVORK5CYII=';
+export const JOB = { jobId: 'image/a', kind: 'image', provider: 'flow', prompt: 'A quiet village.', modelKey: 'nano-banana-2', aspectRatio: '16:9', flowProjectId: '5852b0c6-e4a4-455a-8215-5513c208c29d' };
+const connection = { gatewayUrl: 'http://gateway.invalid', gatewayToken: 'fixture-token', gatewayWorkerId: 'fixture-image' };
 
-// ── schema rejection: zero provider calls on malformed input ─────────────────
-
-test('rejects null/undefined/non-object before any provider dispatch', () => {
-  assert.throws(() => normalizeImageGatewayJob(null), /not an object/);
-  assert.throws(() => normalizeImageGatewayJob(undefined), /not an object/);
-  assert.throws(() => normalizeImageGatewayJob('string'), /not an object/);
-  assert.throws(() => normalizeImageGatewayJob(42), /not an object/);
+test('strict captured model, ratio and reference validation; actual queue identity', () => {
+  const item = imageGatewayJobToItem({ ...JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: PNG }] }, {});
+  assertQueuedModelIdentity(item, 'flow');
+  assert.equal(item.prompt, JOB.prompt);
+  assert.equal(item.modelSnapshot.modelId, 'NARWHAL');
+  assert.equal(item.gatewayReferenceCount, 1);
+  assert.equal(item.references, undefined);
+  assert.equal(isUnsupportedProjectScene(item), false);
+  assert.equal(isUnsupportedProjectScene({ source: 'prompts', kind: 'scene', target: 'project' }), true);
+  for (const patch of [{ kind: 'video' }, { modelKey: 'invented' }, { provider: 'chatgpt' }, { aspectRatio: '' }, { aspectRatio: '9:16' }, { referenceImages: null }, { referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] }, { prompt: 42 }]) {
+    assert.throws(() => normalizeImageGatewayJob({ ...JOB, ...patch }));
+  }
+  assert.throws(() => imageGatewayJobToItem({ ...JOB, flowProjectId: '' }, {}));
 });
 
-test('rejects missing jobId', () => {
-  assert.throws(() => normalizeImageGatewayJob({}), /no id/);
-  assert.throws(() => normalizeImageGatewayJob({ jobId: '' }), /no id/);
-  assert.throws(() => normalizeImageGatewayJob({ jobId: '  ' }), /no id/);
+test('Gateway holds cannot be retried, truncated or replaced by ordinary enqueue', () => {
+  const item = { ...imageGatewayJobToItem(JOB, {}), status: 'running' };
+  const held = recoverInterruptedQueue([item])[0];
+  assert.equal(held.status, 'failed');
+  assert.equal(held.failure.code, 'gateway-held');
+  assert.equal(canRetryItem(held), false);
+  const history = Array.from({ length: 130 }, (_, i) => ({ id: String(i), status: 'failed' }));
+  const next = enqueueItems([held, ...history], [{ id: 'local', source: 'standalone', prompt: 'new', target: 'download' }]);
+  assert.ok(next.queue.some((entry) => entry.id === item.id));
 });
 
-test('rejects missing or wrong kind', () => {
-  assert.throws(
-    () => normalizeImageGatewayJob({ jobId: 'x', prompt: 'p', modelKey: 'nano-banana-2' }),
-    /no kind/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ jobId: 'x', kind: 'video', prompt: 'p', modelKey: 'nano-banana-2' }),
-    /not supported/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ jobId: 'x', kind: 'audio', prompt: 'p', modelKey: 'nano-banana-2' }),
-    /not supported/
-  );
+test('binding includes token rotation and contains no credential text', async () => {
+  const hash = await gatewayBinding(connection);
+  assert.match(hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(hash, await gatewayBinding({ ...connection, gatewayToken: 'rotated' }));
+  assert.equal(hash, await gatewayBinding({ ...connection, gatewayUrl: connection.gatewayUrl + '/' }));
 });
 
-test('rejects missing prompt or modelKey', () => {
-  assert.throws(
-    () => normalizeImageGatewayJob({ jobId: 'x', kind: 'image', prompt: '', modelKey: 'nano-banana-2' }),
-    /no prompt/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ jobId: 'x', kind: 'image', prompt: 'p', modelKey: '' }),
-    /no model key/
-  );
-});
-
-test('rejects unknown modelKey — no arbitrary model accepted', () => {
-  assert.throws(
-    () => normalizeImageGatewayJob({ ...GOOD_JOB, modelKey: 'gpt-5-turbo' }),
-    /not a known provider model/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ ...GOOD_JOB, modelKey: 'random-model' }),
-    /not a known provider model/
-  );
-});
-
-test('rejects unsupported aspect ratio — only 16:9 verified captured', () => {
-  assert.throws(
-    () => normalizeImageGatewayJob({ ...GOOD_JOB, aspectRatio: '9:16' }),
-    /not supported/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ ...GOOD_JOB, aspectRatio: '21:9' }),
-    /not supported/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({ ...GOOD_JOB, aspectRatio: '1:1' }),
-    /not supported/
-  );
-});
-
-test('rejects any invalid reference — never silently drops', () => {
-  assert.throws(
-    () => normalizeImageGatewayJob({
-      ...GOOD_JOB,
-      referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }, null],
-    }),
-    /reference 2/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({
-      ...GOOD_JOB,
-      referenceImages: [{ mediaType: '', dataBase64: 'BBBB' }],
-    }),
-    /reference 1.*no mediaType/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({
-      ...GOOD_JOB,
-      referenceImages: [{ mediaType: 'image/png', dataBase64: '' }],
-    }),
-    /reference 1.*no dataBase64/
-  );
-  assert.throws(
-    () => normalizeImageGatewayJob({
-      ...GOOD_JOB,
-      referenceImages: [{ mediaType: 'text/plain', dataBase64: 'CCCC' }],
-    }),
-    /reference 1.*invalid mediaType/
-  );
-});
-
-test('rejects missing Flow project id at item creation', () => {
-  const noFlowJob = { ...GOOD_JOB, flowProjectId: '' };
-  assert.throws(
-    () => imageGatewayJobToItem(noFlowJob, {}),
-    /Flow project id/
-  );
-  assert.throws(
-    () => imageGatewayJobToItem(noFlowJob, { flowProjectId: '' }),
-    /Flow project id/
-  );
-  // Also rejects when job omits flowProjectId entirely and settings has none.
-  const omitFlowJob = { jobId: 'x', kind: 'image', prompt: 'p', modelKey: 'nano-banana-2' };
-  assert.throws(
-    () => imageGatewayJobToItem(omitFlowJob, {}),
-    /Flow project id/
-  );
-});
-
-// ── accepted job mapping ─────────────────────────────────────────────────────
-
-test('maps a valid gateway image job to a queue item', () => {
-  const item = imageGatewayJobToItem(GOOD_JOB, { imageModel: 'nano-banana-2' });
-  assert.equal(item.gatewayJobId, 'img_job_1');
-  assert.equal(item.target, 'gateway');
-  assert.equal(item.gatewayKind, 'image');
-  assert.equal(item.imagePrompt, 'A quiet village at dusk.');
-  assert.equal(item.imageModelKey, 'nano-banana-2');
-  assert.equal(item.imageModelSource, 'gateway');
-  assert.equal(item.projectId, GOOD_JOB.flowProjectId);
-  assert.equal(item.aspectRatio, '16:9');
-  assert.equal(item.status, 'pending');
-  assert.equal(item.gatewayReferenceCount, 0);
-  // Ambiguity defaults SAFE — any unproven failure holds the job.
-  assert.equal(item.gatewayAmbiguous, true);
-});
-
-test('defaults missing aspectRatio to 16:9 (only supported value)', () => {
-  const item = imageGatewayJobToItem({ ...GOOD_JOB, aspectRatio: undefined }, {});
-  assert.equal(item.aspectRatio, '16:9');
-  const item2 = imageGatewayJobToItem({ ...GOOD_JOB, aspectRatio: '' }, {});
-  assert.equal(item2.aspectRatio, '16:9');
-});
-
-test('preserves reference count without storing bytes in the item', () => {
-  const withRef = imageGatewayJobToItem(
-    { ...GOOD_JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] },
-    {}
-  );
-  assert.equal(withRef.gatewayReferenceCount, 1);
-  // Bytes must NOT be in the queue item (memory + quota hazard).
-  assert.equal(withRef.referenceImages, undefined);
-  assert.equal(withRef.references, undefined);
-});
-
-// ── same-job dedup ───────────────────────────────────────────────────────────
-
-test('deduplicates a claimed job already in the queue', () => {
-  const item = imageGatewayJobToItem(GOOD_JOB, {});
-  assert.equal(isImageGatewayJobQueued([item], 'img_job_1'), true);
-  assert.equal(isImageGatewayJobQueued([item], 'img_job_2'), false);
-  assert.equal(isImageGatewayJobQueued([], 'img_job_1'), false);
-  assert.equal(isImageGatewayJobQueued(null, 'img_job_1'), false);
-});
-
-// ── reference byte check ─────────────────────────────────────────────────────
-
-test('gatewayImageHasReferenceBytes checks normalized job references', () => {
-  assert.equal(gatewayImageHasReferenceBytes({ references: [] }), false);
-  assert.equal(gatewayImageHasReferenceBytes({ references: [{ mediaType: 'image/png', dataBase64: 'x' }] }), true);
-  assert.equal(gatewayImageHasReferenceBytes({}), false);
-  assert.equal(gatewayImageHasReferenceBytes(null), false);
-});
-
-// ── worker id format ─────────────────────────────────────────────────────────
-
-test('worker ids are stable prefixed values', () => {
-  assert.match(createImageGatewayWorkerId(), /^imgworker_/);
-  const a = createImageGatewayWorkerId();
-  const b = createImageGatewayWorkerId();
-  assert.notEqual(a, b);
-});
-
-// ── ambiguous failure semantics ──────────────────────────────────────────────
-
-test('gatewayAmbiguous defaults to true (safe) — HOLD without regeneration', () => {
-  const item = imageGatewayJobToItem(GOOD_JOB, {});
-  // Default safe: any unproven result holds the job, never regenerates.
-  assert.equal(item.gatewayAmbiguous, true);
-});
-
-test('accepted-then-cleanup: item fields are self-contained', () => {
-  // Verify the item shape is complete for queue lifecycle without external deps.
-  const item = imageGatewayJobToItem(GOOD_JOB, { imageModel: 'nano-banana-2' });
-  assert.ok(item.id.startsWith('gateway_'));
-  assert.equal(typeof item.queuedAt, 'number');
-  assert.equal(item.slug, 'gateway');
-  assert.equal(item.projectName, 'Gateway Studio');
-  assert.equal(item.target, 'gateway');
-  // No provider tab dependency — gateway items don't need a provider tab.
-  assert.equal(item.provider, undefined);
+test('actual transport uses claim envelope and encoded job route; strict acknowledgements', async () => {
+  const original = globalThis.fetch;
+  const calls = [];
+  let answer = { job: JOB };
+  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return Response.json(answer); };
+  try {
+    assert.deepEqual(await claimImageJob(connection), JOB);
+    assert.deepEqual(JSON.parse(calls[0].init.body), { workerId: connection.gatewayWorkerId, kind: 'image' });
+    answer = { ok: true };
+    await reportImageFailure(connection, JOB.jobId, 'fixture');
+    assert.ok(calls[1].url.endsWith('/api/workers/jobs/image%2Fa/fail'));
+    assert.equal(JSON.parse(calls[1].init.body).ambiguous, true);
+    for (answer of [{}, { ok: true, ignored: true }, { ok: 'true' }]) {
+      await assert.rejects(reportImageResult(connection, JOB.jobId, Buffer.from(PNG, 'base64'), 'image/png'), /did not accept/);
+    }
+    answer = { ok: true, kind: 'image', workerId: connection.gatewayWorkerId, maxResultBytes: 1024 };
+    assert.equal((await testImageGateway(connection)).maxResultBytes, 1024);
+    answer = { ok: true, kind: 'image', maxResultBytes: 1024 };
+    await assert.rejects(testImageGateway(connection), /does not match/);
+    assert.equal(calls[0].init.redirect, 'error');
+  } finally { globalThis.fetch = original; }
 });

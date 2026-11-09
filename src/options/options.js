@@ -298,7 +298,7 @@ async function testGatewayConnection() {
  try {
  const result = await chrome.runtime.sendMessage({ type: 'gateway:testConnection' });
  if (result?.ok) {
- status.textContent = `✓ Gateway reachable${result.workerId ? ` (worker ${result.workerId})` : ''}.`;
+ status.textContent = `Gateway connected. Upload limit: ${result.maxResultBytes} bytes. Select Gateway Studio in the side panel to receive jobs.`;
  status.style.color = 'var(--ok)';
  } else {
  status.textContent = result?.error || 'Couldn’t connect to Gateway.';
@@ -313,6 +313,15 @@ async function testGatewayConnection() {
 if ($('gatewayModeEnabled')) $('gatewayModeEnabled').addEventListener('change', () => { refreshGatewayFields(); autoSave(); });
 if ($('generateGatewayWorkerId')) $('generateGatewayWorkerId').onclick = generateGatewayId;
 if ($('testGateway')) $('testGateway').onclick = testGatewayConnection;
+if ($('grantGateway')) $('grantGateway').onclick = async () => {
+  const status = $('gatewayTestStatus');
+  const pattern = originPattern($('gatewayUrl').value.trim());
+  if (!pattern || !/^https?:/.test(pattern)) { status.textContent = 'Enter an HTTP or HTTPS Gateway address first.'; return; }
+  try {
+    const granted = await chrome.permissions.request({ origins: [pattern] });
+    status.textContent = granted ? 'Access granted. Test the connection next.' : 'Access was not granted.';
+  } catch { status.textContent = 'Could not grant access. Check the Gateway address.'; }
+};
 // Wire auto-save: text fields on input, selects on change.
 for (const f of FIELDS) {
   const el = $(f);

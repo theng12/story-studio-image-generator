@@ -124,23 +124,24 @@
           <input type="checkbox" id="gatewayModeEnabled" />
           <span>Enable Gateway image worker mode</span>
         </label>
-        <div class="hint">Third mode: claims image jobs from a Gateway Studio server. Off by default. Story Studio and Standalone modes are unaffected.</div>
+        <div class="hint">Off by default. Select Gateway Studio in the side panel to receive image jobs. This candidate supports captured image models and needs a Gateway server with image workers enabled.</div>
       </div>
       <div id="gatewayFields" class="hidden">
         <div class="field">
-          <span class="label">Gateway URL</span>
-          <input type="text" id="gatewayUrl" placeholder="http://localhost:8766" />
+          <label class="label" for="gatewayUrl">Gateway address</label>
+          <input type="url" id="gatewayUrl" placeholder="Gateway server address" />
         </div>
         <div class="field">
-          <span class="label">Worker token</span>
-          <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Bearer token for /api/workers/*" />
+          <label class="label" for="gatewayToken">Worker token</label>
+          <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Token from Gateway" />
           <div class="hint">Stored locally, never synced or logged.</div>
         </div>
         <div class="field">
-          <span class="label">Worker ID</span>
-          <input type="text" id="gatewayWorkerId" placeholder="imgworker_…" />
+          <label class="label" for="gatewayWorkerId">Worker ID</label>
+          <input type="text" id="gatewayWorkerId" maxlength="120" placeholder="Worker ID from Gateway" />
           <div class="row">
             <button id="generateGatewayWorkerId" class="btn small">Generate new ID</button>
+            <button id="grantGateway" class="btn small">Grant access</button>
             <button id="testGateway" class="btn small">Test connection</button>
           </div>
           <div id="gatewayTestStatus" class="hint" aria-live="polite"></div>

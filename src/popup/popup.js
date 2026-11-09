@@ -290,9 +290,8 @@ async function init() {
   const localState = await chrome.storage.local.get(['settingsSource', 'imageGeneratorStudioConnection']);
   settingsSource = localState.settingsSource || {};
   studioConnection = localState.imageGeneratorStudioConnection || null;
-  workMode = (await chrome.storage.local.get('imageGeneratorWorkMode')).imageGeneratorWorkMode === 'standalone'
-    ? 'standalone'
-    : 'studio';
+  const storedMode = (await chrome.storage.local.get('imageGeneratorWorkMode')).imageGeneratorWorkMode;
+  workMode = ['studio', 'standalone', 'gateway'].includes(storedMode) ? storedMode : 'studio';
   renderHumanPace();
   renderCooldownCard();
   renderAppliedSettings();
@@ -1968,7 +1967,7 @@ async function pollQueue() {
     stat.className = 'qstatus ' + it.status;
     stat.textContent = it.status === 'failed' && it.failure ? it.failure.code : it.status;
     row.append(info, stat);
-    if (it.status === 'pending') {
+    if (it.status === 'pending' && it.target !== 'gateway') {
       const x = document.createElement('button');
       x.className = 'x';
       x.textContent = '×';
@@ -1981,11 +1980,14 @@ async function pollQueue() {
     } else if (it.status === 'failed') {
       const retry = document.createElement('button');
       retry.className = 'retry';
-      retry.textContent = '↻';
-      retry.title = 'Retry this failed job';
+      const gateway = it.target === 'gateway';
+      retry.textContent = gateway ? 'Deliver again' : '↻';
+      retry.title = gateway ? 'Upload retained bytes only; never generate again' : 'Retry this failed job';
+      retry.disabled = gateway && it.gatewayAcknowledged === true;
       retry.onclick = async () => {
-        await chrome.runtime.sendMessage({ type: 'retryFailed', id: it.id });
-        pollQueue();
+        const response = await chrome.runtime.sendMessage({ type: gateway ? 'gateway:retryDelivery' : 'retryFailed', id: it.id });
+        if (response?.ok === false) setStatus(response.error || 'Delivery is still held.', 'err');
+        else await pollQueue();
       };
       row.appendChild(retry);
     }

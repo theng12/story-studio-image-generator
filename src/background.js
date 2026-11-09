@@ -24,6 +24,7 @@ import { flowCommand } from './lib/flow-exec.js';
 import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
 import {
   assertSupportedProjectScene,
+  gatewayNeedsReview,
   canRetryItem,
   migrateQueue,
   recoverInterruptedQueue,
@@ -58,11 +59,12 @@ import {
   testImageGateway,
 } from './lib/gateway-client.js';
 import {
-  createImageGatewayWorkerId,
+  gatewayBinding,
   imageGatewayJobToItem,
   isImageGatewayJobQueued,
   normalizeImageGatewayJob,
 } from './lib/gateway-worker.js';
+import { getGatewayArtifact, putGatewayArtifact, deleteGatewayArtifact } from './lib/gateway-artifacts.js';
 
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
@@ -249,7 +251,7 @@ async function startNewFlowProject(reason) {
   // Send the rest of this batch to the new project too.
   await queueStore.update((queue) => {
     for (const item of queue) {
-      if (item.provider === 'flow' && item.status === 'pending') item.projectId = projectId;
+      if (item.provider === 'flow' && item.status === 'pending' && item.target !== 'gateway') item.projectId = projectId;
     }
     return queue;
   });
@@ -567,6 +569,13 @@ async function fetchImagePayload(provider, imageUrl) {
 // when a job runs and cached for this worker lifetime, never in queue storage.
 const refImageCache = new Map();
 async function resolveReferenceImages(item, settings, provider) {
+  if (item.target === 'gateway') {
+    const staged = await getGatewayArtifact(item.gatewayJobId);
+    if (!staged || !Array.isArray(staged.references) || staged.references.length !== item.gatewayReferenceCount) {
+      throw new Error('Gateway references are unavailable; work is held without generation.');
+    }
+    return staged.references;
+  }
   const references = limitProviderReferences(
     provider,
     Array.isArray(item.referenceDescriptors) ? item.referenceDescriptors : []
@@ -613,6 +622,7 @@ async function resolveReferenceMediaIds(item, settings, tab) {
         params: { projectId, base64: reference.base64, mime: reference.mime, fileName: reference.name },
       });
       mediaId = up.mediaId;
+      if (item.target === 'gateway' && !mediaId) throw new Error('Gateway reference upload was not confirmed; generation will not start.');
       if (mediaId) refMediaCache.set(key, mediaId);
     }
     if (mediaId) mediaIds.push(mediaId);
@@ -676,6 +686,13 @@ async function generateAndSave(item, settings, tab) {
   const handler = handlers[provider];
   if (!handler) throw providerRemovedError(provider);
   const { base64, mime } = await handler();
+  if (item.target === 'gateway') {
+    const staged = await getGatewayArtifact(item.gatewayJobId);
+    if (!staged) throw new Error('Gateway reference storage is missing; generated output needs review.');
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    await putGatewayArtifact(item.gatewayJobId, { ...staged, bytes, mime });
+    return deliverGatewayImage(item);
+  }
   if (item.target === 'download') {
     const ext = mime.includes('webp') ? 'webp' : mime.includes('jpeg') ? 'jpg' : 'png';
     const filename = `${String(item.downloadPath || 'StoryStudioImages/Standalone/image.png').replace(/\.(png|jpg|jpeg|webp)$/i, '')}.${ext}`;
@@ -958,6 +975,7 @@ async function dispatchProviderGeneration(item, provider, tab, message) {
 }
 
 async function dispatchFlowGeneration(item, tab, preparationId) {
+  if (item.target === 'gateway') await requireGatewayBinding(item);
   const request = submissionGate.arm({ itemId: item.id, provider: 'flow', tabId: tab.id });
   try {
     await submissionGate.checkpoint({ token: request.token, tabId: tab.id });
@@ -1005,7 +1023,7 @@ async function enqueue(items) {
 
 // Remove a single item from the queue — only if it hasn't started yet.
 async function removeFromQueue(id) {
-  await queueStore.update((queue) => queue.filter((item) => !(item.id === id && item.status === 'pending')));
+  await queueStore.update((queue) => queue.filter((item) => !(item.id === id && item.status === 'pending' && !gatewayNeedsReview(item))));
   return { ok: true };
 }
 
@@ -1258,7 +1276,8 @@ async function processQueue() {
       }
       settings = await getSettings();
       let q = await getQueue();
-      const idx = q.findIndex((i) => i.status === 'pending');
+      const gatewayActive = await gatewayIsActive(settings);
+      const idx = q.findIndex((i) => i.status === 'pending' && (i.target !== 'gateway' || gatewayActive));
       if (idx < 0) break;
       // Only a cooldown for the *next item's* provider should hold the queue —
       // one provider's cooldown must never block a pending item for another.
@@ -1294,6 +1313,12 @@ async function processQueue() {
       let providerActionAttempted = false;
       try {
         assertSupportedProjectScene(item);
+        if (item.target === 'gateway') {
+          await requireGatewayBinding(item);
+          const staged = await getGatewayArtifact(item.gatewayJobId);
+          if (!staged || staged.bytes) throw new Error('Gateway work already has a result or lost its references; deliver retained bytes without generating again.');
+          await reportImageProgress(settings, item.gatewayJobId, 'running', 'Preparing the queued image.');
+        }
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
         if (provider === 'chatgpt') tabs[provider] = await ensureChatgptReady(tabs[provider], settings);
@@ -1320,7 +1345,7 @@ async function processQueue() {
         // once it fills up so the tab/project stays light. Between-items, so the
         // Flow tab is idle — safe to navigate. Guarded so a rollover hiccup can
         // never fail the image that just succeeded.
-        if (provider === 'flow') {
+        if (provider === 'flow' && item.target !== 'gateway') {
           try {
             const stored = await chrome.storage.local.get(FLOW_COUNT_KEY);
             const n = (Number(stored[FLOW_COUNT_KEY]) || 0) + 1;
@@ -1343,6 +1368,10 @@ async function processQueue() {
           providerAttempted = e?.submitted !== false;
         }
         providerActionAttempted = providerActionAttempted || providerAttempted;
+        if (item.target === 'gateway') {
+          await holdGatewayImage(item, e, providerAttempted);
+          continue;
+        }
         if (provider !== 'leonardo' && providerAttempted && e?.providerRejectedBeforeGeneration === true) {
           let checkpointCleared = false;
           await queueStore.update((queue) => {
@@ -1489,7 +1518,8 @@ async function processQueue() {
     if (q.length) {
       const done = q.filter((i) => i.status === 'done').length;
       const failed = q.filter((i) => i.status === 'failed').length;
-      await writeStatus(`✓ Queue finished: ${done} saved${failed ? `, ${failed} failed` : ''}.`, 'done');
+      if (q.some(gatewayNeedsReview)) await writeStatus('Gateway work is retained. Select Gateway mode or review held results before continuing.', 'err');
+      else await writeStatus(`✓ Queue finished: ${done} saved${failed ? `, ${failed} failed` : ''}.`, 'done');
     }
     alarmClear();
   } finally {
@@ -1501,7 +1531,7 @@ async function processQueue() {
 async function clearQueue() {
   let cleared = 0;
   const queue = await queueStore.update((current) => {
-    const kept = current.filter((item) => item.status !== 'pending');
+    const kept = current.filter((item) => item.status !== 'pending' || gatewayNeedsReview(item));
     cleared = current.length - kept.length;
     return kept;
   });
@@ -1515,7 +1545,7 @@ async function clearQueue() {
 async function clearFailed() {
   let cleared = 0;
   await queueStore.update((current) => {
-    const kept = current.filter((item) => item.status !== 'failed');
+    const kept = current.filter((item) => item.status !== 'failed' || gatewayNeedsReview(item));
     cleared = current.length - kept.length;
     return kept;
   });
@@ -1531,7 +1561,7 @@ async function clearCompleted() {
       if (item.status !== 'done' || !item.slug || !item.episodeCode || item.slug === 'standalone') continue;
       episodes.set(`${item.slug}\u0000${item.episodeCode}`, { slug: item.slug, code: item.episodeCode });
     }
-    const kept = current.filter((item) => item.status !== 'done');
+    const kept = current.filter((item) => item.status !== 'done' || gatewayNeedsReview(item));
     cleared = current.length - kept.length;
     return kept;
   });
@@ -1544,7 +1574,7 @@ async function clearCompleted() {
 async function clearPendingFromFleet(expectedRevision) {
   await queueStore.updateIfRevision(
     expectedRevision,
-    (queue) => queue.filter((item) => item.status !== 'pending')
+    (queue) => queue.filter((item) => item.status !== 'pending' || gatewayNeedsReview(item))
   );
   await writeStatus('Pending queue items cleared by Fleet Hub.', 'info');
   return { cleared: true };
@@ -1553,6 +1583,14 @@ async function clearPendingFromFleet(expectedRevision) {
 // Resume only work with no evidence that a provider request or save completed.
 (async () => {
   const queue = await queueStore.update((current) => recoverInterruptedQueue(current, Date.now()));
+  const marker = (await chrome.storage.local.get('gatewayUnsettledClaim')).gatewayUnsettledClaim;
+  if (marker?.jobId && queue.some((item) => item.gatewayJobId === marker.jobId && item.gatewayBinding === marker.binding)) {
+    await chrome.storage.local.remove('gatewayUnsettledClaim');
+  }
+  for (const item of queue.filter((entry) => entry.target === 'gateway' && entry.gatewayAcknowledged === true)) {
+    try { await deleteGatewayArtifact(item.gatewayJobId); }
+    catch { await writeStatus('Gateway accepted prior work; retained local bytes still need cleanup.', 'err'); }
+  }
   if (queue.some((item) => item.status === 'pending')) {
     alarmCreate();
     processQueue();
@@ -1906,53 +1944,108 @@ async function pauseQueue({ byHub = false, commandId = '', expectedRevision } = 
   return { ok: true };
 }
 
-// ── Gateway image worker claim loop ─────────────────────────────────────────
-// Polls for new image jobs when gateway mode is enabled. Runs on its own alarm
-// (30s) so it never blocks or interferes with the regular provider queue.
-// Claimed jobs enter the same durable queue as story/standalone items.
+// Gateway jobs use the same provider queue and pacing. Held answers block claims.
 let gatewayPolling = false;
-
-async function gatewayClaimLoop() {
-  if (gatewayPolling) return;
+const GATEWAY_CLAIM_KEY = 'gatewayUnsettledClaim';
+async function gatewayIsActive(settings) {
+  return settings.gatewayModeEnabled === true &&
+    (await chrome.storage.local.get('imageGeneratorWorkMode')).imageGeneratorWorkMode === 'gateway';
+}
+async function requireGatewayBinding(item) {
   const settings = await getSettings();
-  if (!settings.gatewayModeEnabled) return;
+  if (!(await gatewayIsActive(settings)) || await gatewayBinding(settings) !== item.gatewayBinding) {
+    throw new Error('Gateway connection or mode changed; retained work will not be redirected.');
+  }
+  const health = await testImageGateway(settings);
+  return { ...settings, gatewayMaxResultBytes: health.maxResultBytes };
+}
+async function deliverGatewayImage(item) {
+  const settings = await requireGatewayBinding(item);
+  const staged = await getGatewayArtifact(item.gatewayJobId);
+  if (!staged?.bytes || staged.binding !== item.gatewayBinding) throw new Error('No matching retained image is available. Generation will not repeat.');
+  if (staged.bytes.byteLength > settings.gatewayMaxResultBytes) throw new Error(`Image exceeds Gateway upload limit of ${settings.gatewayMaxResultBytes} bytes; retained for review.`);
+  await reportImageResult(settings, item.gatewayJobId, staged.bytes, staged.mime);
+  const savedAs = `Gateway ${item.gatewayJobId}`;
+  // Persist acceptance before deleting bytes, including the restart window.
+  await queueStore.update((queue) => {
+    const current = queue.find((candidate) => candidate.id === item.id);
+    if (current) {
+      Object.assign(current, { status: 'done', gatewayAcknowledged: true, savedAs, finishedAt: Date.now() });
+      delete current.error;
+      delete current.failure;
+    }
+    return queue;
+  });
+  try { await deleteGatewayArtifact(item.gatewayJobId); }
+  catch { await writeStatus('Gateway accepted the image; local retained bytes still need cleanup.', 'info'); }
+  return { savedAs, target: 'gateway' };
+}
+async function holdGatewayImage(item, error, providerAttempted = true) {
+  let acknowledged = false;
+  try {
+    const staged = await getGatewayArtifact(item.gatewayJobId);
+    // An upload may already have won. Never race a retained result with /fail.
+    if (!staged?.bytes) {
+      const settings = await requireGatewayBinding(item);
+      await reportImageFailure(settings, item.gatewayJobId, error, providerAttempted);
+      acknowledged = !providerAttempted;
+      if (acknowledged) await deleteGatewayArtifact(item.gatewayJobId);
+    }
+  } catch { /* retain local evidence when the answer cannot be confirmed */ }
+  await queueStore.update((queue) => {
+    const current = queue.find((candidate) => candidate.id === item.id);
+    if (current) Object.assign(current, { status: 'failed', gatewayAcknowledged: acknowledged, fleetRetrySafe: false,
+      error: String(error?.message || error), finishedAt: Date.now(),
+      failure: { code: 'gateway-held', title: 'Gateway work needs review', hint: 'Deliver retained bytes again, or inspect the held job in Gateway. Generation will not repeat.', raw: String(error?.message || error) } });
+    return queue;
+  });
+  await writeStatus('Gateway work is held; generation will not repeat. Retained images can be delivered again.', 'err');
+}
+async function retryGatewayDelivery(id) {
+  if (processing || gatewayPolling) throw new Error('Wait for the current queue action to finish.');
+  processing = true;
+  try {
+    const item = (await getQueue()).find((candidate) => candidate.id === id && gatewayNeedsReview(candidate));
+    if (!item) throw new Error('No held Gateway job was selected.');
+    try { return { ok: true, ...await deliverGatewayImage(item) }; }
+    catch (error) { await holdGatewayImage(item, error); throw error; }
+  } finally { processing = false; }
+}
+async function gatewayClaimLoop() {
+  if (gatewayPolling || processing) return;
   gatewayPolling = true;
   try {
+    const settings = await getSettings();
+    if (!(await gatewayIsActive(settings)) || await isPaused()) return;
     const queue = await getQueue();
-    // Single in-flight: don't claim if a gateway job is already running/pending.
-    const hasGatewayInFlight = queue.some(
-      (i) => i.target === 'gateway' && (i.status === 'pending' || i.status === 'running')
-    );
-    if (hasGatewayInFlight) return;
-    let job;
-    try {
-      job = await claimImageJob(settings);
-    } catch (error) {
-      // Claim errors are logged but don't pause the loop — transient network
-      // issues shouldn't kill polling permanently.
-      await writeStatus(`Gateway claim failed: ${String(error?.message || error).slice(0, 200)}`, 'err');
+    if (queue.some((item) => gatewayNeedsReview(item) || item.status === 'pending' || item.status === 'running')) return;
+    if ((await chrome.storage.local.get(GATEWAY_CLAIM_KEY))[GATEWAY_CLAIM_KEY]) {
+      await writeStatus('Gateway has an unsettled claim. Review it in Gateway before reconnecting.', 'err');
       return;
     }
-    if (!job) return; // 204 / null = no work available
-    // Dedup: skip if this jobId is already in the queue (any status).
+    const health = await testImageGateway(settings);
+    const binding = await gatewayBinding(settings);
+    // If the claim response is lost, stop polling rather than assuming it was idle.
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, at: Date.now() } });
+    const job = await claimImageJob(settings);
+    if (!job) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, jobId: job.jobId, at: Date.now() } });
     if (isImageGatewayJobQueued(queue, job.jobId)) return;
     let item;
     try {
-      item = imageGatewayJobToItem(job, settings);
+      const normalized = normalizeImageGatewayJob(job);
+      item = { ...imageGatewayJobToItem(job, settings), gatewayBinding: binding, gatewayMaxResultBytes: health.maxResultBytes };
+      await putGatewayArtifact(job.jobId, { references: normalized.references, binding });
     } catch (error) {
-      // Schema rejection BEFORE provider invocation. Report failure back to
-      // Gateway so the job isn't silently lost.
-      try {
-        await reportImageFailure(settings, job.jobId, error, false);
-      } catch { /* best-effort */ }
-      await writeStatus(`Gateway job rejected: ${String(error?.message || error).slice(0, 200)}`, 'err');
-      return;
+      await reportImageFailure(settings, job.jobId, error, false);
+      await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+      throw error;
     }
     await enqueue([item]);
-    await writeStatus(`Gateway job claimed: ${item.label}`, 'info');
-  } finally {
-    gatewayPolling = false;
-  }
+    await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+  } catch (error) {
+    await writeStatus(`Gateway work stopped: ${String(error?.message || error).slice(0, 200)}`, 'err');
+  } finally { gatewayPolling = false; }
 }
 
 function gatewayAlarmCreate() {
@@ -2073,8 +2166,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reply(resumeQueue());
       return true;
     case 'gateway:testConnection':
-      // User-triggered health test only. Validates matching ok/workerId/kind.
       reply(getSettings().then((s) => testImageGateway(s)));
+      return true;
+    case 'gateway:retryDelivery':
+      reply(retryGatewayDelivery(msg.id));
       return true;
     default:
       return false;
@@ -2086,9 +2181,14 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
   if (alarm.name === GATEWAY_ALARM) gatewayClaimLoop();
 });
 
-// Start/stop gateway polling when settings change. The claim loop itself
-// checks gatewayModeEnabled every tick, so this is just alarm lifecycle.
-getSettings().then((settings) => {
-  if (settings.gatewayModeEnabled) gatewayAlarmCreate();
+async function syncGatewayAlarm() {
+  if (await gatewayIsActive(await getSettings())) gatewayAlarmCreate();
   else gatewayAlarmClear();
+}
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area === 'local' && (changes.imageGeneratorWorkMode || changes.gatewayConnection)) {
+    syncGatewayAlarm().catch(() => {});
+    processQueue().catch(() => {});
+  }
 });
+syncGatewayAlarm().catch(() => {});

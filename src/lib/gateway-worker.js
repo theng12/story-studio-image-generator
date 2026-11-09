@@ -1,138 +1,61 @@
-// Gateway Studio image worker mode — strict mapping between a gateway image job
-// and a queue item. Rejects malformed/missing schema BEFORE provider dispatch.
-// Kept separate from story/standalone paths so those modes are untouched.
-//
-// Wire proposal (Gateway currently ships video only; image kind is proposed):
-// job: {
-//   jobId: string (required),
-//   kind: 'image' (required),
-//   prompt: string (required),
-//   modelKey: string (required, must match known provider model),
-//   modelLabel?: string,
-//   aspectRatio?: '16:9' (only supported value; others REJECT),
-//   referenceImages?: [{ mediaType: string, dataBase64: string }] (all valid or reject),
-//   flowProjectId?: string (falls back to extension settings)
-// }
+import { getFlowModel, getProvider } from './providers.js';
+import { generationSettingsFor, snapshotProviderModel } from './model-identity.js';
+import { normalizeFlowProjectId } from './config.js';
 
+// This candidate serves captured Flow image models only. Other providers need
+// their own verified Gateway capability mapping; never invent model aliases.
 export const GATEWAY_IMAGE_KINDS = Object.freeze(['image']);
-
-// Source-grounded model mapping: only models the extension actually supports.
-// No arbitrary modelKey accepted; no settings model substituted.
-const KNOWN_IMAGE_MODELS = Object.freeze(new Set([
-  'nano-banana-2',       // Flow NARWHAL (free)
-  'nano-banana-2-lite',  // Flow HARBOR_SEAL (free)
-  'nano-banana-pro',     // Flow GEM_PIX_2
-  'phoenix-v1.0',        // Leonardo
-  'aistudio-imagen',     // AI Studio
-  'qwen-image',          // Qwen
-  'chatgpt-dalle',       // ChatGPT
-]));
-
-// Only 16:9 is verified captured for Flow. Other ratios are NOT invented.
-const SUPPORTED_ASPECT_RATIOS = Object.freeze(new Set(['16:9']));
-
-export function createImageGatewayWorkerId() {
-  if (globalThis.crypto?.randomUUID) return `imgworker_${crypto.randomUUID()}`;
-  return `imgworker_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+export const createImageGatewayWorkerId = () => `imgworker_${crypto.randomUUID()}`;
+function required(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`Gateway image job has no ${label}.`);
+  return value;
 }
-
-function requireString(value, label) {
-  const s = String(value || '').trim();
-  if (!s) throw new Error(`Gateway image job has no ${label}.`);
-  return s;
-}
-
-// Strict normalizer: rejects on ANY schema violation. Never silently drops
-// invalid references or defaults unsupported values — both could spend credits
-// on a different job than intended.
 export function normalizeImageGatewayJob(job) {
-  if (!job || typeof job !== 'object') throw new Error('Gateway image job is not an object.');
-  const jobId = requireString(job.jobId, 'id');
-  const kind = String(job.kind || '').trim();
-  if (!kind) throw new Error('Gateway image job has no kind.');
-  if (!GATEWAY_IMAGE_KINDS.includes(kind)) {
-    throw new Error(`Gateway job kind "${kind}" is not supported by the image worker.`);
+  if (!job || typeof job !== 'object' || Array.isArray(job)) throw new Error('Gateway image job is not an object.');
+  const jobId = required(job.jobId, 'id');
+  if (job.kind !== 'image') throw new Error('Gateway image job must state kind image.');
+  if (job.provider !== undefined && job.provider !== 'flow') throw new Error('Only captured Flow image models are available in this Gateway candidate.');
+  const prompt = required(job.prompt, 'prompt');
+  const model = getFlowModel(required(job.modelKey, 'model key'));
+  if (!model) throw new Error('Gateway image job has no known Flow model.');
+  const aspectRatio = job.aspectRatio ?? '16:9';
+  if (aspectRatio !== '16:9') throw new Error('Only captured 16:9 Flow output is available.');
+  const raw = job.referenceImages === undefined ? [] : job.referenceImages;
+  if (!Array.isArray(raw) || raw.length > getProvider('flow').capabilities.maxReferences) {
+    throw new Error('Gateway Flow references must be an array of at most four images.');
   }
-  const prompt = requireString(job.prompt, 'prompt');
-  const modelKey = requireString(job.modelKey, 'model key');
-  if (!KNOWN_IMAGE_MODELS.has(modelKey)) {
-    throw new Error(`Gateway image job model "${modelKey}" is not a known provider model.`);
-  }
-  // Aspect ratio: only 16:9 is verified. Missing defaults to 16:9; anything else rejects.
-  const rawRatio = job.aspectRatio == null ? null : String(job.aspectRatio).trim();
-  const aspectRatio = rawRatio == null || rawRatio === '' ? '16:9' : rawRatio;
-  if (!SUPPORTED_ASPECT_RATIOS.has(aspectRatio)) {
-    throw new Error(`Gateway image job aspect ratio "${aspectRatio}" is not supported (only 16:9).`);
-  }
-  // References: ALL entries must be valid, or the job is rejected. Silent drop
-  // would change what the provider receives vs what was requested.
-  const rawRefs = Array.isArray(job.referenceImages) ? job.referenceImages : [];
-  const references = [];
-  for (let i = 0; i < rawRefs.length; i++) {
-    const ref = rawRefs[i];
-    if (!ref || typeof ref !== 'object') {
-      throw new Error(`Gateway image job reference ${i + 1} is not an object.`);
-    }
-    const mediaType = String(ref.mediaType || '').trim();
-    const dataBase64 = String(ref.dataBase64 || '').trim();
-    if (!mediaType) throw new Error(`Gateway image job reference ${i + 1} has no mediaType.`);
-    if (!dataBase64) throw new Error(`Gateway image job reference ${i + 1} has no dataBase64.`);
-    if (!/^image\/[a-z0-9.+-]+$/i.test(mediaType)) {
-      throw new Error(`Gateway image job reference ${i + 1} has invalid mediaType "${mediaType}".`);
-    }
-    references.push({ mediaType, dataBase64 });
-  }
-  return {
-    jobId,
-    kind,
-    prompt,
-    modelKey,
-    modelLabel: String(job.modelLabel || modelKey),
-    aspectRatio,
-    references,
-    flowProjectId: String(job.flowProjectId || '').trim(),
-  };
+  const references = raw.map((ref) => {
+    if (!ref || !['image/png', 'image/jpeg', 'image/webp'].includes(ref.mediaType) ||
+        typeof ref.dataBase64 !== 'string' || !ref.dataBase64 || ref.dataBase64.length % 4 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(ref.dataBase64)) throw new Error('Gateway reference must contain valid PNG, JPEG or WebP bytes.');
+    let bytes;
+    try { bytes = Uint8Array.from(atob(ref.dataBase64), (c) => c.charCodeAt(0)); }
+    catch { throw new Error('Gateway reference encoding is invalid.'); }
+    const matches = ref.mediaType === 'image/png' ? [137,80,78,71,13,10,26,10].every((v, i) => bytes[i] === v)
+      : ref.mediaType === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+        : String.fromCharCode(...bytes.slice(0,4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8,12)) === 'WEBP';
+    if (!matches) throw new Error('Gateway reference bytes do not match their image type.');
+    return { base64: ref.dataBase64, mime: ref.mediaType, sourceKey: `${jobId}:${raw.indexOf(ref)}`, name: 'reference' };
+  });
+  return { jobId, kind: 'image', provider: 'flow', prompt, model, aspectRatio, references, flowProjectId: job.flowProjectId };
 }
-
-// Reference bytes are staged outside the durable queue. This count is metadata
-// only; actual bytes live in a runtime cache keyed by jobId.
-export function gatewayImageHasReferenceBytes(normalizedJob) {
-  return Array.isArray(normalizedJob?.references) && normalizedJob.references.length > 0;
-}
-
 export function imageGatewayJobToItem(job, settings) {
   const normalized = normalizeImageGatewayJob(job);
-  const projectId = String(normalized.flowProjectId || settings?.flowProjectId || '').trim();
-  if (!projectId) throw new Error('Gateway image job has no Flow project id.');
+  const projectId = normalizeFlowProjectId(normalized.flowProjectId ?? settings?.flowProjectId);
+  if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(projectId)) throw new Error('Gateway image job needs a valid Flow project id.');
+  const modelSnapshot = snapshotProviderModel({ provider: 'flow', configuredModel: normalized.model.id });
   return {
-    id: `gateway_${normalized.jobId}`,
-    status: 'pending',
-    phase: 'queued',
-    queuedAt: Date.now(),
-    slug: 'gateway',
-    projectName: 'Gateway Studio',
-    episodeCode: normalized.jobId.slice(0, 8),
-    episodeTitle: '',
-    sceneId: `gateway_${normalized.jobId}`,
-    label: `Gateway · ${normalized.jobId.slice(0, 8)}`,
-    imagePrompt: normalized.prompt,
-    motionPrompt: '',
-    projectId,
-    imageModel: settings?.imageModel,
-    imageModelKey: normalized.modelKey,
-    imageModelLabel: normalized.modelLabel,
-    imageModelSource: 'gateway',
-    aspectRatio: normalized.aspectRatio,
-    target: 'gateway',
-    gatewayJobId: normalized.jobId,
-    gatewayKind: normalized.kind,
+    id: `gateway_${normalized.jobId}`, gatewayJobId: normalized.jobId,
+    status: 'pending', queuedAt: Date.now(), source: 'gateway', kind: 'scene', target: 'gateway',
+    provider: 'flow', prompt: normalized.prompt, projectId,
+    label: `Gateway ${normalized.jobId.slice(0, 8)}`, modelSnapshot,
+    generationSettings: generationSettingsFor('flow', { aspectRatio: normalized.aspectRatio }, modelSnapshot),
     gatewayReferenceCount: normalized.references.length,
-    // Ambiguity defaults SAFE: any unproven failure holds the job rather than
-    // risking duplicate generation. Explicit false only after proven pre-submit.
-    gatewayAmbiguous: true,
   };
 }
-
-export function isImageGatewayJobQueued(queue, jobId) {
-  return (Array.isArray(queue) ? queue : []).some((item) => item.gatewayJobId === jobId);
+export const gatewayImageHasReferenceBytes = (job) => Array.isArray(job?.references) && job.references.length > 0;
+export const isImageGatewayJobQueued = (queue, jobId) => Array.isArray(queue) && queue.some((item) => item.gatewayJobId === jobId);
+export async function gatewayBinding(settings) {
+  const input = JSON.stringify([new URL(settings.gatewayUrl).href.replace(/\/+$/, ''), settings.gatewayWorkerId, settings.gatewayToken]);
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
