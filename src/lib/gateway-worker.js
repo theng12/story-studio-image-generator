@@ -39,11 +39,11 @@ export function normalizeImageGatewayJob(job) {
   });
   return { jobId, kind: 'image', provider: 'flow', prompt, model, aspectRatio, references, flowProjectId: job.flowProjectId };
 }
-export function imageGatewayJobToItem(job, settings) {
+export function imageGatewayJobToItem(job, settings, flowInventory) {
   const normalized = normalizeImageGatewayJob(job);
   const projectId = normalizeFlowProjectId(normalized.flowProjectId ?? settings?.flowProjectId);
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(projectId)) throw new Error('Gateway image job needs a valid Flow project id.');
-  const modelSnapshot = snapshotProviderModel({ provider: 'flow', configuredModel: normalized.model.id });
+  const modelSnapshot = snapshotProviderModel({ provider: 'flow', configuredModel: normalized.model.internalId, flowInventory });
   return {
     id: `gateway_${normalized.jobId}`, gatewayJobId: normalized.jobId,
     status: 'pending', queuedAt: Date.now(), source: 'gateway', kind: 'scene', target: 'gateway',

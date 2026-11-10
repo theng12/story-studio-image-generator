@@ -12,6 +12,8 @@ import {
 } from '../src/lib/model-identity.js';
 import { FLOW_FALLBACK_MODELS, getFlowModel } from '../src/lib/providers.js';
 
+const capturedInventory = (entries) => flowInventoryResult(entries, 'live');
+
 test('Flow exposes only exact tested fallback IDs', () => {
   assert.deepEqual(FLOW_FALLBACK_MODELS, [
     { id: 'nano-banana-2', internalId: 'NARWHAL', label: 'Nano Banana 2', source: 'fallback' },
@@ -29,7 +31,7 @@ test('Flow snapshots its exact internal ID as fallback data', () => {
 });
 
 test('Flow accepts exact provider-owned live IDs and labels only', () => {
-  const inventory = flowInventoryResult([
+  const inventory = capturedInventory([
     { id: 'FLOW_NEW_01', label: 'Nano Banana Experimental' },
     { id: 'FLOW_NEW_01', label: 'duplicate' },
     { id: 'Nano Banana Experimental', label: 'display-derived ID' },
@@ -60,7 +62,7 @@ test('removed live Flow IDs fail closed instead of falling back', () => {
 });
 
 test('Flow uses fallback provenance only when live discovery is empty', () => {
-  assert.deepEqual(flowInventoryResult([]), {
+  assert.deepEqual(capturedInventory([]), {
     source: 'fallback',
     models: [
       { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2' },
@@ -93,7 +95,7 @@ test('generation settings are copied, not retained by reference', () => {
 
 test('fallback Flow selection ignores persisted internal IDs across consecutive enqueues', () => {
   assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
-  const inventory = flowInventoryResult([]);
+  const inventory = capturedInventory([]);
   const initial = { imageModel: 'nano-banana-2' };
   const first = snapshotProviderModel({
     provider: 'flow',
@@ -136,7 +138,7 @@ test('fallback Flow selection ignores persisted internal IDs across consecutive 
 
 test('first enqueue maps a tested fallback selection to its exact live Flow ID', () => {
   assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
-  const inventory = flowInventoryResult([{ id: 'NARWHAL', label: 'Provider Nano Banana 2' }]);
+  const inventory = capturedInventory([{ id: 'NARWHAL', label: 'Provider Nano Banana 2' }]);
   const snapshot = snapshotProviderModel({
     provider: 'flow',
     configuredModel: modelIdentity.configuredFlowModel({ imageModel: 'nano-banana-2' }, inventory),
@@ -149,7 +151,7 @@ test('first enqueue maps a tested fallback selection to its exact live Flow ID',
 });
 
 test('released Flow settings resolve friendly and exact IDs without losing provenance', () => {
-  const live = flowInventoryResult([
+  const live = capturedInventory([
     { id: 'NARWHAL', label: 'Provider Nano Banana 2' },
     { id: 'FLOW_LIVE_NEW', label: 'Workspace Model' },
   ]);
@@ -171,7 +173,7 @@ test('released Flow settings resolve friendly and exact IDs without losing prove
 });
 
 test('first live Flow enqueue fails closed when the mapped exact catalog ID is absent', () => {
-  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  const inventory = capturedInventory([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
   assert.throws(
     () => snapshotProviderModel({
       provider: 'flow',
@@ -183,7 +185,7 @@ test('first live Flow enqueue fails closed when the mapped exact catalog ID is a
 });
 
 test('explicit live Flow selection remains authoritative over the fallback catalog setting', () => {
-  const inventory = flowInventoryResult([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
+  const inventory = capturedInventory([{ id: 'FLOW_LIVE_NEW', label: 'Flow Live New' }]);
   assert.equal(modelIdentity.configuredFlowModel({
     imageModel: 'FLOW_LIVE_NEW',
     flowModelId: 'FLOW_LIVE_NEW',
@@ -193,7 +195,7 @@ test('explicit live Flow selection remains authoritative over the fallback catal
 });
 
 test('live Flow snapshots follow a changed friendly selection across consecutive enqueues', () => {
-  const inventory = flowInventoryResult([
+  const inventory = capturedInventory([
     { id: 'NARWHAL', label: 'Provider Nano Banana 2' },
     { id: 'GEM_PIX_2', label: 'Provider Nano Banana Pro' },
   ]);

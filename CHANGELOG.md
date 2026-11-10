@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.12 — 2026-11-10
+
+- Label Flow's bundled models honestly while keeping manual Story Studio and Standalone generation available.
+- Keep Gateway work stopped when Flow's current model availability cannot be verified.
+
 ## 0.50.11 — 2026-11-10
 
 - Keep duplicate Gateway jobs held for review after the extension restarts, without generating again.

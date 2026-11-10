@@ -47,9 +47,10 @@ export function normalizeFlowInventory(entries) {
   });
 }
 
-export function flowInventoryResult(entries) {
+export function flowInventoryResult(entries, source = MODEL_SOURCES.FALLBACK) {
   const models = normalizeFlowInventory(entries);
-  if (models.length) return { source: MODEL_SOURCES.LIVE, models };
+  // Only an actual provider capture may supply live provenance.
+  if (source === MODEL_SOURCES.LIVE && models.length) return { source: MODEL_SOURCES.LIVE, models };
   return {
     source: MODEL_SOURCES.FALLBACK,
     models: FLOW_FALLBACK_MODELS.map(({ internalId, label }) => ({ modelId: internalId, modelLabel: label })),

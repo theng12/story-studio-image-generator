@@ -881,7 +881,7 @@ async function queueAllPending() {
   const flowApproval = approved.flowModelApproval;
   const assetLabel = approved.kind === 'thumbnail' ? 'thumbnail' : 'scene';
   const modelNote = flowApproval
-    ? ` Images use ${flowApproval.modelLabel} (${flowApproval.modelSource === 'live' ? 'live workspace' : 'tested fallback'}).`
+    ? ` Images use ${flowApproval.modelLabel} (${flowApproval.modelSource === 'live' ? 'live workspace' : 'bundled catalog'}).`
     : '';
   $('confirmBody').textContent =
     `Loads ${approved.episodes.length} pending episode${approved.episodes.length > 1 ? 's' : ''} and queues every missing ${assetLabel} image via ` +
@@ -1561,7 +1561,7 @@ async function refreshFlowModels() {
     provenance.dataset.source = source;
     provenance.textContent = source === 'live'
       ? 'Live from this signed-in Flow workspace'
-      : 'Tested fallback catalog; live discovery unavailable';
+      : 'Bundled model catalog; current availability not checked';
     if (!currentFlowModels.length) {
       select.selectedIndex = -1;
     } else {
@@ -1706,7 +1706,7 @@ function confirmQueue() {
   const n = `${scenes.length} ${noun}${scenes.length > 1 ? 's' : ''}`;
   if (isFlow) {
     const modelLabel = context.flowModelApproval.modelLabel;
-    const provenance = context.flowModelApproval.modelSource === 'live' ? 'live workspace' : 'tested fallback';
+    const provenance = context.flowModelApproval.modelSource === 'live' ? 'live workspace' : 'bundled catalog';
     $('confirmTitle').textContent = `Queue these ${noun}s?`;
     $('confirmBody').textContent =
       `${n} from ${context.episodeCode} → ` +

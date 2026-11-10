@@ -39,17 +39,19 @@ only reference descriptors and downloads the bounded image bytes when a job
 runs.
 
 New provider integrations and most new provider models require an extension
-update. Flow and Leonardo are live-discovered where applicable: Flow reads its
-signed-in workspace inventory, and Leonardo reads its signed-in page when you
-refresh models in the side panel.
+update. Flow currently uses bundled model records for manual work; its model
+list does not verify current availability or sign-in. Leonardo reads its
+signed-in page when you refresh models in the side panel.
 
 ## Model Identity And Queue Safety
 
 Queued work snapshots its model identity and generation settings, so active
-batch diagnostics show the configuration that was actually queued. Flow reads
-exact provider-owned model IDs and labels from the signed-in workspace and
-reports when that inventory is live; only when discovery is unavailable does it
-use the three tested fallback IDs. Google AI Studio, Qwen Studio, and ChatGPT
+batch diagnostics show the configuration that was actually queued. Flow's
+three bundled model IDs remain available for manual Story Studio and Standalone
+work with fallback provenance. There is currently no verified Flow live inventory
+capture. Gateway claims and submissions require captured live inventory and
+refuse bundled or unavailable data. Opening a tab or retaining an old inventory
+does not meet that requirement. Google AI Studio, Qwen Studio, and ChatGPT
 remain website-controlled, while Leonardo is live-discovered. Unknown or
 changed verifiable selections fail before submission and require refresh and
 re-queue.

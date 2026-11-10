@@ -518,10 +518,11 @@ test('every provider handler dispatches through immutable generation parameter c
   assert.match(generate, /recaptchaMaxAttempts:\s*settings\.flowRecaptchaMaxAttempts/);
 });
 
-test('Flow discovery is read-only and lists only the models the Flow picker shows', () => {
+test('Flow bundled model listing is read-only and explicitly fallback', () => {
   const flow = source('src/lib/flow-exec.js');
   const list = flow.slice(flow.indexOf('const listImageModels'), flow.indexOf('const preparedRequests'));
   assert.match(list, /KNOWN_MODELS/);
+  assert.match(list, /source: 'fallback'/);
   assert.doesNotMatch(list, /fetch\(|rpc\(/);
   assert.doesNotMatch(flow, /IMAGE_MODELS\[.*\]\s*\|\|/);
 });
@@ -536,7 +537,7 @@ test('Flow queue execution rechecks the exact live snapshot before POST', () => 
   assert.match(background, /model-selection-changed|model-unknown/);
 });
 
-test('Flow model discovery never touches the network and yields the known picker models', async () => {
+test('Flow model listing never touches the network and yields bundled fallback models', async () => {
   const fetches = [];
   const context = {
     window: {},
@@ -550,12 +551,12 @@ test('Flow model discovery never touches the network and yields the known picker
   const command = runInNewContext(`(${flowCommand.toString()})`, context);
   const listed = await command({ op: 'listImageModels', payload: {} });
   assert.equal(listed.ok, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries))), {
-    source: 'live',
+  assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries, listed.result.source))), {
+    source: 'fallback',
     models: [
-      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
       { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2' },
       { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
+      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
     ],
   });
   assert.equal(fetches.length, 0);
@@ -927,9 +928,11 @@ test('Flow refresh preserves a rendered live selection after a delayed save', ()
   assert.ok(previous < replace, 'refresh preserves B before rendering the returned inventory');
 });
 
-test('README documents Flow and Leonardo live discovery where applicable', () => {
+test('README distinguishes bundled Flow records from Leonardo discovery and Gateway eligibility', () => {
   const readme = source('README.md');
-  assert.match(readme, /Flow and Leonardo are live-discovered where applicable/i);
+  assert.match(readme, /Flow currently uses bundled model records/);
+  assert.match(readme, /no verified Flow live inventory\s+capture/);
+  assert.match(readme, /Gateway claims and submissions require captured live inventory/);
 });
 
 test('Flow disables model selection throughout refresh and leaves an empty inventory disabled', () => {

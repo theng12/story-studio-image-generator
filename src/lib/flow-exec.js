@@ -140,9 +140,9 @@ export async function flowCommand(command) {
       if (buffer.byteLength > 50 * 1024 * 1024) throw new Error('Downloaded image exceeded 50 MB.');
       return { base64: bufToBase64(buffer), mime: contentType || 'image/png' };
     };
-    // The Angular app has no page-side model manifest; this is the list its
-    // own picker shows. Read-only, no network.
-    const listImageModels = async () => ({ entries: KNOWN_MODELS.map(([id, label]) => ({ id, label })) });
+    // No verified inventory capture exists for this app; these bundled IDs
+    // support manual generation but prove neither current availability nor sign-in.
+    const listImageModels = async () => ({ source: 'fallback', entries: KNOWN_MODELS.map(([id, label]) => ({ id, label })) });
     const preparedRequests = window.__STORY_STUDIO_FLOW_IMAGE_PREPARATIONS__ ||= new Map();
     const prepareGenerateImage = async () => {
       const projectId = projectIdFor(payload.projectId);

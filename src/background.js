@@ -474,7 +474,7 @@ async function refreshFlowModels(tabId) {
   try {
     const targetId = Number.isInteger(tabId) ? tabId : (await ensureFlowTab()).id;
     const response = await send(targetId, { type: 'flow:listImageModels' });
-    const inventory = flowInventoryResult(response.entries);
+    const inventory = flowInventoryResult(response.entries, response.source);
     const refreshedAt = Date.now();
     const stored = {
       source: inventory.source,
@@ -484,7 +484,9 @@ async function refreshFlowModels(tabId) {
     await chrome.storage.local.set({ [FLOW_MODEL_INVENTORY_KEY]: stored });
     return { ok: true, ...stored };
   } catch {
-    return { ok: false, code: 'flow-model-discovery-unavailable' };
+    const inventory = { ...flowInventoryResult([]), refreshedAt: Date.now() };
+    await chrome.storage.local.set({ [FLOW_MODEL_INVENTORY_KEY]: inventory });
+    return { ok: false, code: 'flow-model-discovery-unavailable', ...inventory };
   }
 }
 
@@ -508,6 +510,9 @@ const modelError = (code, message) => Object.assign(new Error(message), { code }
 async function requireCurrentFlowModel(item, tabId) {
   const current = await refreshFlowModels(tabId);
   if (!current.ok) throw modelError('model-unknown', 'Flow model discovery is unavailable. Refresh the signed-in Flow page and re-queue this item.');
+  if ((item.target === 'gateway' || item.modelSnapshot.modelSource === 'live') && current.source !== 'live') {
+    throw modelError('model-unknown', 'Flow has only bundled model records. Gateway and live-model work require a captured live inventory; manual work can use the bundled catalog.');
+  }
   if (item.modelSnapshot.modelSource === 'live') {
     const selected = current.models.find((model) => model.modelId === item.modelSnapshot.modelId);
     if (!selected || selected.modelLabel !== item.modelSnapshot.modelLabel) {
@@ -2024,6 +2029,10 @@ async function gatewayClaimLoop() {
       await writeStatus('Gateway has an unsettled claim. Review it in Gateway before reconnecting.', 'err');
       return;
     }
+    const inventory = await refreshFlowModels();
+    if (!inventory.ok || inventory.source !== 'live') {
+      throw modelError('model-unknown', 'Flow has no captured live inventory. Gateway work will not be claimed; manual work can use the bundled catalog.');
+    }
     const health = await testImageGateway(settings);
     const binding = await gatewayBinding(settings);
     const claimId = crypto.randomUUID();
@@ -2036,7 +2045,7 @@ async function gatewayClaimLoop() {
     let item;
     try {
       const normalized = normalizeImageGatewayJob(job);
-      item = { ...imageGatewayJobToItem(job, settings), gatewayBinding: binding, gatewayClaimId: claimId, gatewayMaxResultBytes: health.maxResultBytes };
+      item = { ...imageGatewayJobToItem(job, settings, inventory), gatewayBinding: binding, gatewayClaimId: claimId, gatewayMaxResultBytes: health.maxResultBytes };
       await putGatewayArtifact(job.jobId, { references: normalized.references, binding });
     } catch (error) {
       await reportImageFailure(settings, job.jobId, error, false);

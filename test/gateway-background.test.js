@@ -37,7 +37,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { humanDelayMinSec: 0, humanDelayMaxSec: 0, ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval'].map((key) => [key, globalThis[key]]));
@@ -47,13 +47,16 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   globalThis.chrome = {
     storage: { local: area(local), sync: area(sync), session: area({}), onChanged: { addListener() {} } },
     alarms: { create() {}, clear() {}, onAlarm: { addListener(fn) { alarms.push(fn); } } },
-    runtime: { getManifest: () => ({ version: '0.50.11' }), onMessage: { addListener(fn) { listener = fn; } } },
+    runtime: { getManifest: () => ({ version: '0.50.12' }), onMessage: { addListener(fn) { listener = fn; } } },
     sidePanel: { setPanelBehavior: async () => {} },
     downloads: { download: async (options) => { downloads.push(clone(options)); return downloads.length; } },
     tabs: { query: async () => [tab], get: async () => tab },
     scripting: { async executeScript({ args }) {
       const command = args[0]; provider.push(clone(command));
-      if (command.op === 'listImageModels') return [{ result: { ok: true, result: { entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } }];
+      if (command.op === 'listImageModels') {
+        if (inventory instanceof Error) throw inventory;
+        return [{ result: { ok: true, result: clone(inventory) } }];
+      }
       if (command.op === 'uploadImage') return [{ result: { ok: true, result: uploadConfirmed ? { mediaId: 'ref-exact' } : {} } }];
       if (command.op === 'prepareGenerateImage') return [{ result: { ok: true, result: { preparationId: 'prepared' } } }];
       if (command.op === 'submitGenerateImage') {
@@ -96,6 +99,65 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     restore() { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; },
   };
 }
+
+test('fallback, empty, cached, unattributed or failed inventory never authorizes a Gateway claim or stale live cache', async () => {
+  for (const inventory of [
+    { source: 'fallback', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
+    { entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
+    { source: 'cached', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
+    { source: 'live', entries: [] },
+    new Error('fixture inventory unavailable'),
+  ]) {
+    const worker = await boot({ inventory, local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway',
+      flowImageModelInventory: { source: 'live', refreshedAt: 1, models: [{ modelId: 'STALE_MODEL', modelLabel: 'Old' }] } } });
+    try {
+      worker.tick();
+      await waitFor(() => worker.local.lastStatus?.text.includes('no captured live inventory'));
+      await worker.stopped();
+      assert.equal(worker.calls.length, 0, 'No Gateway request, including claim, may rely on fallback.');
+      assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+      assert.equal(worker.local.gatewayUnsettledClaim, undefined);
+      assert.equal(worker.local.flowImageModelInventory.source, 'fallback');
+      assert.equal(worker.local.flowImageModelInventory.models.some(({ modelId }) => modelId === 'STALE_MODEL'), false);
+    } finally { worker.restore(); }
+  }
+});
+
+test('queued Gateway work loses eligibility when current inventory is only fallback, without submitting', async () => {
+  rows = new Map();
+  const binding = await gatewayBinding(connection);
+  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding };
+  rows.set(JOB.jobId, { references: [{ base64: PNG, mime: 'image/png', sourceKey: 'fixture-ref', name: 'reference' }], binding });
+  const worker = await boot({ inventory: { source: 'fallback', entries: [] }, local: {
+    gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [item],
+  } });
+  try {
+    await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
+    await worker.stopped();
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim') || url.endsWith('/result')).length, 0);
+    const failure = worker.calls.find(({ url }) => url.endsWith('/fail'));
+    assert.equal(JSON.parse(failure.init.body).ambiguous, false);
+    assert.notEqual(worker.local.queue[0].providerAttempted, true);
+  } finally { worker.restore(); }
+});
+
+test('a queued live manual model cannot be verified by the bundled list after inventory is lost', async () => {
+  const item = imageGatewayJobToItem(JOB, {});
+  item.target = 'download';
+  item.source = 'standalone';
+  item.modelSnapshot.modelSource = item.generationSettings.modelSource = 'live';
+  const worker = await boot({ mode: 'standalone', inventory: { source: 'fallback', entries: [] }, local: {
+    gatewayConnection: clone(connection), imageGeneratorWorkMode: 'standalone', queue: [item],
+  } });
+  try {
+    await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
+    await worker.stopped();
+    assert.equal(worker.calls.length, 0);
+    assert.equal(worker.downloads.length, 0);
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+  } finally { worker.restore(); }
+});
 
 test('local credential migration strips sync and does not activate a different mode', async () => {
   const worker = await boot({ local: { imageGeneratorWorkMode: 'standalone' }, synced: connection });
@@ -216,7 +278,7 @@ test('legacy claim markers remain held when an older matching job is already com
 });
 
 test('Standalone enqueue downloads exact bytes without Gateway work when its connection is enabled', async () => {
-  const worker = await boot({ mode: 'standalone', synced: { imageModel: 'nano-banana-2', flowProjectId: JOB.flowProjectId, flowAutoNewProject: false } });
+  const worker = await boot({ mode: 'standalone', inventory: { source: 'fallback', entries: [] }, synced: { imageModel: 'nano-banana-2-lite', flowProjectId: JOB.flowProjectId, flowAutoNewProject: false } });
   try {
     const result = await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, label: 'quiet village', provider: 'flow' } });
     assert.equal(result.ok, true);
@@ -231,18 +293,21 @@ test('Standalone enqueue downloads exact bytes without Gateway work when its con
     assert.equal(worker.downloads[0].saveAs, false);
     assert.equal(worker.downloads[0].conflictAction, 'uniquify');
     assert.equal(worker.local.queue[0].target, 'download');
+    assert.equal(worker.local.queue[0].modelSnapshot.modelId, 'HARBOR_SEAL');
+    assert.equal(worker.local.queue[0].modelSnapshot.modelSource, 'fallback');
+    assert.equal(worker.provider.find(({ op }) => op === 'prepareGenerateImage').payload.modelId, 'HARBOR_SEAL');
     assert.equal(worker.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
   } finally { worker.restore(); }
 });
 
 test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scenes before submission', async () => {
-  const worker = await boot({ mode: 'studio', allowStorySave: true, synced: {
+  const worker = await boot({ mode: 'studio', allowStorySave: true, inventory: { source: 'fallback', entries: [] }, synced: {
     imageModel: 'nano-banana-2', flowProjectId: JOB.flowProjectId, flowAutoNewProject: false,
     storyStudioReferencesEnabled: false, studioBaseUrl: 'http://studio.invalid',
   } });
   const payload = { slug: 'my project', episodeCode: 'EP 0001', kind: 'scene', provider: 'flow',
     scenes: [{ key: 'scene/one', prompt: JOB.prompt }],
-    flowModelApproval: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' } };
+    flowModelApproval: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback' } };
   try {
     const refused = await worker.send({ type: 'enqueueScenes', payload: { ...payload, source: 'prompts' } });
     assert.equal(refused.ok, false);
@@ -363,7 +428,7 @@ test('Story/standalone or disabled mode never claims; schema rejection never inv
     invalid.tick();
     await waitFor(() => invalid.calls.some((entry) => entry.url.endsWith('/fail')));
     await invalid.stopped();
-    assert.equal(invalid.provider.length, 0);
+    assert.equal(invalid.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
     assert.equal(JSON.parse(invalid.calls.find((entry) => entry.url.endsWith('/fail')).init.body).ambiguous, false);
   } finally { invalid.restore(); }
 });
