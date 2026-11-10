@@ -121,6 +121,13 @@ telemetry. `quoteRequired` is an unclaimed, read-only preview, never a generatio
 request. An unexpected executable offer is durably held, and legacy pending
 Gateway work is retained for review. New Gateway generation remains refused
 until the actual signed-in stable provider account and exact quote are captured.
+Executable claims require a fresh observation of that same provider/account in
+that same request, a matching exact quote, and the current applied control revision;
+a cached observation or server-returned account binding cannot replace them.
+A pause acknowledgement during generating/recovering work does not authorize
+closing Chrome. Gateway alone decides safe closure from fresh exact-revision
+paused state, known idle/cooling/resting/waiting activity and absence of active,
+held or durable unknown work.
 
 Worker IDs and tokens identify a connection, not a Chrome profile/provider
 account or shared credit pool. Fleet v2 separately sends extension-local

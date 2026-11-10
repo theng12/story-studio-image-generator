@@ -38,7 +38,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -98,8 +98,9 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
       return Response.json({ ok: true, receivedAt: Date.now() / 1000, control });
     }
     if (url.endsWith('/claim')) {
+      await onClaim?.(JSON.parse(init.body), local, sync.settings);
       if (claimLost) throw new Error('Fixture claim connection lost.');
-      return Response.json({ job: quoteRequired ? null : job, ...(quoteRequired ? { quoteRequired } : {}), control });
+      return Response.json({ job: quoteRequired ? null : job, ...(quoteRequired ? { quoteRequired } : {}), control, ...claimEnvelope });
     }
     if (url.endsWith('/result')) {
       entry.bytes = Buffer.from(await init.body.get('file').arrayBuffer());
@@ -323,6 +324,106 @@ test('an older control reply cannot undo a newer durable stop', async () => {
     assert.equal(state.paused, true);
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
   } finally { worker.restore(); }
+});
+
+test('claim state reads the freshly applied current revision and pacing after both telemetry replies change controls', async () => {
+  const clock = { now: 10_000_000 };
+  const control = { dispatchEnabled: true, closeRequested: false, revision: 'pace-1', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  const reports = [];
+  let claimed = false;
+  const worker = await boot({ clock, control, job: null, onTelemetry: (body) => {
+    reports.push(body.telemetry.state);
+    clock.now += 100;
+    const sequence = reports.length + 1;
+    Object.assign(control, { revision: `pace-${sequence}`, requestedAt: sequence, pacing: { minSeconds: sequence / 4, maxSeconds: sequence / 2 } });
+  }, onClaim: (body, local, settings) => {
+    claimed = { body: clone(body), applied: clone(local.gatewayWorkerControl), settings: clone(settings) };
+  } });
+  try {
+    worker.tick(); await waitFor(() => claimed); await worker.stopped();
+    const state = claimed.body.telemetry.state;
+    assert.equal(state.controlRevision, control.revision);
+    assert.equal(claimed.applied.revision, control.revision);
+    assert.deepEqual(state.pacing, control.pacing);
+    assert.deepEqual([claimed.settings.humanDelayMinSec, claimed.settings.humanDelayMaxSec], [control.pacing.minSeconds, control.pacing.maxSeconds]);
+    assert.equal(state.observedAt, new Date(clock.now).toISOString());
+    assert.equal(claimed.body.account, undefined);
+    assert.equal(claimed.body.quote, undefined);
+    assert.deepEqual(reports.map((state) => state.controlRevision), ['pace-1', 'pace-2']);
+    assert.equal(worker.local.gatewayWorkerControl.revision, 'pace-3');
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+  } finally { worker.restore(); }
+});
+
+test('desired resume is acknowledged only after the actual stop and pacing readback changes', async () => {
+  const control = offControl('before-resume', { minSeconds: 0, maxSeconds: 0 });
+  const reports = [];
+  let claimed = false;
+  const worker = await boot({ control, job: null, onTelemetry: (body, local) => {
+    reports.push(body.telemetry.state);
+    assert.equal(body.telemetry.state.controlRevision, local.gatewayWorkerControl.revision);
+    if (reports.length === 1) Object.assign(control, { dispatchEnabled: true, closeRequested: false, revision: 'applied-resume', requestedAt: 3, pacing: { minSeconds: 0.5, maxSeconds: 1 } });
+  }, onClaim: (body) => { claimed = clone(body); } });
+  try {
+    worker.tick(); await waitFor(() => claimed); await worker.stopped();
+    assert.equal(claimed.telemetry.state.controlRevision, 'applied-resume');
+    assert.deepEqual(reports.map((state) => state.controlRevision), ['before-resume', 'applied-resume']);
+    assert.equal(reports[0].paused, true);
+    assert.equal(reports[0].enabled, false);
+    assert.equal(reports[1].paused, false);
+    assert.equal(reports[1].enabled, true);
+    assert.deepEqual(reports[1].pacing, { minSeconds: 0.5, maxSeconds: 1 });
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+  } finally { worker.restore(); }
+});
+
+test('server accountBinding and reservation cannot replace an actual same-request account observation and exact quote', async () => {
+  const worker = await boot({ claimEnvelope: { accountBinding: { provider: 'flow', accountId: 'server-only-account' },
+    reservation: { payloadSha256: 'c'.repeat(64), value: 0, unit: 'credits' } } });
+  try {
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without a verified provider account')); await worker.stopped();
+    const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
+    assert.equal(body.account, undefined);
+    assert.equal(body.quote, undefined);
+    assert.equal(body.telemetry.state.signIn, 'unknown');
+    assert.equal(body.telemetry.state.readiness, 'not_ready');
+    assert.equal(worker.local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.equal(worker.local.queue?.length || 0, 0);
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.calls.some(({ url }) => /\/admin\/|\/(result|fail)$/.test(url)), false, 'Worker never changes the app-only spending flag or settles an unobserved offer.');
+  } finally { worker.restore(); }
+});
+
+test('a quoteRequired preview remains non-executable even if its executionAuthorized flag is incorrectly true', async () => {
+  const worker = await boot({ quoteRequired: { job: JOB, payloadSha256: 'd'.repeat(64), executionAuthorized: true } });
+  try {
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('quote preview only')); await worker.stopped();
+    assert.equal(worker.local.gatewayUnsettledClaim, undefined);
+    assert.equal(worker.local.queue?.length || 0, 0);
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('close acknowledgement keeps unknown claims recovering across restart and never advertises a safe close', async () => {
+  const clock = { now: 11_000_000 };
+  const marker = { claimId: 'unknown-claim', jobId: JOB.jobId, at: clock.now - 1000 };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', gatewayUnsettledClaim: clone(marker) };
+  for (let restart = 0; restart < 2; restart++) {
+    const worker = await boot({ local, clock, control: offControl('close-unknown', { minSeconds: 0, maxSeconds: 0 }) });
+    try {
+      worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+      const state = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body).telemetry.state;
+      assert.equal(state.controlRevision, 'close-unknown');
+      assert.equal(state.paused, true);
+      assert.equal(state.activity, 'recovering');
+      assert.equal(state.attention, true);
+      assert.equal(Object.hasOwn(state, 'safeToClose'), false, 'Only Gateway can decide close eligibility.');
+      assert.deepEqual(local.gatewayUnsettledClaim, marker);
+      assert.equal(worker.workCalls.length, 0);
+      assert.equal(worker.provider.length, 0);
+    } finally { worker.restore(); }
+  }
 });
 
 test('default random pacing is inclusive 5–15s after completion, even when generation takes longer', async () => {
