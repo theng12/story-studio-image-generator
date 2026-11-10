@@ -87,6 +87,37 @@ capture, selection, queue snapshot and the applicable Story/Gateway caller.
 Record unsupported fields and counterpart dependencies explicitly. Source and
 offline fixtures alone do not complete live discovery or control acceptance.
 
+## Pacing And Manager Contract
+
+New settings default to an inclusive random 5–15 second gap after generation.
+The side panel's Human pace controls retain custom values, including Off (0–0),
+and existing saved ranges are not migrated. Values are whole seconds, clamped to
+0–3600 and ordered minimum to maximum. A chosen wait keeps its persisted deadline
+across worker restarts; edits during generation apply to the next gap.
+
+The local `nextProviderRunAt` value is an epoch-millisecond deadline. Generation
+waits for it and rechecks provider cooldown before starting. Gateway checks both
+that deadline and `cooldownUntil.flow` before discovery and again before claiming;
+paused, active, retained or unsettled work also prevents a new claim. Its existing
+30-second polling alarm can add idle time after eligibility. Pacing never clears
+an uncertain claim or authorizes regeneration of retained results.
+
+Gateway wire v1 still sends only `{ workerId, kind: 'image' }` to claim. Its scoped
+worker ID and token identify this worker connection; they do not identify the
+Chrome profile, signed-in provider account or a shared image/video credit pool.
+Fleet v2 separately sends extension-local `agentId`/`machineId`, a per-worker
+`sessionId`, queue state and configured delay bounds. Those generated IDs are not
+verified browser or account identities, and neither wire reports provider credit
+balance, credit-source identity, reset time or the persisted pacing deadline.
+
+Relay owns the real-Chrome account-manager mapping. Its shared image/video
+browser/account identity, credit-source key and scheduling contract still need
+counterpart integration. This extension does not create separate balances,
+assume a free allowance/reset timezone, or sum a shared balance per worker.
+Cross-extension pacing and mutual exclusion also require that shared manager;
+this source enforces one active generation and claim eligibility locally only.
+Browser TTS is outside this image extension and remains optional/off in Relay.
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.

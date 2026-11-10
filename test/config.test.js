@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULTS, getSettings, normalizeSettings, normalizeFlowWorkspaceUrl, flowWorkspace } from '../src/lib/config.js';
 
+test('pacing defaults to 5–15s while normalization preserves custom values and explicit zero', () => {
+  const defaults = normalizeSettings({});
+  assert.deepEqual([defaults.humanDelayMinSec, defaults.humanDelayMaxSec], [5, 15]);
+  for (const [min, max, expected] of [[0, 0, [0, 0]], [5, 60, [5, 60]], [23, 7, [7, 23]], ['0', '0', [0, 0]]]) {
+    const settings = normalizeSettings({ ...DEFAULTS, humanDelayMinSec: min, humanDelayMaxSec: max });
+    assert.deepEqual([settings.humanDelayMinSec, settings.humanDelayMaxSec], expected);
+  }
+});
+
 test('normalizes removed provider selections to Flow', () => {
   const settings = normalizeSettings({ ...DEFAULTS, provider: 'piclumen' });
 

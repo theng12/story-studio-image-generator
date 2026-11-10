@@ -66,7 +66,7 @@ export const DEFAULTS = {
   // Human-paced gap between provider requests. A fresh random value in this
   // inclusive range is persisted after every attempt, surviving worker death.
   humanDelayMinSec: 5,
-  humanDelayMaxSec: 60,
+  humanDelayMaxSec: 15,
 
   // Flow remints a fresh reCAPTCHA token this many times within a single
   // generation before giving up. Distinct from the per-provider auto-resume

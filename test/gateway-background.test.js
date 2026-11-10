@@ -10,6 +10,7 @@ const JOB = { jobId: 'image/a', kind: 'image', provider: 'flow', prompt: 'A quie
 const connection = { gatewayModeEnabled: true, gatewayUrl: 'http://gateway.invalid', gatewayToken: 'fixture-only', gatewayWorkerId: 'fixture-image' };
 const clone = (value) => value === undefined ? value : structuredClone(value);
 let rows = new Map();
+let bootId = 0;
 const fakeDatabase = {
   transaction() {
     const transaction = { objectStore: () => ({
@@ -37,17 +38,26 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onHealth, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
-  const sync = { settings: { humanDelayMinSec: 0, humanDelayMaxSec: 0, ...synced } };
-  const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval'].map((key) => [key, globalThis[key]]));
+  const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
+  const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
+  const realNow = Date.now, realRandom = Math.random;
+  const timers = new Map();
+  let timerId = 0;
+  if (clock) {
+    Date.now = () => clock.now;
+    Math.random = () => clock.random ?? 0;
+    globalThis.setTimeout = (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: clock.now + ms }); return id; };
+    globalThis.clearTimeout = (id) => timers.delete(id);
+  }
   const alarms = [], calls = [], provider = [], downloads = [];
   let listener;
   const tab = { id: 7, status: 'complete', url: `https://flow.google.com/project/${JOB.flowProjectId}` };
   globalThis.chrome = {
     storage: { local: area(local), sync: area(sync), session: area({}), onChanged: { addListener() {} } },
     alarms: { create() {}, clear() {}, onAlarm: { addListener(fn) { alarms.push(fn); } } },
-    runtime: { getManifest: () => ({ version: '0.50.12' }), onMessage: { addListener(fn) { listener = fn; } } },
+    runtime: { getManifest: () => ({ version: '0.50.13' }), onMessage: { addListener(fn) { listener = fn; } } },
     sidePanel: { setPanelBehavior: async () => {} },
     downloads: { download: async (options) => { downloads.push(clone(options)); return downloads.length; } },
     tabs: { query: async () => [tab], get: async () => tab },
@@ -76,7 +86,10 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     }
     assert.equal(new URL(url).origin, connection.gatewayUrl, 'No real network or unexpected Story request permitted.');
     const entry = { url, init }; calls.push(entry);
-    if (url.endsWith('/health')) return Response.json({ ok: true, kind: 'image', workerId: connection.gatewayWorkerId, maxResultBytes: uploadLimit });
+    if (url.endsWith('/health')) {
+      await onHealth?.(local);
+      return Response.json({ ok: true, kind: 'image', workerId: connection.gatewayWorkerId, maxResultBytes: uploadLimit });
+    }
     if (url.endsWith('/claim')) {
       if (claimLost) throw new Error('Fixture claim connection lost.');
       return job ? Response.json({ job }) : new Response(null, { status: 204 });
@@ -89,16 +102,186 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     if (url.endsWith('/progress') || url.endsWith('/fail')) return Response.json({ ok: true });
     throw new Error(`Unexpected HTTP ${url}`);
   };
-  await import(`../src/background.js?gateway-fixture=${Date.now()}-${Math.random()}`);
+  await import(`../src/background.js?gateway-fixture=${++bootId}`);
   await pause(20);
   return {
     local, sync, calls, provider, downloads,
-    tick() { for (const alarm of alarms) alarm({ name: 'gatewayTick' }); },
+    tick(name = 'gatewayTick') { for (const alarm of alarms) alarm({ name }); },
     async send(message) { return new Promise((resolve) => listener(message, {}, resolve)); },
     async stopped() { await pause(20); },
-    restore() { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; },
+    advance(ms) {
+      clock.now += ms;
+      for (const [id, timer] of timers) if (timer.at <= clock.now) { timers.delete(id); timer.fn(); }
+    },
+    restore() {
+      for (const [key, value] of Object.entries(previous)) globalThis[key] = value;
+      Date.now = realNow; Math.random = realRandom;
+    },
   };
 }
+
+test('default random pacing is inclusive 5–15s after completion, even when generation takes longer', async () => {
+  for (const [random, gap] of [[0, 5000], [0.5, 10000], [0.999999, 15000]]) {
+    const clock = { now: 1_000_000, random };
+    const worker = await boot({ mode: 'standalone', clock, defaultPacing: true,
+      synced: { flowProjectId: JOB.flowProjectId }, onSubmit: () => { clock.now += 120_000; } });
+    try {
+      assert.equal((await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } })).ok, true);
+      await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+      await worker.stopped();
+      assert.equal(worker.downloads.length, 1);
+      assert.equal(worker.local.nextProviderRunAt, clock.now + gap);
+      assert.deepEqual([worker.sync.settings.humanDelayMinSec, worker.sync.settings.humanDelayMaxSec], [5, 15]);
+    } finally { worker.restore(); }
+  }
+});
+
+test('saved custom pacing and explicit zero survive settings reload and govern actual generation completion', async () => {
+  for (const [min, max, gap] of [[0, 0, 0], [22, 22, 22000], [5, 60, 60000]]) {
+    const clock = { now: 2_000_000, random: 0.999999 };
+    const worker = await boot({ mode: 'standalone', clock, synced: { humanDelayMinSec: min, humanDelayMaxSec: max, flowProjectId: JOB.flowProjectId } });
+    try {
+      for (let i = 0; i < 2; i++) {
+        const result = await worker.send({ type: 'settings:get' });
+        assert.deepEqual([result.settings.humanDelayMinSec, result.settings.humanDelayMaxSec], [min, max]);
+      }
+      await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } });
+      await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+      await worker.stopped();
+      assert.equal(worker.local.nextProviderRunAt, clock.now + gap);
+    } finally { worker.restore(); }
+  }
+});
+
+test('an edit during generation applies to the next gap without changing the running generation', async () => {
+  const clock = { now: 3_000_000 };
+  let worker;
+  worker = await boot({ mode: 'standalone', clock, defaultPacing: true, synced: { flowProjectId: JOB.flowProjectId },
+    onSubmit: async () => { await worker.send({ type: 'settings:patch', patch: { humanDelayMinSec: 0, humanDelayMaxSec: 0 } }); } });
+  try {
+    await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } });
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    assert.equal(worker.local.nextProviderRunAt, clock.now);
+    assert.equal(worker.provider.filter(({ op }) => op === 'submitGenerateImage').length, 1);
+  } finally { worker.restore(); }
+});
+
+test('a second generation waits the full gap after the first completes and respects a new cooldown', async () => {
+  const clock = { now: 3_500_000 };
+  const submissions = [];
+  const worker = await boot({ mode: 'standalone', clock, defaultPacing: true, synced: { flowProjectId: JOB.flowProjectId,
+    providerCooldowns: { flow: { autoResume: true, minutes: 1, retries: 0 } } },
+    onSubmit: () => { submissions.push(clock.now); clock.now += 120_000; } });
+  try {
+    await worker.send({ type: 'enqueueStandalone', payload: { prompts: [JOB.prompt, 'Another village.'], provider: 'flow' } });
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    assert.deepEqual(submissions, [3_500_000]);
+    worker.advance(4999); await worker.stopped();
+    assert.equal(submissions.length, 1);
+    worker.local.cooldownUntil = { flow: clock.now + 60_000 };
+    worker.advance(1); await worker.stopped();
+    assert.equal(submissions.length, 1);
+    assert.equal(worker.local.queue[1].status, 'pending');
+    worker.advance(60_000); worker.tick('queueTick');
+    await waitFor(() => worker.local.queue?.[1]?.status === 'done');
+    await worker.stopped();
+    assert.deepEqual(submissions, [3_500_000, 3_685_000]);
+  } finally { worker.restore(); }
+});
+
+test('restarted pending generation retains its chosen gap even if the new settings are Off', async () => {
+  const clock = { now: 3_800_000 };
+  const item = imageGatewayJobToItem({ ...JOB, referenceImages: [] }, {});
+  item.target = 'download'; item.source = 'standalone';
+  const local = { imageGeneratorWorkMode: 'standalone', queue: [item], nextProviderRunAt: clock.now + 5000 };
+  const worker = await boot({ local, clock });
+  try {
+    await worker.stopped();
+    assert.equal(worker.provider.length, 0);
+    assert.equal(local.queue[0].status, 'pending');
+    worker.advance(4999); await worker.stopped();
+    assert.equal(worker.provider.length, 0);
+    worker.advance(1);
+    await waitFor(() => local.queue[0].status === 'done');
+    await worker.stopped();
+    assert.equal(worker.provider.filter(({ op }) => op === 'submitGenerateImage').length, 1);
+    assert.equal(local.nextProviderRunAt, clock.now);
+  } finally { worker.restore(); }
+});
+
+test('Gateway pacing and cooldown block even discovery/health, survive restart, and release only at eligibility', async () => {
+  for (const hold of [{ nextProviderRunAt: 4_010_000 }, { cooldownUntil: { flow: 4_010_000 } }]) {
+    const clock = { now: 4_000_000 };
+    const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', ...hold };
+    const first = await boot({ local, clock, job: null });
+    try {
+      first.tick(); await first.stopped();
+      assert.equal(first.calls.length, 0);
+      assert.equal(first.provider.length, 0);
+    } finally { first.restore(); }
+    const restarted = await boot({ local, clock, job: null });
+    try {
+      restarted.tick(); await restarted.stopped();
+      assert.equal(restarted.calls.length, 0);
+      restarted.advance(9999); restarted.tick(); await restarted.stopped();
+      assert.equal(restarted.calls.length, 0);
+      restarted.advance(1); restarted.tick();
+      await waitFor(() => restarted.calls.some(({ url }) => url.endsWith('/claim')));
+      await restarted.stopped();
+      assert.equal(restarted.calls.filter(({ url }) => url.endsWith('/claim')).length, 1, JSON.stringify({ hold, status: local.lastStatus }));
+    } finally { restarted.restore(); }
+  }
+});
+
+test('a hold or active job arriving during Gateway health prevents the claim at its actual boundary', async () => {
+  for (const hold of [{ nextProviderRunAt: 5_010_000 }, { cooldownUntil: { flow: 5_010_000 } },
+    { gatewayUnsettledClaim: { claimId: 'unknown' } }]) {
+    const clock = { now: 5_000_000 };
+    const worker = await boot({ clock, job: null, onHealth: (local) => Object.assign(local, clone(hold)) });
+    try {
+      worker.tick(); await worker.stopped();
+      assert.equal(worker.calls.filter(({ url }) => url.endsWith('/health')).length, 1);
+      assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0, JSON.stringify({ hold, status: worker.local.lastStatus }));
+    } finally { worker.restore(); }
+  }
+});
+
+test('a real enqueue during health reserves the worker and concurrent polling cannot claim', async () => {
+  let release, worker;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  worker = await boot({ job: null, synced: { flowProjectId: JOB.flowProjectId }, onSubmit: () => blocked,
+    onHealth: () => worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } }) });
+  try {
+    worker.tick(); worker.tick();
+    await waitFor(() => worker.provider.some(({ op }) => op === 'submitGenerateImage'));
+    await worker.stopped();
+    assert.equal(worker.local.queue[0].status, 'running');
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+    worker.tick(); await worker.stopped();
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/health')).length, 1);
+    release();
+    await waitFor(() => worker.local.queue[0].status === 'done');
+    await worker.stopped();
+    assert.equal(worker.provider.filter(({ op }) => op === 'submitGenerateImage').length, 1);
+  } finally { release(); worker.restore(); }
+});
+
+test('an expired pacing gap never clears an unknown claim across restart', async () => {
+  const clock = { now: 6_000_000 };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', nextProviderRunAt: clock.now - 1,
+    gatewayUnsettledClaim: { claimId: 'lost-response', at: clock.now - 60000 } };
+  for (let i = 0; i < 2; i++) {
+    const worker = await boot({ local, clock });
+    try {
+      worker.tick(); await worker.stopped();
+      assert.equal(worker.calls.length, 0);
+      assert.equal(worker.provider.length, 0);
+      assert.equal(local.gatewayUnsettledClaim.claimId, 'lost-response');
+    } finally { worker.restore(); }
+  }
+});
 
 test('fallback, empty, cached, unattributed or failed inventory never authorizes a Gateway claim or stale live cache', async () => {
   for (const inventory of [

@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.13 — 2026-11-11
+
+- Default to a random 5–15 second gap after each generation; keep saved custom delays, including Off.
+- Wait for the saved pacing gap and Flow cooldown before claiming another Gateway job, including after a restart.
+
 ## 0.50.12 — 2026-11-10
 
 - Label Flow's bundled models honestly while keeping manual Story Studio and Standalone generation available.

@@ -1297,6 +1297,7 @@ async function processQueue() {
         break;
       }
       settings = await getSettings();
+      if (await holdForCooldown(nextProvider, settings)) return;
       let item = null;
       q = await queueStore.update((queue) => {
         const current = queue.find((candidate) => candidate.id === pendingId && candidate.status === 'pending');
@@ -1514,7 +1515,7 @@ async function processQueue() {
           return queue;
         });
       } finally {
-        if (providerActionAttempted) await setNextProviderRun(settings);
+        if (providerActionAttempted) await setNextProviderRun(await getSettings());
       }
       const more = (await getQueue()).some((i) => i.status === 'pending');
       if (more) await waitForNextProviderRun(item);
@@ -2017,24 +2018,39 @@ async function retryGatewayDelivery(id) {
     catch (error) { await holdGatewayImage(item, error); throw error; }
   } finally { processing = false; }
 }
+async function gatewayCanClaim(settings) {
+  if (processing || !(await gatewayIsActive(settings)) || await isPaused()) return false;
+  const queue = await getQueue();
+  if (queue.some((item) => gatewayNeedsReview(item) || item.status === 'pending' || item.status === 'running')) return false;
+  const stored = await chrome.storage.local.get([GATEWAY_CLAIM_KEY, NEXT_PROVIDER_RUN_KEY, COOLDOWN_KEY]);
+  if (stored[GATEWAY_CLAIM_KEY]) {
+    await writeStatus('Gateway has an unsettled claim. Review it in Gateway before reconnecting.', 'err');
+    return false;
+  }
+  const nextRunAt = Math.max(Number(stored[NEXT_PROVIDER_RUN_KEY]) || 0, Number(stored[COOLDOWN_KEY]?.flow) || 0);
+  if (nextRunAt > Date.now()) {
+    await writeStatus('Gateway is waiting for the next allowed Flow request.', 'info', { countdownUntil: nextRunAt, countdownProvider: 'flow' });
+    return false;
+  }
+  return true;
+}
+
 async function gatewayClaimLoop() {
   if (gatewayPolling || processing) return;
   gatewayPolling = true;
   try {
     const settings = await getSettings();
-    if (!(await gatewayIsActive(settings)) || await isPaused()) return;
-    const queue = await getQueue();
-    if (queue.some((item) => gatewayNeedsReview(item) || item.status === 'pending' || item.status === 'running')) return;
-    if ((await chrome.storage.local.get(GATEWAY_CLAIM_KEY))[GATEWAY_CLAIM_KEY]) {
-      await writeStatus('Gateway has an unsettled claim. Review it in Gateway before reconnecting.', 'err');
-      return;
-    }
+    if (!(await gatewayCanClaim(settings))) return;
     const inventory = await refreshFlowModels();
     if (!inventory.ok || inventory.source !== 'live') {
       throw modelError('model-unknown', 'Flow has no captured live inventory. Gateway work will not be claimed; manual work can use the bundled catalog.');
     }
     const health = await testImageGateway(settings);
     const binding = await gatewayBinding(settings);
+    // Discovery/health may yield while a pause, cooldown or another queue job arrives.
+    const currentSettings = await getSettings();
+    if (!(await gatewayCanClaim(currentSettings)) || await gatewayBinding(currentSettings) !== binding) return;
+    const queue = await getQueue();
     const claimId = crypto.randomUUID();
     // If the claim response is lost, stop polling rather than assuming it was idle.
     await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, at: Date.now() } });
