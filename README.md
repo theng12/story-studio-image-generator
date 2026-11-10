@@ -56,6 +56,37 @@ remain website-controlled, while Leonardo is live-discovered. Unknown or
 changed verifiable selections fail before submission and require refresh and
 re-queue.
 
+## Discovery And Control Parity
+
+The current requirement is for all three sibling extensions to refresh provider
+model listings as new models appear and to account for newly exposed controls
+and duration choices. A known model, an observed control, an authenticated
+current listing, a supported request schema, and verified generation are separate
+facts. Preserve that distinction when showing or forwarding provider data.
+
+Image's remaining gaps are explicit:
+
+- Flow has no verified live inventory capture in this source. Its three bundled
+  model records remain manual fallback choices; dynamic Flow discovery is not
+  complete and cannot establish Gateway eligibility.
+- Gateway Image currently maps the captured Flow model IDs, 16:9 output,
+  up to four references and the Flow project ID. Other providers, newly exposed
+  controls and other aspect ratios have no verified Gateway mapping here.
+- Story Scene Review rows are reduced to image identity, prompt and image-state
+  fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
+  additional caller controls have no preservation mapping in that path yet.
+  `durationMs` measures queue processing time; it is not scene duration.
+- No Story/Gateway scene-duration field contract has been verified for this
+  image path. Preserve caller-supplied duration/control values once their actual
+  contract is known; report a missing counterpart mapping rather than silently
+  dropping, defaulting, coercing or inventing a field. Scene duration is metadata
+  and does not introduce image-to-video generation into this extension.
+
+Before a release claims parity, trace each supported control through provider
+capture, selection, queue snapshot and the applicable Story/Gateway caller.
+Record unsupported fields and counterpart dependencies explicitly. Source and
+offline fixtures alone do not complete live discovery or control acceptance.
+
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.

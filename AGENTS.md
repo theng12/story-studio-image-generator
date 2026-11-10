@@ -88,8 +88,15 @@ each bounded reference sequentially, and verify the final count. Qwen must keep
 its one-chip safety check.
 
 The provider registry is released with the extension; new providers need a code
-and manifest update. Leonardo model discovery is intentionally live from the
-signed-in page, so its newly available models appear after a model refresh.
+and manifest update. Existing providers must refresh their model listings as new
+models appear, using exact provider-owned IDs and labels from a verified capture
+mechanism. Track new controls and additional duration choices the same way.
+Bundled/known records, observed captures, authenticated current availability,
+supported request schemas, and generation eligibility are distinct facts: a
+listed model or an open tab proves none of the others. Missing capture support
+is an explicit parity gap, never permission to relabel fallback records as live.
+Leonardo model discovery is intentionally live from the signed-in page, so its
+newly available models appear after a model refresh.
 
 ## Story Studio contract
 
@@ -123,6 +130,21 @@ Before handing off changes:
 3. Run `git diff --check`.
 4. Verify Story Studio ingestion when save behavior changes.
 5. Bump `manifest.json` for user-facing changes.
+6. Check refreshed model listings and newly exposed controls/duration choices
+   against actual provider captures. Keep known/fallback, captured, authenticated
+   availability, schema support and generation eligibility labelled separately;
+   never claim live discovery or complete parity from a bundled list or fixture.
+7. Trace supported control values through selection, queue snapshots, provider
+   requests and Story/Gateway callers. Preserve the caller's verified fields and
+   exact scene duration where supplied, without guessing names, units or default
+   values. Queue elapsed time (`durationMs`) is not scene duration. Missing or
+   unsupported counterpart fields must be reported as concrete parity gaps,
+   rather than silently discarded or advertised as supported.
+8. Retain the exact source binding, commands, raw focused check output and exits
+   for discovery/control changes. Add authenticated live evidence for each mode
+   and model before reporting that part accepted. Carry unresolved capture and
+   counterpart-schema gaps forward with their owner and next action; blocked
+   fields do not stop independent source work.
 
 Do not commit generated assets, captured requests, cookies, credentials, or API
 keys. Preserve unrelated local changes and the user's active queue data.
