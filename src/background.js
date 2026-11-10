@@ -1584,7 +1584,8 @@ async function clearPendingFromFleet(expectedRevision) {
 (async () => {
   const queue = await queueStore.update((current) => recoverInterruptedQueue(current, Date.now()));
   const marker = (await chrome.storage.local.get('gatewayUnsettledClaim')).gatewayUnsettledClaim;
-  if (marker?.jobId && queue.some((item) => item.gatewayJobId === marker.jobId && item.gatewayBinding === marker.binding)) {
+  // An older row for the same job cannot settle a newer claim.
+  if (marker?.claimId && queue.some((item) => item.gatewayJobId === marker.jobId && item.gatewayBinding === marker.binding && item.gatewayClaimId === marker.claimId)) {
     await chrome.storage.local.remove('gatewayUnsettledClaim');
   }
   for (const item of queue.filter((entry) => entry.target === 'gateway' && entry.gatewayAcknowledged === true)) {
@@ -2025,16 +2026,17 @@ async function gatewayClaimLoop() {
     }
     const health = await testImageGateway(settings);
     const binding = await gatewayBinding(settings);
+    const claimId = crypto.randomUUID();
     // If the claim response is lost, stop polling rather than assuming it was idle.
-    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, at: Date.now() } });
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, at: Date.now() } });
     const job = await claimImageJob(settings);
     if (!job) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
-    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, jobId: job.jobId, at: Date.now() } });
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, jobId: job.jobId, at: Date.now() } });
     if (isImageGatewayJobQueued(queue, job.jobId)) return;
     let item;
     try {
       const normalized = normalizeImageGatewayJob(job);
-      item = { ...imageGatewayJobToItem(job, settings), gatewayBinding: binding, gatewayMaxResultBytes: health.maxResultBytes };
+      item = { ...imageGatewayJobToItem(job, settings), gatewayBinding: binding, gatewayClaimId: claimId, gatewayMaxResultBytes: health.maxResultBytes };
       await putGatewayArtifact(job.jobId, { references: normalized.references, binding });
     } catch (error) {
       await reportImageFailure(settings, job.jobId, error, false);

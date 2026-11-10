@@ -9,9 +9,9 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
-test('release version includes the queue-all control cleanup', () => {
+test('manifest matches the latest release notes and retains the queue-all cleanup', () => {
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-  assert.equal(manifest.version, '0.50.9');
+  assert.equal(manifest.version, changelog.match(/^## (\d+\.\d+\.\d+)\b/m)?.[1]);
   assert.match(changelog, /## 0\.50\.9 - One queue-all action/);
 });
 

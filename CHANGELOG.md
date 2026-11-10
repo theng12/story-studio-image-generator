@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.11 — 2026-11-10
+
+- Keep duplicate Gateway jobs held for review after the extension restarts, without generating again.
+
 ## 0.50.10 — 2026-11-09
 
 - Added an optional Gateway Studio mode alongside Story Studio and Standalone.
