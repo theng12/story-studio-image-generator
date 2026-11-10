@@ -89,33 +89,48 @@ offline fixtures alone do not complete live discovery or control acceptance.
 
 ## Pacing And Manager Contract
 
-New settings default to an inclusive random 5–15 second gap after generation.
-The side panel's Human pace controls retain custom values, including Off (0–0),
-and existing saved ranges are not migrated. Values are whole seconds, clamped to
-0–3600 and ordered minimum to maximum. A chosen wait keeps its persisted deadline
-across worker restarts; edits during generation apply to the next gap.
+New settings default to a random 5–15 second gap after generation. The side
+panel's Human pace controls retain nonnegative finite custom seconds, including
+fractions, longer waits and Off (0–0). Bounds are ordered minimum to maximum;
+random deadlines use millisecond resolution. A chosen wait keeps its persisted
+deadline across worker restarts; edits during generation apply to the next gap.
 
 The local `nextProviderRunAt` value is an epoch-millisecond deadline. Generation
 waits for it and rechecks provider cooldown before starting. Gateway checks both
-that deadline and `cooldownUntil.flow` before discovery and again before claiming;
-paused, active, retained or unsettled work also prevents a new claim. Its existing
-30-second polling alarm can add idle time after eligibility. Pacing never clears
-an uncertain claim or authorizes regeneration of retained results.
+that deadline and `cooldownUntil.flow` before discovery/claim. Its existing
+30-second polling alarm can add idle time after eligibility. Health and telemetry
+continue during pauses, cooldowns and retained work so manager stops can apply.
 
-Gateway wire v1 still sends only `{ workerId, kind: 'image' }` to claim. Its scoped
-worker ID and token identify this worker connection; they do not identify the
-Chrome profile, signed-in provider account or a shared image/video credit pool.
-Fleet v2 separately sends extension-local `agentId`/`machineId`, a per-worker
-`sessionId`, queue state and configured delay bounds. Those generated IDs are not
-verified browser or account identities, and neither wire reports provider credit
-balance, credit-source identity, reset time or the persisted pacing deadline.
+Gateway schema-1 controls arrive on authenticated worker health/telemetry/claim
+replies. `gatewayWorkerControl` persists a connection-bound dispatch stop before
+applying new pacing and storing the acknowledged revision. Unknown or invalid
+controls stop dispatch without acknowledging an unapplied revision. Local Resume
+cannot override the manager stop. New provider submissions recheck the stop at
+the persisted submission checkpoint; active generation may finish. Close requests
+never kill Chrome, erase holds or clear unknown outcomes. Retained bytes can still
+be delivered without generation. Desired pacing never shortens a chosen deadline
+or provider cooldown, and an unchanged revision preserves explicit local edits.
 
-Relay owns the real-Chrome account-manager mapping. Its shared image/video
-browser/account identity, credit-source key and scheduling contract still need
-counterpart integration. This extension does not create separate balances,
-assume a free allowance/reset timezone, or sum a shared balance per worker.
-Cross-extension pacing and mutual exclusion also require that shared manager;
-this source enforces one active generation and claim eligibility locally only.
+`POST /api/workers/telemetry` sends `{workerId,kind:'image',telemetry}`. Its unbound
+`telemetry.state` reports actual activity, enabled/paused state, applied
+`controlRevision`, observed timestamp, current pacing and `nextEligibleAt` as a
+zoned ISO timestamp (null when paused/held). Connection and sign-in are unknown;
+readiness is not_ready because no authenticated account/quote capture exists.
+No account or credit observations are invented. Claim uses the same unbound
+telemetry. `quoteRequired` is an unclaimed, read-only preview, never a generation
+request. An unexpected executable offer is durably held, and legacy pending
+Gateway work is retained for review. New Gateway generation remains refused
+until the actual signed-in stable provider account and exact quote are captured.
+
+Worker IDs and tokens identify a connection, not a Chrome profile/provider
+account or shared credit pool. Fleet v2 separately sends extension-local
+agent/machine/session IDs and configured pacing; those IDs are not attested
+account identities. Relay owns shared image/video browser/account mapping,
+account enablement and scheduling through Gateway's supplied account-worker
+contract. The account ID must be provider-observed and opaque; profile IDs,
+emails and cookies cannot substitute. No balance, universal allowance, reset
+timezone or per-worker duplicate balance is inferred. Actual account/quote
+capture and cross-extension scheduling still require integration and live proof.
 Browser TTS is outside this image extension and remains optional/off in Relay.
 
 ## Install

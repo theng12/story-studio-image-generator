@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.14 — 2026-11-11
+
+- Apply Gateway dispatch stops and pacing before acknowledging them, and retain the stop after restart.
+- Report actual queue activity and pacing eligibility while paused, busy or held, without inventing account or credit observations.
+- Keep quote previews read-only and refuse new Gateway generation until the exact provider account and quote can be verified. Retained results can still be delivered.
+- Preserve fractional custom pacing and longer waits.
+
 ## 0.50.13 — 2026-11-11
 
 - Default to a random 5–15 second gap after each generation; keep saved custom delays, including Off.

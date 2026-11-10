@@ -4,7 +4,7 @@ import { gatewayBinding, imageGatewayJobToItem, normalizeImageGatewayJob } from 
 import { assertQueuedModelIdentity } from '../src/lib/model-identity.js';
 import { canRetryItem, isUnsupportedProjectScene, recoverInterruptedQueue } from '../src/lib/queue-migration.js';
 import { enqueueItems } from '../src/lib/queue-operations.js';
-import { claimImageJob, reportImageFailure, reportImageResult, testImageGateway } from '../src/lib/gateway-client.js';
+import { claimImageJob, reportImageFailure, reportImageResult, reportImageTelemetry, testImageGateway } from '../src/lib/gateway-client.js';
 
 export const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j9ZkAAAAASUVORK5CYII=';
 export const JOB = { jobId: 'image/a', kind: 'image', provider: 'flow', prompt: 'A quiet village.', modelKey: 'nano-banana-2', aspectRatio: '16:9', flowProjectId: '5852b0c6-e4a4-455a-8215-5513c208c29d' };
@@ -43,13 +43,29 @@ test('binding includes token rotation and contains no credential text', async ()
   assert.equal(hash, await gatewayBinding({ ...connection, gatewayUrl: connection.gatewayUrl + '/' }));
 });
 
+test('telemetry and read-only quote previews retain exact control envelopes without adding account or credits', async () => {
+  const original = globalThis.fetch, calls = [];
+  const control = { dispatchEnabled: false, closeRequested: true, revision: 'wire-stop', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  const telemetry = { state: { paused: true, controlRevision: control.revision, source: 'image.worker', observedAt: '2026-11-11T01:00:00Z' } };
+  let answer = { ok: true, receivedAt: 1, control };
+  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return Response.json(answer); };
+  try {
+    assert.deepEqual((await reportImageTelemetry(connection, telemetry)).control, control);
+    assert.deepEqual(JSON.parse(calls[0].init.body), { workerId: connection.gatewayWorkerId, kind: 'image', telemetry });
+    assert.equal(calls[0].init.credentials, 'omit');
+    answer = { job: null, quoteRequired: { job: JOB, payloadSha256: 'b'.repeat(64), executionAuthorized: false }, control };
+    assert.deepEqual(await claimImageJob(connection, telemetry), answer);
+    assert.deepEqual(JSON.parse(calls[1].init.body), { workerId: connection.gatewayWorkerId, kind: 'image', telemetry });
+  } finally { globalThis.fetch = original; }
+});
+
 test('actual transport uses claim envelope and encoded job route; strict acknowledgements', async () => {
   const original = globalThis.fetch;
   const calls = [];
   let answer = { job: JOB };
   globalThis.fetch = async (url, init) => { calls.push({ url, init }); return Response.json(answer); };
   try {
-    assert.deepEqual(await claimImageJob(connection), JOB);
+    assert.deepEqual(await claimImageJob(connection), { job: JOB });
     assert.deepEqual(JSON.parse(calls[0].init.body), { workerId: connection.gatewayWorkerId, kind: 'image' });
     answer = { ok: true };
     await reportImageFailure(connection, JOB.jobId, 'fixture');

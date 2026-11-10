@@ -5,7 +5,7 @@ import { DEFAULTS, getSettings, normalizeSettings, normalizeFlowWorkspaceUrl, fl
 test('pacing defaults to 5–15s while normalization preserves custom values and explicit zero', () => {
   const defaults = normalizeSettings({});
   assert.deepEqual([defaults.humanDelayMinSec, defaults.humanDelayMaxSec], [5, 15]);
-  for (const [min, max, expected] of [[0, 0, [0, 0]], [5, 60, [5, 60]], [23, 7, [7, 23]], ['0', '0', [0, 0]]]) {
+  for (const [min, max, expected] of [[0, 0, [0, 0]], [5, 60, [5, 60]], [23, 7, [7, 23]], ['0', '0', [0, 0]], [0.25, 0.75, [0.25, 0.75]], [7200, 7200, [7200, 7200]]]) {
     const settings = normalizeSettings({ ...DEFAULTS, humanDelayMinSec: min, humanDelayMaxSec: max });
     assert.deepEqual([settings.humanDelayMinSec, settings.humanDelayMaxSec], expected);
   }

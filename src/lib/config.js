@@ -129,7 +129,7 @@ const QWEN_ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4']);
 function normalizeDelay(value, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
-  return Math.min(3600, Math.max(0, Math.round(number)));
+  return Math.max(0, number);
 }
 
 function normalizeCooldownMinutes(value, fallback) {

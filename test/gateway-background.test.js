@@ -38,7 +38,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onHealth, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -57,7 +57,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   globalThis.chrome = {
     storage: { local: area(local), sync: area(sync), session: area({}), onChanged: { addListener() {} } },
     alarms: { create() {}, clear() {}, onAlarm: { addListener(fn) { alarms.push(fn); } } },
-    runtime: { getManifest: () => ({ version: '0.50.13' }), onMessage: { addListener(fn) { listener = fn; } } },
+    runtime: { getManifest: () => ({ version: '0.50.14' }), onMessage: { addListener(fn) { listener = fn; } } },
     sidePanel: { setPanelBehavior: async () => {} },
     downloads: { download: async (options) => { downloads.push(clone(options)); return downloads.length; } },
     tabs: { query: async () => [tab], get: async () => tab },
@@ -68,7 +68,10 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
         return [{ result: { ok: true, result: clone(inventory) } }];
       }
       if (command.op === 'uploadImage') return [{ result: { ok: true, result: uploadConfirmed ? { mediaId: 'ref-exact' } : {} } }];
-      if (command.op === 'prepareGenerateImage') return [{ result: { ok: true, result: { preparationId: 'prepared' } } }];
+      if (command.op === 'prepareGenerateImage') {
+        await onPrepare?.(local);
+        return [{ result: { ok: true, result: { preparationId: 'prepared' } } }];
+      }
       if (command.op === 'submitGenerateImage') {
         await onSubmit?.(local);
         if (failure) throw new Error(failure);
@@ -88,11 +91,15 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     const entry = { url, init }; calls.push(entry);
     if (url.endsWith('/health')) {
       await onHealth?.(local);
-      return Response.json({ ok: true, kind: 'image', workerId: connection.gatewayWorkerId, maxResultBytes: uploadLimit });
+      return Response.json({ ok: true, kind: 'image', workerId: connection.gatewayWorkerId, maxResultBytes: uploadLimit, control });
+    }
+    if (url.endsWith('/telemetry')) {
+      await onTelemetry?.(JSON.parse(init.body), local);
+      return Response.json({ ok: true, receivedAt: Date.now() / 1000, control });
     }
     if (url.endsWith('/claim')) {
       if (claimLost) throw new Error('Fixture claim connection lost.');
-      return job ? Response.json({ job }) : new Response(null, { status: 204 });
+      return Response.json({ job: quoteRequired ? null : job, ...(quoteRequired ? { quoteRequired } : {}), control });
     }
     if (url.endsWith('/result')) {
       entry.bytes = Buffer.from(await init.body.get('file').arrayBuffer());
@@ -106,6 +113,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   await pause(20);
   return {
     local, sync, calls, provider, downloads,
+    get workCalls() { return calls.filter(({ url }) => !/\/(health|telemetry)$/.test(url)); },
     tick(name = 'gatewayTick') { for (const alarm of alarms) alarm({ name }); },
     async send(message) { return new Promise((resolve) => listener(message, {}, resolve)); },
     async stopped() { await pause(20); },
@@ -119,6 +127,203 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     },
   };
 }
+
+const offControl = (revision = 'stop-1', pacing = { minSeconds: 5, maxSeconds: 15 }) => ({ dispatchEnabled: false, closeRequested: true, revision, requestedAt: 2, pacing });
+
+test('manager stop is persisted before its revision is acknowledged and local Resume cannot bypass it after restart', async () => {
+  const control = offControl('persisted-stop', { minSeconds: 0, maxSeconds: 0 });
+  const first = await boot({ control, onTelemetry: (body, local) => {
+    assert.equal(local.gatewayWorkerControl.dispatchEnabled, false);
+    assert.equal(body.telemetry.state.controlRevision, 'persisted-stop');
+    assert.equal(body.telemetry.state.paused, true);
+    assert.equal(body.account, undefined);
+    assert.equal(body.telemetry.credits, undefined);
+  } });
+  let local;
+  try {
+    first.tick();
+    await waitFor(() => first.calls.some(({ url }) => url.endsWith('/telemetry')));
+    await first.stopped();
+    await first.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } });
+    await first.send({ type: 'resumeQueue' }); await first.stopped();
+    assert.equal(first.local.queue[0].status, 'pending');
+    assert.equal(first.provider.filter(({ op }) => op === 'submitGenerateImage').length, 0);
+    assert.equal(first.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+    local = first.local;
+  } finally { first.restore(); }
+  const restarted = await boot({ local, onHealth: () => { throw new Error('Fixture manager offline.'); } });
+  try {
+    restarted.tick(); await restarted.stopped();
+    await restarted.send({ type: 'resumeQueue' }); await restarted.stopped();
+    assert.equal(local.queue[0].status, 'pending');
+    assert.equal(local.gatewayWorkerControl.revision, 'persisted-stop');
+    assert.equal(restarted.provider.length, 0);
+    assert.equal(restarted.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { restarted.restore(); }
+});
+
+test('telemetry response control is applied before a fresh stop acknowledgement is sent', async () => {
+  const control = { dispatchEnabled: true, closeRequested: false, revision: 'before-stop', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  const messages = [];
+  const worker = await boot({ job: null, control, onTelemetry: (body, local) => {
+    messages.push(body.telemetry.state);
+    if (messages.length === 1) Object.assign(control, offControl('response-stop'));
+    else {
+      assert.equal(local.gatewayWorkerControl.revision, 'response-stop');
+      assert.equal(local.gatewayWorkerControl.dispatchEnabled, false);
+    }
+  } });
+  try {
+    worker.tick(); await waitFor(() => messages.length === 2); await worker.stopped();
+    assert.equal(messages[0].paused, false);
+    assert.equal(messages[0].controlRevision, 'before-stop');
+    assert.equal(messages[1].paused, true);
+    assert.equal(messages[1].controlRevision, 'response-stop');
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('stop during active generation lets that job finish and leaves the next queued job paused', async () => {
+  let release;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const worker = await boot({ control: offControl('active-stop'), synced: { flowProjectId: JOB.flowProjectId }, onSubmit: () => blocked });
+  try {
+    await worker.send({ type: 'enqueueStandalone', payload: { prompts: [JOB.prompt, 'A second village.'], provider: 'flow' } });
+    await waitFor(() => worker.provider.some(({ op }) => op === 'submitGenerateImage'));
+    worker.tick();
+    await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+    const report = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body).telemetry.state;
+    assert.equal(report.paused, true);
+    assert.equal(report.activity, 'generating');
+    release(); await waitFor(() => worker.local.queue[0].status === 'done'); await worker.stopped();
+    assert.equal(worker.local.queue[1].status, 'pending');
+    assert.equal(worker.downloads.length, 1);
+    assert.equal(worker.provider.filter(({ op }) => op === 'submitGenerateImage').length, 1);
+  } finally { release(); worker.restore(); }
+});
+
+test('a stop received after preparation is enforced at the persisted provider submission checkpoint', async () => {
+  let worker;
+  worker = await boot({ control: offControl('prepared-stop'), synced: { flowProjectId: JOB.flowProjectId },
+    onPrepare: async () => { assert.equal((await worker.send({ type: 'gateway:testConnection' })).ok, true); } });
+  try {
+    await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } });
+    await waitFor(() => worker.local.lastStatus?.text.includes('prepared job remains queued')); await worker.stopped();
+    assert.equal(worker.local.queue[0].status, 'pending');
+    assert.notEqual(worker.local.queue[0].providerAttempted, true);
+    assert.equal(worker.provider.filter(({ op }) => op === 'submitGenerateImage').length, 0);
+    assert.equal(worker.downloads.length, 0);
+  } finally { worker.restore(); }
+});
+
+test('unclaimed quote previews remain read-only, preserve the payload hash and never enter the queue', async () => {
+  const quoteRequired = { job: JOB, payloadSha256: 'a'.repeat(64), executionAuthorized: false };
+  const worker = await boot({ quoteRequired });
+  try {
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('quote preview only')); await worker.stopped();
+    assert.equal(worker.local.gatewayUnsettledClaim, undefined);
+    assert.equal(worker.local.queue?.length || 0, 0);
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    const sent = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
+    assert.equal(sent.account, undefined);
+    assert.equal(sent.quote, undefined);
+    assert.equal(sent.telemetry.state.signIn, 'unknown');
+    assert.equal(sent.telemetry.state.readiness, 'not_ready');
+    assert.equal(quoteRequired.payloadSha256, 'a'.repeat(64));
+  } finally { worker.restore(); }
+});
+
+test('telemetry reports the actual longer cooldown, unknown account facts and retained custom fractional pacing', async () => {
+  const clock = { now: 9_000_000 };
+  const control = { dispatchEnabled: true, closeRequested: false, revision: 'fractional-pace', requestedAt: 1, pacing: { minSeconds: 0.25, maxSeconds: 0.75 } };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', nextProviderRunAt: clock.now + 5000, cooldownUntil: { flow: clock.now + 60000 } };
+  const worker = await boot({ local, clock, control });
+  try {
+    worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+    const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body);
+    assert.equal(body.account, undefined);
+    assert.equal(body.telemetry.state.nextEligibleAt, new Date(clock.now + 60000).toISOString());
+    assert.equal(body.telemetry.state.activity, 'cooling');
+    assert.deepEqual(body.telemetry.state.pacing, { minSeconds: 0.25, maxSeconds: 0.75 });
+    assert.equal(body.telemetry.state.connection, 'unknown');
+    assert.equal(local.nextProviderRunAt, clock.now + 5000);
+    assert.equal(local.cooldownUntil.flow, clock.now + 60000);
+    assert.deepEqual([worker.sync.settings.humanDelayMinSec, worker.sync.settings.humanDelayMaxSec], [0.25, 0.75]);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('telemetry retains the next pending provider cooldown rather than substituting the shorter Flow wait', async () => {
+  const clock = { now: 9_500_000 };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway',
+    queue: [{ id: 'qwen-wait', provider: 'qwen', status: 'pending', target: 'download', source: 'standalone', label: 'Qwen wait' }],
+    cooldownUntil: { qwen: clock.now + 120000, flow: clock.now + 60000 } };
+  const worker = await boot({ local, clock, synced: { providerCooldowns: { qwen: { autoResume: true, minutes: 2, retries: 0 } } } });
+  try {
+    worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+    const state = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body).telemetry.state;
+    assert.equal(state.nextEligibleAt, new Date(clock.now + 120000).toISOString());
+    assert.equal(state.activity, 'cooling');
+    assert.equal(worker.provider.length, 0);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('failed pacing persistence leaves a durable stop with no false revision acknowledgement', async () => {
+  const worker = await boot({ control: offControl('must-not-ack'), onHealth: () => {
+    globalThis.chrome.storage.sync.set = async () => { throw new Error('Fixture settings write failed.'); };
+  } });
+  try {
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('Fixture settings write failed')); await worker.stopped();
+    assert.equal(worker.local.gatewayWorkerControl.dispatchEnabled, false);
+    assert.equal(worker.local.gatewayWorkerControl.revision, undefined);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/telemetry') || url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('newly paired Gateway defaults stay OFF without inventing a revision or overriding custom zero pacing', async () => {
+  const control = { dispatchEnabled: false, closeRequested: false, revision: null, requestedAt: null, pacing: { minSeconds: 5, maxSeconds: 15 } };
+  const worker = await boot({ control });
+  try {
+    worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+    const state = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body).telemetry.state;
+    assert.equal(state.paused, true);
+    assert.equal(state.enabled, false);
+    assert.equal(Object.hasOwn(state, 'controlRevision'), false);
+    assert.deepEqual(state.pacing, { minSeconds: 0, maxSeconds: 0 });
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('invalid controls stop dispatch without acknowledging an unapplied revision', async () => {
+  for (const control of [null, {}, { ...offControl(), requestedAt: undefined },
+    { ...offControl(), pacing: { minSeconds: -1, maxSeconds: 15 } },
+    { ...offControl(), dispatchEnabled: true }]) {
+    const worker = await boot({ control });
+    try {
+      worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('control is missing or invalid')); await worker.stopped();
+      assert.equal(worker.local.gatewayWorkerControl.dispatchEnabled, false);
+      assert.equal(worker.local.gatewayWorkerControl.revision, undefined);
+      assert.equal(worker.calls.filter(({ url }) => url.endsWith('/telemetry') || url.endsWith('/claim')).length, 0);
+      assert.equal(worker.provider.length, 0);
+    } finally { worker.restore(); }
+  }
+});
+
+test('an older control reply cannot undo a newer durable stop', async () => {
+  const binding = await gatewayBinding(connection);
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway',
+    gatewayWorkerControl: { binding, ...offControl('new-stop'), requestedAt: 20 } };
+  const worker = await boot({ local }); // fixture-on requestedAt1 is stale
+  try {
+    worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
+    assert.equal(local.gatewayWorkerControl.revision, 'new-stop');
+    const state = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body).telemetry.state;
+    assert.equal(state.controlRevision, 'new-stop');
+    assert.equal(state.paused, true);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
 
 test('default random pacing is inclusive 5–15s after completion, even when generation takes longer', async () => {
   for (const [random, gap] of [[0, 5000], [0.5, 10000], [0.999999, 15000]]) {
@@ -218,15 +423,15 @@ test('Gateway pacing and cooldown block even discovery/health, survive restart, 
     const first = await boot({ local, clock, job: null });
     try {
       first.tick(); await first.stopped();
-      assert.equal(first.calls.length, 0);
+      assert.equal(first.workCalls.length, 0);
       assert.equal(first.provider.length, 0);
     } finally { first.restore(); }
     const restarted = await boot({ local, clock, job: null });
     try {
       restarted.tick(); await restarted.stopped();
-      assert.equal(restarted.calls.length, 0);
+      assert.equal(restarted.workCalls.length, 0);
       restarted.advance(9999); restarted.tick(); await restarted.stopped();
-      assert.equal(restarted.calls.length, 0);
+      assert.equal(restarted.workCalls.length, 0);
       restarted.advance(1); restarted.tick();
       await waitFor(() => restarted.calls.some(({ url }) => url.endsWith('/claim')));
       await restarted.stopped();
@@ -260,7 +465,8 @@ test('a real enqueue during health reserves the worker and concurrent polling ca
     assert.equal(worker.local.queue[0].status, 'running');
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
     worker.tick(); await worker.stopped();
-    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/health')).length, 1);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/health')).length, 2, 'Busy workers still report stop/readiness telemetry.');
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
     release();
     await waitFor(() => worker.local.queue[0].status === 'done');
     await worker.stopped();
@@ -276,7 +482,7 @@ test('an expired pacing gap never clears an unknown claim across restart', async
     const worker = await boot({ local, clock });
     try {
       worker.tick(); await worker.stopped();
-      assert.equal(worker.calls.length, 0);
+      assert.equal(worker.workCalls.length, 0);
       assert.equal(worker.provider.length, 0);
       assert.equal(local.gatewayUnsettledClaim.claimId, 'lost-response');
     } finally { worker.restore(); }
@@ -297,7 +503,7 @@ test('fallback, empty, cached, unattributed or failed inventory never authorizes
       worker.tick();
       await waitFor(() => worker.local.lastStatus?.text.includes('no captured live inventory'));
       await worker.stopped();
-      assert.equal(worker.calls.length, 0, 'No Gateway request, including claim, may rely on fallback.');
+      assert.equal(worker.workCalls.length, 0, 'No Gateway request, including claim, may rely on fallback.');
       assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
       assert.equal(worker.local.gatewayUnsettledClaim, undefined);
       assert.equal(worker.local.flowImageModelInventory.source, 'fallback');
@@ -319,8 +525,8 @@ test('queued Gateway work loses eligibility when current inventory is only fallb
     await worker.stopped();
     assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim') || url.endsWith('/result')).length, 0);
-    const failure = worker.calls.find(({ url }) => url.endsWith('/fail'));
-    assert.equal(JSON.parse(failure.init.body).ambiguous, false);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
+    assert.equal(worker.local.queue[0].gatewayAcknowledged, false);
     assert.notEqual(worker.local.queue[0].providerAttempted, true);
   } finally { worker.restore(); }
 });
@@ -336,7 +542,7 @@ test('a queued live manual model cannot be verified by the bundled list after in
   try {
     await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
     await worker.stopped();
-    assert.equal(worker.calls.length, 0);
+    assert.equal(worker.workCalls.length, 0);
     assert.equal(worker.downloads.length, 0);
     assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
   } finally { worker.restore(); }
@@ -348,37 +554,27 @@ test('local credential migration strips sync and does not activate a different m
     assert.equal(worker.local.gatewayConnection.gatewayToken, connection.gatewayToken);
     for (const key of Object.keys(connection)) assert.equal(worker.sync.settings[key], undefined);
     worker.tick(); await worker.stopped();
-    assert.equal(worker.calls.length, 0);
+    assert.equal(worker.workCalls.length, 0);
   } finally { worker.restore(); }
 });
 
-test('missing or unconfirmed references stop before Generate; live upload limits retain output', async () => {
+test('legacy pending Gateway work is held without touching retained references or generating without an exact quote', async () => {
   rows = new Map();
-  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: await gatewayBinding(connection), gatewayMaxResultBytes: 1024 };
-  const missing = await boot({ local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [item] } });
+  const binding = await gatewayBinding(connection);
+  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding };
+  const retained = { references: [{ base64: PNG, mime: 'image/png' }], binding };
+  rows.set(JOB.jobId, clone(retained));
+  const worker = await boot({ local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [item] } });
   try {
-    await waitFor(() => missing.local.queue?.[0]?.status === 'failed');
-    await missing.stopped();
-    assert.equal(missing.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 0);
-  } finally { missing.restore(); }
-  const unconfirmed = await boot({ uploadConfirmed: false });
-  try {
-    unconfirmed.tick();
-    await waitFor(() => unconfirmed.local.queue?.[0]?.status === 'failed');
-    await unconfirmed.stopped();
-    assert.equal(unconfirmed.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 0);
-    assert.equal(rows.size, 0, 'Confirmed pre-submit failure safely releases references.');
-  } finally { unconfirmed.restore(); }
-  rows = new Map();
-  const limited = await boot({ uploadLimit: 1 });
-  try {
-    limited.tick();
-    await waitFor(() => limited.local.queue?.[0]?.status === 'failed');
-    await limited.stopped();
-    assert.deepEqual(Buffer.from(rows.get(JOB.jobId).bytes), Buffer.from(PNG, 'base64'));
-    assert.equal(limited.calls.filter((entry) => entry.url.endsWith('/result')).length, 0);
-  } finally { limited.restore(); }
+    await waitFor(() => worker.local.queue[0].status === 'failed');
+    await worker.stopped();
+    assert.equal(worker.provider.length, 0);
+    assert.equal(worker.workCalls.length, 0);
+    assert.equal(worker.local.queue[0].gatewayAcknowledged, false);
+    assert.deepEqual(rows.get(JOB.jobId), retained);
+  } finally { worker.restore(); }
 });
+
 
 test('a lost claim response persists a hold and does not poll another claim after restart', async () => {
   const first = await boot({ claimLost: true });
@@ -391,59 +587,49 @@ test('a lost claim response persists a hold and does not poll another claim afte
     local = first.local;
   } finally { first.restore(); }
   const second = await boot({ local });
-  try { second.tick(); await second.stopped(); assert.equal(second.calls.length, 0); }
+  try { second.tick(); await second.stopped(); assert.equal(second.workCalls.length, 0); }
   finally { second.restore(); }
 });
 
-test('a repeated completed job keeps the claim held across restart without replay or evidence loss', async () => {
+test('an older completed row cannot settle a newer offered-job hold after restart', async () => {
   rows = new Map();
-  const first = await boot();
-  let local, completed;
+  const binding = await gatewayBinding(connection);
+  const completed = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding, status: 'done', gatewayAcknowledged: true };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [completed] };
+  const first = await boot({ local });
   try {
     first.tick();
-    await waitFor(() => first.local.queue?.[0]?.status === 'done');
+    await waitFor(() => local.gatewayUnsettledClaim?.jobId === JOB.jobId);
     await first.stopped();
-    completed = clone(first.local.queue[0]);
-    first.tick();
-    await waitFor(() => first.local.gatewayUnsettledClaim?.jobId === JOB.jobId);
-    await first.stopped();
-    first.tick();
-    await waitFor(() => first.local.lastStatus?.text.includes('unsettled claim'));
-    assert.deepEqual(first.local.queue, [completed]);
-    assert.equal(first.calls.filter((entry) => entry.url.endsWith('/claim')).length, 2);
-    assert.equal(first.calls.filter((entry) => entry.url.endsWith('/result')).length, 1);
-    assert.equal(first.calls.filter((entry) => entry.url.endsWith('/fail')).length, 0);
-    assert.equal(first.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
-    assert.equal(rows.size, 0);
-    local = first.local;
+    assert.deepEqual(local.queue, [completed]);
+    assert.equal(first.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
   } finally { first.restore(); }
   const second = await boot({ local });
   try {
     second.tick(); await second.stopped();
-    assert.equal(second.calls.length, 0);
-    assert.equal(second.provider.length, 0);
-    assert.deepEqual(local.queue, [completed]);
+    assert.equal(second.workCalls.length, 0);
     assert.equal(local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.deepEqual(local.queue, [completed]);
   } finally { second.restore(); }
 });
 
-test('restart settles only the exact claim already committed to the queue', async () => {
+
+test('restart settles only its exact enqueue receipt and holds legacy pending work without generation', async () => {
   rows = new Map();
-  const binding = await gatewayBinding(connection);
-  const gatewayClaimId = 'fixture-claim';
+  const binding = await gatewayBinding(connection), gatewayClaimId = 'fixture-claim';
   const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding, gatewayClaimId };
-  rows.set(JOB.jobId, { references: [{ base64: PNG, mime: 'image/png', sourceKey: 'fixture-ref', name: 'reference' }], binding });
-  const worker = await boot({ local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway',
-    gatewayUnsettledClaim: { jobId: JOB.jobId, binding, claimId: gatewayClaimId }, queue: [item] } });
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway',
+    gatewayUnsettledClaim: { jobId: JOB.jobId, binding, claimId: gatewayClaimId }, queue: [item] };
+  const worker = await boot({ local });
   try {
-    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
-    await worker.stopped();
-    assert.equal(worker.local.gatewayUnsettledClaim, undefined);
-    assert.equal(worker.calls.filter((entry) => entry.url.endsWith('/claim')).length, 0);
-    assert.equal(worker.calls.filter((entry) => entry.url.endsWith('/result')).length, 1);
-    assert.equal(worker.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
+    await waitFor(() => local.queue[0].status === 'failed'); await worker.stopped();
+    assert.equal(local.gatewayUnsettledClaim, undefined);
+    assert.equal(local.queue[0].gatewayAcknowledged, false);
+    assert.equal(worker.workCalls.length, 0);
+    assert.equal(worker.provider.length, 0);
   } finally { worker.restore(); }
 });
+
 
 test('legacy claim markers remain held when an older matching job is already completed', async () => {
   rows = new Map();
@@ -453,7 +639,7 @@ test('legacy claim markers remain held when an older matching job is already com
     gatewayUnsettledClaim: { jobId: JOB.jobId, binding }, queue: [item] } });
   try {
     worker.tick(); await worker.stopped();
-    assert.equal(worker.calls.length, 0);
+    assert.equal(worker.workCalls.length, 0);
     assert.equal(worker.provider.length, 0);
     assert.equal(worker.local.gatewayUnsettledClaim.jobId, JOB.jobId);
     assert.equal(worker.local.queue[0].status, 'done');
@@ -469,7 +655,7 @@ test('Standalone enqueue downloads exact bytes without Gateway work when its con
     await waitFor(() => worker.local.queue?.[0]?.status === 'done');
     await worker.stopped();
     worker.tick(); await worker.stopped();
-    assert.equal(worker.calls.length, 0);
+    assert.equal(worker.workCalls.length, 0);
     assert.equal(worker.downloads.length, 1);
     assert.equal(worker.downloads[0].url, `data:image/png;base64,${PNG}`);
     assert.match(worker.downloads[0].filename, /^StoryStudioImages\/Standalone\/.+_01_quiet-village\.png$/);
@@ -501,7 +687,7 @@ test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scene
     await waitFor(() => worker.local.queue?.[0]?.status === 'done');
     await worker.stopped();
     worker.tick(); await worker.stopped();
-    assert.equal(worker.calls.length, 1);
+    assert.equal(worker.workCalls.length, 1);
     const save = worker.calls[0];
     assert.equal(save.url, 'http://studio.invalid/api/projects/my%20project/scene-review/EP%200001/upload-image/scene%2Fone');
     assert.equal(save.init.method, 'POST');
@@ -514,104 +700,92 @@ test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scene
   } finally { worker.restore(); }
 });
 
-test('actual claim -> exact reference -> single dispatch -> multipart acceptance -> cleanup', async () => {
-  rows = new Map();
+test('an executable job offered without locally observed account and quote is durably held, never submitted', async () => {
   const worker = await boot();
   try {
     worker.tick(); worker.tick();
-    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await waitFor(() => worker.local.lastStatus?.text.includes('without a verified provider account'));
     await worker.stopped();
-    const result = worker.calls.find((entry) => entry.url.endsWith('/result'));
-    assert.deepEqual(result.bytes, Buffer.from(PNG, 'base64'));
-    assert.equal(result.mime, 'image/png');
-    assert.equal(worker.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
-    assert.equal(worker.provider.find((entry) => entry.op === 'uploadImage').payload.base64, PNG);
-    assert.deepEqual(worker.provider.find((entry) => entry.op === 'prepareGenerateImage').payload.imageInputs, [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: 'ref-exact' }]);
-    assert.equal(worker.local.queue[0].gatewayAcknowledged, true);
-    assert.equal(rows.size, 0);
-    assert.equal(worker.sync.settings.gatewayToken, undefined);
-    assert.ok(!JSON.stringify(worker.local.queue).includes('fixture-only'));
+    assert.equal(worker.local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.equal(worker.local.queue?.length || 0, 0);
+    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
+    const claim = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
+    assert.equal(claim.account, undefined);
+    assert.equal(claim.quote, undefined);
+    assert.equal(claim.telemetry.state.readiness, 'not_ready');
   } finally { worker.restore(); }
 });
 
-test('ignored/malformed answers retain exact bytes; actual restart and delivery never regenerate', async () => {
+
+test('retained result delivery survives invalid acknowledgements and a manager stop without regenerating', async () => {
   rows = new Map();
-  const first = await boot({ resultAnswers: [{ ok: true, ignored: true }] });
-  let local;
-  try {
-    first.tick();
-    await waitFor(() => first.local.queue?.[0]?.status === 'failed');
-    await first.stopped();
-    assert.deepEqual(Buffer.from(rows.get(JOB.jobId).bytes), Buffer.from(PNG, 'base64'));
-    const retried = await first.send({ type: 'retryFailed' });
-    assert.equal(retried.retried, 0);
-    await first.send({ type: 'clearFailed' });
-    await first.send({ type: 'clearQueue' });
-    assert.equal(first.local.queue.length, 1);
-    first.tick(); await first.stopped();
-    assert.equal(first.calls.filter((entry) => entry.url.endsWith('/claim')).length, 1);
-    assert.equal(first.calls.filter((entry) => entry.url.endsWith('/fail')).length, 0);
-    local = first.local;
-    local.queue[0].status = 'running'; // suspension after bytes were staged
-  } finally { first.restore(); }
-  const second = await boot({ local, resultAnswers: [{}, { ok: true }] });
+  const binding = await gatewayBinding(connection);
+  rows.set(JOB.jobId, { bytes: Uint8Array.from(Buffer.from(PNG, 'base64')), mime: 'image/png', binding });
+  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding, status: 'running', providerAttempted: true };
+  const control = { dispatchEnabled: false, closeRequested: true, revision: 'stop-held', requestedAt: 2, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [item] };
+  const worker = await boot({ local, control, resultAnswers: [{ ok: true, ignored: true }, {}, { ok: true }] });
   try {
     assert.equal(local.queue[0].status, 'failed');
-    const badAck = await second.send({ type: 'gateway:retryDelivery', id: local.queue[0].id });
-    assert.equal(badAck.ok, false);
-    assert.ok(rows.get(JOB.jobId).bytes);
-    const accepted = await second.send({ type: 'gateway:retryDelivery', id: local.queue[0].id });
-    assert.equal(accepted.ok, true);
-    assert.equal(local.queue[0].status, 'done');
-    assert.equal(second.provider.length, 0);
+    for (let i = 0; i < 2; i++) {
+      assert.equal((await worker.send({ type: 'gateway:retryDelivery', id: item.id })).ok, false);
+      assert.deepEqual(Buffer.from(rows.get(JOB.jobId).bytes), Buffer.from(PNG, 'base64'));
+    }
+    assert.equal((await worker.send({ type: 'gateway:retryDelivery', id: item.id })).ok, true);
+    assert.equal(local.queue[0].gatewayAcknowledged, true);
+    assert.equal(worker.provider.length, 0);
     assert.equal(rows.size, 0);
-  } finally { second.restore(); }
+    assert.equal(local.gatewayWorkerControl.dispatchEnabled, false);
+    for (const call of worker.calls.filter(({ url }) => url.endsWith('/result'))) assert.deepEqual(call.bytes, Buffer.from(PNG, 'base64'));
+  } finally { worker.restore(); }
 });
 
-test('post-submit provider failure is ambiguous and alarm/Resume cannot regenerate', async () => {
-  rows = new Map();
-  const worker = await boot({ failure: 'fixture lost response' });
+
+test('a persisted ambiguous Gateway submission stays held through pause, Resume and alarms', async () => {
+  const binding = await gatewayBinding(connection);
+  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding, status: 'running', providerAttempted: true };
+  const worker = await boot({ local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', queue: [item] } });
   try {
-    worker.tick();
-    await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
-    await worker.stopped();
-    const fail = worker.calls.find((entry) => entry.url.endsWith('/fail'));
-    assert.equal(JSON.parse(fail.init.body).ambiguous, true);
-    assert.equal(worker.local.queue[0].gatewayAcknowledged, false);
+    assert.equal(worker.local.queue[0].status, 'failed');
     await worker.send({ type: 'resumeQueue' });
     worker.tick(); await worker.stopped();
-    assert.equal(worker.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
-    assert.equal(worker.calls.filter((entry) => entry.url.endsWith('/claim')).length, 1);
+    assert.equal(worker.provider.length, 0);
+    assert.equal(worker.workCalls.length, 0);
+    assert.notEqual(worker.local.queue[0].gatewayAcknowledged, true);
   } finally { worker.restore(); }
 });
 
-test('changed token retains generated bytes and sends neither result nor failure to new credentials', async () => {
+
+test('a changed token cannot redirect retained image bytes or failures', async () => {
   rows = new Map();
-  const worker = await boot({ onSubmit: (local) => { local.gatewayConnection.gatewayToken = 'rotated'; } });
+  const binding = await gatewayBinding(connection);
+  rows.set(JOB.jobId, { bytes: Uint8Array.from(Buffer.from(PNG, 'base64')), mime: 'image/png', binding });
+  const item = { ...imageGatewayJobToItem(JOB, {}), gatewayBinding: binding, status: 'failed', gatewayAcknowledged: false };
+  const worker = await boot({ local: { gatewayConnection: { ...connection, gatewayToken: 'rotated' }, imageGeneratorWorkMode: 'gateway', queue: [item] } });
   try {
-    worker.tick();
-    await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
-    await worker.stopped();
+    assert.equal((await worker.send({ type: 'gateway:retryDelivery', id: item.id })).ok, false);
     assert.ok(rows.get(JOB.jobId).bytes);
-    assert.equal(worker.calls.filter((entry) => /\/(result|fail)$/.test(entry.url)).length, 0);
-    assert.equal((await worker.send({ type: 'gateway:retryDelivery', id: worker.local.queue[0].id })).ok, false);
+    assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
+    assert.equal(worker.provider.length, 0);
   } finally { worker.restore(); }
 });
+
 
 test('Story/standalone or disabled mode never claims; schema rejection never invokes provider', async () => {
   for (const mode of ['studio', 'standalone']) {
     const worker = await boot({ mode });
-    try { worker.tick(); await worker.stopped(); assert.equal(worker.calls.length, 0); assert.equal(worker.provider.length, 0); }
+    try { worker.tick(); await worker.stopped(); assert.equal(worker.workCalls.length, 0); assert.equal(worker.provider.length, 0); }
     finally { worker.restore(); }
   }
   const disabled = await boot({ local: { gatewayConnection: { ...connection, gatewayModeEnabled: false }, imageGeneratorWorkMode: 'gateway' } });
-  try { disabled.tick(); await disabled.stopped(); assert.equal(disabled.calls.length, 0); } finally { disabled.restore(); }
+  try { disabled.tick(); await disabled.stopped(); assert.equal(disabled.workCalls.length, 0); } finally { disabled.restore(); }
   const invalid = await boot({ job: { ...JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] } });
   try {
     invalid.tick();
-    await waitFor(() => invalid.calls.some((entry) => entry.url.endsWith('/fail')));
+    await waitFor(() => invalid.local.gatewayUnsettledClaim?.jobId === JOB.jobId);
     await invalid.stopped();
     assert.equal(invalid.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
-    assert.equal(JSON.parse(invalid.calls.find((entry) => entry.url.endsWith('/fail')).init.body).ambiguous, false);
+    assert.equal(invalid.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
   } finally { invalid.restore(); }
 });
