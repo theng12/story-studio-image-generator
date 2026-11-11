@@ -1281,7 +1281,7 @@ async function processQueue() {
     const tabs = {}; // per-provider tab cache
     for (;;) {
       if (await isPaused()) {
-        await writeStatus(await gatewayManagerPaused() ? 'Gateway dispatch is stopped — resume it in the account manager.' : 'Queue paused — press Resume to continue.', 'info');
+        await writeStatus(await gatewayManagerPaused() ? 'Generation is stopped by the account manager — resume dispatch there.' : 'Queue paused — press Resume to continue.', 'info');
         break;
       }
       settings = await getSettings();
@@ -1298,7 +1298,7 @@ async function processQueue() {
       await waitForNextProviderRun(q[idx]);
       // Re-check after the human-pace delay (it can be up to a minute long).
       if (await isPaused()) {
-        await writeStatus(await gatewayManagerPaused() ? 'Gateway dispatch is stopped — resume it in the account manager.' : 'Queue paused — press Resume to continue.', 'info');
+        await writeStatus(await gatewayManagerPaused() ? 'Generation is stopped by the account manager — resume dispatch there.' : 'Queue paused — press Resume to continue.', 'info');
         break;
       }
       settings = await getSettings();
