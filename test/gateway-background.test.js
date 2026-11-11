@@ -890,3 +890,18 @@ test('Story/standalone or disabled mode never claims; schema rejection never inv
     assert.equal(invalid.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
   } finally { invalid.restore(); }
 });
+
+test('a cleared Gateway address never blocks the manual queue', async () => {
+  const binding = await gatewayBinding(connection);
+  const worker = await boot({ mode: 'standalone', local: {
+    gatewayConnection: { ...connection, gatewayUrl: '' },
+    imageGeneratorWorkMode: 'standalone',
+    gatewayWorkerControl: { binding, dispatchEnabled: false, closeRequested: false },
+  }, synced: { flowProjectId: JOB.flowProjectId } });
+  try {
+    await worker.send({ type: 'enqueueStandalone', payload: { prompt: JOB.prompt, provider: 'flow' } });
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    assert.equal(worker.downloads.length, 1);
+  } finally { worker.restore(); }
+});

@@ -9,6 +9,7 @@ new version.
 - Report actual queue activity and pacing eligibility while paused, busy or held, without inventing account or credit observations.
 - Keep quote previews read-only and refuse new Gateway generation until the exact provider account and quote can be verified. Retained results can still be delivered.
 - Preserve fractional custom pacing and longer waits.
+- Changing or clearing the Gateway address keeps the manual queue working instead of failing with an invalid-address error.
 
 ## 0.50.13 — 2026-11-11
 

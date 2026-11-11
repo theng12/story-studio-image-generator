@@ -1968,8 +1968,10 @@ const GATEWAY_CONTROL_KEY = 'gatewayWorkerControl';
 let gatewayControlTail = Promise.resolve();
 async function getGatewayControl(settings = null) {
   const stored = (await chrome.storage.local.get(GATEWAY_CONTROL_KEY))[GATEWAY_CONTROL_KEY];
-  if (!stored || stored.binding !== await gatewayBinding(settings || await getSettings())) return null;
-  return stored;
+  if (!stored) return null;
+  let binding;
+  try { binding = await gatewayBinding(settings || await getSettings()); } catch { return null; }
+  return stored.binding === binding ? stored : null;
 }
 async function gatewayManagerPaused() {
   const control = await getGatewayControl();
