@@ -3,6 +3,15 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.15 — 2026-11-11
+
+- Adds Gateway Studio mode: pair this extension with Gateway as an image worker. Off by default.
+- Works on at most one Gateway image job at a time and keeps human pacing, with a default 5–15 second gap between provider requests.
+- Applies Gateway's stop and pacing settings before confirming them, and keeps the stop after a browser restart.
+- Labels Google Flow's bundled models honestly; Gateway jobs need a live model capture before they can run.
+- Never invents account or credit details; new Gateway generation waits for an exact quote.
+- Keeps already-generated Gateway images deliverable after a stop, without generating again.
+
 ## 0.50.14 — 2026-11-11
 
 - Apply Gateway dispatch stops and pacing before acknowledging them, and retain the stop after restart.
