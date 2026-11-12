@@ -84,6 +84,12 @@ Image's remaining gaps are explicit:
   credits line and the balance did not move across generated images (50 before
   and after one run, 30 before and after another). A zero balance never refuses a
   free job.
+- No claim has run end to end yet, on either side. Gateway's code accepts a
+  0-valued quote (`store.py` `_acc_quote`, and its over-quote check is `0 > 0` at
+  a zero balance), so if a first live claim fails, check these before blaming
+  price: the worker token's `dispatch_enabled`, the account's `profile_enabled`
+  and `gateway_enabled`, activity outside `{idle, waiting}`, a null or future
+  `next_eligible_at`, or an older held reservation on the worker or account.
 - Story Scene Review rows are reduced to image identity, prompt and image-state
   fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
   additional caller controls have no preservation mapping in that path yet.
