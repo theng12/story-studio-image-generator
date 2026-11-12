@@ -17,17 +17,17 @@
 
     <section class="card settings-section">
       <div class="field">
-        <span class="label">Appearance</span>
-        <select id="theme">
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
+        <span class="label">Working mode</span>
+        <select id="workingMode">
+          <option value="studio">Story Studio</option>
+          <option value="standalone">Standalone</option>
+          <option value="gateway">Gateway Studio</option>
         </select>
       </div>
     </section>
 
-    <section class="card settings-section">
-      <div class="label">Story Studio connection</div>
+    <section class="card settings-section" id="studioSection">
+      <div class="label">Story Studio connection (Studio and Standalone modes)</div>
       <label class="connection-url">
         <span class="label">Server URL</span>
         <input type="text" id="studioBaseUrl" placeholder="http://localhost:8677" />
@@ -52,21 +52,6 @@
       </div>
       <p class="hint connection-login-hint">Sign in is only needed when your remote Story Studio server requires credentials.</p>
       <div class="hint" id="loginStatus" aria-live="polite"></div>
-    </section>
-
-    <section class="card settings-section">
-      <div class="label">Google Flow</div>
-      <label class="connection-url">
-        <span class="label">Flow address</span>
-        <input type="text" id="flowWorkspaceUrl" placeholder="https://flow.google.com" />
-      </label>
-      <p class="hint connection-copy">Where Google Flow lives. If Google moves it again, paste the new address here and grant site access — no update needed.</p>
-      <div class="connection-actions">
-        <button id="grantFlow" class="btn small">Grant site access</button>
-      </div>
-      <div class="connection-feedback">
-        <span id="flowGrantStatus" class="muted small" aria-live="polite"></span>
-      </div>
     </section>
 
     <section class="card settings-section">

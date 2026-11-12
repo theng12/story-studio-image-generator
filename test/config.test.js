@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { DEFAULTS, getSettings, normalizeSettings, normalizeFlowWorkspaceUrl, flowWorkspace } from '../src/lib/config.js';
 
 test('pacing defaults to 5–15s while normalization preserves custom values and explicit zero', () => {
@@ -95,10 +97,11 @@ test('removes a retired Pollinations token from local storage during settings mi
   }
 });
 
-test('the Flow address keeps only an https origin and falls back to the default', () => {
-  assert.equal(normalizeFlowWorkspaceUrl('https://flow.google.com/project/abc?x=1'), 'https://flow.google.com');
-  assert.equal(normalizeFlowWorkspaceUrl('http://flow.google.com'), 'https://flow.google.com');
-  assert.equal(normalizeFlowWorkspaceUrl('not a url'), 'https://flow.google.com');
-  const ws = flowWorkspace({ flowWorkspaceUrl: 'https://labs.google/fx/tools/flow' });
-  assert.deepEqual([ws.url, ws.match, ws.project('id-1')], ['https://labs.google/', 'https://labs.google/*', 'https://labs.google/project/id-1']);
+test('the Flow address is fixed and has no settings UI', () => {
+  assert.equal(normalizeFlowWorkspaceUrl('https://labs.google/fx/tools/flow'), 'https://flow.google.com');
+  assert.equal(normalizeSettings({ flowWorkspaceUrl: 'https://labs.google/fx/tools/flow' }).flowWorkspaceUrl, 'https://flow.google.com');
+  const ws = flowWorkspace();
+  assert.deepEqual([ws.url, ws.match, ws.project('id-1')], ['https://flow.google.com/', 'https://flow.google.com/*', 'https://flow.google.com/project/id-1']);
+  const html = readFileSync(path.join(import.meta.dirname, '..', 'src/options/options.html'), 'utf8');
+  assert.doesNotMatch(html, /Google Flow|Flow address|flowWorkspaceUrl|grantFlow|flowGrantStatus/i);
 });

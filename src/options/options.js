@@ -3,17 +3,16 @@ import {
   saveSettings,
   getCredentials,
   saveCredentials,
+  flowWorkspace,
 } from '../lib/config.js';
 import { StudioClient } from '../lib/story-studio.js';
-import { initTheme, setTheme } from '../lib/theme.js';
+import { initTheme } from '../lib/theme.js';
 import { createImageGatewayWorkerId } from '../lib/gateway-worker.js';
 import { FLOW_FALLBACK_MODELS } from '../lib/providers.js';
 
 const $ = (id) => document.getElementById(id);
 const FIELDS = [
-  'theme',
   'studioBaseUrl',
-  'flowWorkspaceUrl',
   'gatewayUrl',
   'gatewayToken',
   'gatewayWorkerId',
@@ -27,9 +26,9 @@ async function load() {
   for (const f of CHECKBOX_FIELDS) if ($(f)) $(f).checked = !!s[f];
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
+  await loadMode();
   refreshGrantStatus();
-  refreshFlowGrant();
-  refreshGatewayFields();
+  refreshVisibility();
   renderGatewayPrices(s);
 }
 
@@ -225,46 +224,38 @@ async function testConnection() {
   }
 }
 
-async function refreshFlowGrant() {
-  const el = $('flowGrantStatus');
-  const pat = originPattern($('flowWorkspaceUrl').value.trim());
-  if (!pat) {
-    el.textContent = 'Enter a full https:// address.';
-    el.style.color = 'var(--warn)';
-    return;
-  }
-  const granted = await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
-  el.textContent = granted ? '✓ Access granted' : 'Not granted — click to grant.';
-  el.style.color = granted ? 'var(--ok)' : 'var(--warn)';
-}
-
-async function grantFlow() {
-  const el = $('flowGrantStatus');
-  const pat = originPattern($('flowWorkspaceUrl').value.trim());
-  if (!pat) return refreshFlowGrant();
-  try {
-    const granted = await chrome.permissions.request({ origins: [pat] });
-    el.textContent = granted ? '✓ Access granted.' : 'Permission declined.';
-    el.style.color = granted ? 'var(--ok)' : 'var(--err)';
-  } catch (e) {
-    el.textContent = `Grant failed: ${e.message}`;
-    el.style.color = 'var(--err)';
-  }
-}
-
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
 $('testConnection').onclick = testConnection;
-$('grantFlow').onclick = grantFlow;
-$('flowWorkspaceUrl').addEventListener('input', refreshFlowGrant);
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 
 // ── Gateway Studio image worker settings ────────────────────────────────────
-function refreshGatewayFields() {
- const enabled = $('gatewayModeEnabled')?.checked;
- const fields = $('gatewayFields');
- if (fields) fields.classList.toggle('hidden', !enabled);
+const MODE_KEY = 'imageGeneratorWorkMode';
+
+async function loadMode() {
+  const stored = (await chrome.storage.local.get(MODE_KEY))[MODE_KEY];
+  if ($('workingMode')) $('workingMode').value = ['studio', 'standalone', 'gateway'].includes(stored) ? stored : 'studio';
+}
+
+function refreshVisibility() {
+  const gateway = $('workingMode')?.value === 'gateway';
+  const scope = $('studioSection');
+  if (scope) scope.classList.toggle('hidden', gateway);
+  const fields = $('gatewayFields');
+  if (fields) fields.classList.toggle('hidden', !$('gatewayModeEnabled')?.checked);
+}
+
+async function saveMode() {
+  if ($('workingMode')) await chrome.storage.local.set({ [MODE_KEY]: $('workingMode').value });
+  refreshVisibility();
+  await requestFlowAccess();
+}
+
+async function requestFlowAccess() {
+  // The Flow address is fixed, so its host permission is asked for here instead
+  // of from a separate address field and grant button.
+  await chrome.permissions.request({ origins: [`${flowWorkspace().origin}/*`] }).catch(() => false);
 }
 
 async function generateGatewayId() {
@@ -294,7 +285,8 @@ async function testGatewayConnection() {
  }
 }
 
-if ($('gatewayModeEnabled')) $('gatewayModeEnabled').addEventListener('change', () => { refreshGatewayFields(); autoSave(); });
+if ($('workingMode')) $('workingMode').addEventListener('change', () => { saveMode(); });
+if ($('gatewayModeEnabled')) $('gatewayModeEnabled').addEventListener('change', () => { refreshVisibility(); requestFlowAccess(); autoSave(); });
 if ($('generateGatewayWorkerId')) $('generateGatewayWorkerId').onclick = generateGatewayId;
 if ($('testGateway')) $('testGateway').onclick = testGatewayConnection;
 if ($('grantGateway')) $('grantGateway').onclick = async () => {
@@ -311,7 +303,6 @@ for (const f of FIELDS) {
   const el = $(f);
   if (!el) continue;
   el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
-    if (f === 'theme') setTheme(el.value);
     autoSave();
   });
 }

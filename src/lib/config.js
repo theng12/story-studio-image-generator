@@ -7,6 +7,9 @@
 
 import { normalizeSelectedProvider } from './providers.js';
 
+// Google Flow's address is fixed; the setting key stays readable for compatibility.
+export const FLOW_WORKSPACE_URL = 'https://flow.google.com';
+
 export const DEFAULTS = {
   // Shared presentation preference across the Story Studio generators.
   theme: 'system',
@@ -24,7 +27,7 @@ export const DEFAULTS = {
   flowProjectName: '',
   // Where Google Flow lives. Google moved it once already (labs.google/fx →
   // flow.google.com); the next move is a Settings edit, not a release.
-  flowWorkspaceUrl: 'https://flow.google.com',
+  flowWorkspaceUrl: FLOW_WORKSPACE_URL,
 
   // A Flow project accumulates every generated image and gets heavy over time, so
   // roll over to a fresh project automatically after this many images (0 or the
@@ -219,19 +222,12 @@ export function normalizeFlowProjectId(value) {
   return match ? match[1].toLowerCase() : raw;
 }
 
-// Only the https origin is kept: the worker builds tab URLs, the tab-match
-// pattern and the "is this really a Flow tab" guard from it.
-export function normalizeFlowWorkspaceUrl(value) {
-  try {
-    const url = new URL(String(value || '').trim());
-    if (url.protocol === 'https:' && url.hostname) return url.origin;
-  } catch {
-    /* fall through to the default */
-  }
-  return DEFAULTS.flowWorkspaceUrl;
+// The Flow address is fixed; the stored key stays readable for compatibility.
+export function normalizeFlowWorkspaceUrl() {
+  return FLOW_WORKSPACE_URL;
 }
-export function flowWorkspace(settings) {
-  const origin = normalizeFlowWorkspaceUrl(settings?.flowWorkspaceUrl);
+export function flowWorkspace() {
+  const origin = FLOW_WORKSPACE_URL;
   return { origin, url: `${origin}/`, match: `${origin}/*`, project: (id) => `${origin}/project/${id}` };
 }
 
