@@ -16,11 +16,10 @@ export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
     const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
-    // Picker codes observed live 2026-11-12.
-    // shortcut: the captured 16:9 body sent numeric enum 3, so the first live run
-    // must confirm Flow takes the string code; if not, only this map changes.
     const IMAGE_ASPECT = {
-      '16:9': 'crop_16_9', '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16',
+      '16:9': 3, // observed: a real 2026-11-05 submit sent numeric enum 3
+      // The four crop codes below come from the picker, not a submit; unproven.
+      '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16',
     };
     // Labels exactly as the picker renders them; the keys are ours.
     const KNOWN_MODELS = [

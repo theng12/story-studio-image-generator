@@ -830,7 +830,9 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
 });
 
 test('every picker ratio sends its crop code and the observed counts are carried', async () => {
-  const ratios = { '16:9': 'crop_16_9', '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16' };
+  // 16:9 keeps the captured numeric enum; the other four use the picker's crop
+  // codes as an experiment until a real submit proves or corrects them.
+  const ratios = { '16:9': 3, '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16' };
   for (const [aspectRatio, code] of Object.entries(ratios)) {
     for (const count of [1, 2, 4]) {
       const requests = [];
