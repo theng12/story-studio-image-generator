@@ -46,6 +46,9 @@ its own; a closed picker, a signed-out tab or an unlabelled page leaves both as
 manual fallback choices and claims nothing. A label the picker no longer shows is
 never fuzzy-matched.
 
+New provider integrations and most new provider models need an extension update,
+so a model you can see in Flow may not be in the picker here yet.
+
 ## Gateway Studio worker (third mode)
 
 Mode → **Gateway Studio**, then Settings → Gateway for the address, worker token
