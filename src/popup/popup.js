@@ -1898,6 +1898,13 @@ async function pollQueue() {
     if (Number.isFinite(liveStatus.countdownUntil)) renderLiveStatus();
     else setStatus(liveStatus.text, liveStatus.kind);
   }
+  // A saved connection with the mode not selected looks paired and never claims; say so.
+  if (workMode !== 'gateway' && !liveStatus) {
+    const connection = (await chrome.storage.local.get('gatewayConnection')).gatewayConnection || {};
+    if (connection.gatewayWorkerId && connection.gatewayToken) {
+      setStatus('Gateway connection is saved, but Gateway mode is not selected. Choose Gateway Studio above to claim jobs.', 'err');
+    }
+  }
   // An armed but silent worker must never look merely absent: say whether the claim loop ticks.
   if (workMode === 'gateway' && !liveStatus) {
     const tick = Number(tickStore.gatewayLastTickAt) || 0;

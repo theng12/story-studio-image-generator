@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.22 — 2026-11-12
+
+- The side panel says "Gateway connection is saved, but Gateway mode is not selected" when a worker id and token exist while the mode is Studio or Standalone. That state looked paired and silently never claimed.
+
 ## 0.50.21 — 2026-11-12
 
 - Fleet Hub was removed: if you had it enabled, this extension no longer reports to or accepts queue controls from a Hub.
