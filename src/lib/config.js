@@ -118,9 +118,9 @@ export const DEFAULTS = {
   gatewayUrl: '',
   gatewayToken: '',
   gatewayWorkerId: '',
-  // What the user says one image costs, keyed by Flow model id. Flow shows no
-  // price line and its balance does not move, so this is declared, not observed.
-  // Empty means unknown, and an unknown price is never quoted.
+  // What the user says one image costs, keyed by Flow model id. Flow images are
+  // free, so an unset model is quoted at 0 credits — a real price, not "unknown".
+  // Set a model here only to declare something else.
   gatewayImageCreditCosts: {},
 };
 

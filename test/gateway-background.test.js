@@ -228,19 +228,25 @@ test('a stop received after preparation is enforced at the persisted provider su
   } finally { worker.restore(); }
 });
 
-test('unclaimed quote previews remain read-only and never enter the queue when no price is set', async () => {
-  const quoteRequired = { job: JOB, payloadSha256: 'a'.repeat(64), executionAuthorized: false };
-  const worker = await boot({ quoteRequired });
+test('a free image is quoted at 0 credits and claimed, even on a zero balance', async () => {
+  // Flow images cost nothing, so no Settings price is needed and 0 is a price.
+  const observedAt = new Date(Date.now()).toISOString();
+  const worker = await quotedBoot({
+    synced: { flowProjectId: JOB.flowProjectId },
+    observedAccount: { schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account', observedAt,
+      connection: 'connected', signIn: 'signed_in', readiness: 'ready',
+      balance: { value: 0, unit: 'credits', source: 'flow.nzlxg', observedAt } },
+  }, 0);
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('No credit price is set')); await worker.stopped();
-    assert.equal(worker.local.gatewayUnsettledClaim, undefined);
-    assert.equal(worker.local.queue?.length || 0, 0);
-    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
-    const sent = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(sent.account.accountId, 'fixture-account');
-    assert.equal(sent.quote, undefined);
-    assert.equal(sent.telemetry.state.signIn, 'signed_in');
-    assert.equal(quoteRequired.payloadSha256, 'a'.repeat(64));
+    worker.tick();
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    const claims = worker.calls.filter(({ url }) => url.endsWith('/claim')).map(({ init }) => JSON.parse(init.body));
+    assert.equal(claims.length, 2);
+    assert.equal(claims[1].quote.value, 0);
+    assert.equal(claims[1].quote.unit, 'credits');
+    assert.deepEqual(worker.local.queue.map(({ gatewayJobId }) => gatewayJobId), [JOB.jobId]);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
   } finally { worker.restore(); }
 });
 
@@ -257,14 +263,14 @@ test('no claim is attempted without a fresh signed-in Flow account observation',
   }
 });
 
-async function quotedBoot(extra = {}) {
+async function quotedBoot(extra = {}, price = 2) {
   const payloadSha256 = await sha256Of(JOB);
   return boot({
-    synced: { flowProjectId: JOB.flowProjectId, gatewayImageCreditCosts: { BELUGA: 0 } },
+    synced: { flowProjectId: JOB.flowProjectId, gatewayImageCreditCosts: { BELUGA: price } },
     claimAnswers: [
       { job: null, quoteRequired: { job: JOB, payloadSha256, executionAuthorized: false } },
       { job: JOB, accountBinding: { provider: 'flow', accountId: 'fixture-account' },
-        reservation: { payloadSha256, value: 0, unit: 'credits' } },
+        reservation: { payloadSha256, value: price, unit: 'credits' } },
     ],
     ...extra,
   });
@@ -281,7 +287,7 @@ test('a priced claim enqueues exactly one job and delivers its result', async ()
     assert.equal(claims.length, 2, 'the preview is never executable; only the quoted claim is');
     assert.equal(claims[0].quote, undefined);
     assert.equal(claims[1].quote.payloadSha256, payloadSha256);
-    assert.equal(claims[1].quote.value, 0);
+    assert.equal(claims[1].quote.value, 2, 'a declared Settings price overrides the free default');
     assert.equal(claims[1].account.accountId, 'fixture-account');
     assert.deepEqual(worker.local.queue.map(({ gatewayJobId }) => gatewayJobId), [JOB.jobId]);
     const result = worker.calls.find(({ url }) => url.endsWith('/result'));
@@ -466,7 +472,9 @@ test('a server accountBinding and reservation never authorize work the extension
 test('a quoteRequired preview remains non-executable even if its executionAuthorized flag is incorrectly true', async () => {
   const worker = await boot({ quoteRequired: { job: JOB, payloadSha256: 'd'.repeat(64), executionAuthorized: true } });
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('No credit price is set')); await worker.stopped();
+    worker.tick();
+    await waitFor(() => worker.calls.filter(({ url }) => url.endsWith('/claim')).length === 2);
+    await worker.stopped();
     assert.equal(worker.local.gatewayUnsettledClaim, undefined);
     assert.equal(worker.local.queue?.length || 0, 0);
     assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);

@@ -321,8 +321,9 @@ export async function flowCommand(command) {
         return { account: {
           schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
           connection: 'connected', signIn: 'signed_in',
-          // No credits means not ready; an unreadable balance stays unknown, not zero.
-          readiness: balance && balance.value === 0 ? 'not_ready' : 'ready', balance,
+          // Images are free, so an empty balance still claims; an unreadable
+          // balance stays unknown, never zero.
+          readiness: 'ready', balance,
         } };
       } catch {
         return { account: null };

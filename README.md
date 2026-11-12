@@ -78,10 +78,12 @@ Image's remaining gaps are explicit:
   the Flow project ID. 4:3, 1:1, 3:4 and `size` have no observed submit value and
   are refused at claim rather than guessed. The count slot is unproven: the
   capture carried `null` there with a count of 1.
-- The price per image is **declared by the user**, not observed: Flow shows no
+- Flow images are **free**: an unset price quotes 0 credits, and 0 is a real
+  price, never "unknown". The Settings field only overrides it for anyone who
+  wants to declare something else. Nothing is read from the page: Flow shows no
   credits line and the balance did not move across generated images (50 before
-  and after one run, 30 before and after another). A blank price means no quote,
-  and no quote means no claim.
+  and after one run, 30 before and after another). A zero balance never refuses a
+  free job.
 - Story Scene Review rows are reduced to image identity, prompt and image-state
   fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
   additional caller controls have no preservation mapping in that path yet.

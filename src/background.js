@@ -2044,14 +2044,15 @@ async function gatewayTelemetry(settings, account = null) {
 }
 // Gateway requires this block to repeat telemetry.state exactly.
 const gatewayAccountBlock = (account, telemetry) => (account ? { ...account, ...telemetry.state } : null);
-// A price the user has not entered is unknown, and unknown never becomes a quote.
+// Flow images are free, so an unset price is 0 credits, never unknown. A declared
+// price in Settings overrides it. 0 is a valid quote, not a missing one.
 function gatewayModelCredits(settings, job) {
   const costs = settings.gatewayImageCreditCosts || {};
   const model = getFlowModel(String(job?.modelKey || ''));
   for (const key of [job?.modelKey, model?.id, model?.internalId]) {
     if (typeof key === 'string' && Number.isFinite(costs[key])) return costs[key];
   }
-  return undefined;
+  return 0;
 }
 async function syncGatewayTelemetry(settings) {
   const health = await testImageGateway(settings);

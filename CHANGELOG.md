@@ -12,7 +12,7 @@ new version.
 - Matches Flow's picker as it is now: "Nano Banana 2.1" and "Nano Banana 2 Lite". "Nano Banana Pro" is gone, and a name the picker no longer shows is never matched loosely.
 - Uses the model key Flow actually receives (`BELUGA` for Nano Banana 2.1).
 - Submits 16:9 and 9:16, the two ratios with a real submit behind them; 4:3, 1:1, 3:4 and any size are refused for having no observed value instead of being guessed. Counts of 1, 2 or 4 are carried.
-- Records honestly that the per-image price is yours to declare: Flow shows no credits line and the balance did not move across generated images (50/50 and 30/30).
+- Images are free: an unset price quotes 0 credits and claims proceed, and 0 is never read as "unknown". The Settings field only overrides it. A zero balance does not refuse a free job.
 
 ## 0.50.15 — 2026-11-11
 

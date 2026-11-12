@@ -39,7 +39,8 @@ export async function payloadSha256(payload) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-// credits: the exact per-image price for this model, or undefined when unknown.
+// credits: the per-image price for this model. 0 is a real price (Flow images are
+// free), not "unknown"; only a non-number means there is nothing to quote.
 export function imageQuote(preview, account, credits) {
   if (!account || !preview || typeof preview.payloadSha256 !== 'string') return null;
   if (!Number.isFinite(credits) || credits < 0) return null;
