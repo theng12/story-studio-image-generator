@@ -322,7 +322,8 @@ export async function flowCommand(command) {
           schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
           connection: 'connected', signIn: 'signed_in',
           // Images are free, so an empty balance still claims; an unreadable
-          // balance stays unknown, never zero.
+          // balance stays unknown, never zero. If Flow ever charges for images,
+          // readiness must weigh the balance again before this can claim.
           readiness: 'ready', balance,
         } };
       } catch {
