@@ -118,6 +118,9 @@ export const DEFAULTS = {
   gatewayUrl: '',
   gatewayToken: '',
   gatewayWorkerId: '',
+  // Credits Flow charges per image, keyed by Flow model id. Empty means unknown,
+  // and an unknown price is never quoted, so nothing generates.
+  gatewayImageCreditCosts: {},
 };
 
 const STORAGE_KEY = 'settings';
@@ -185,6 +188,11 @@ export function normalizeSettings(settings) {
   delete settings.piclumenModel;
   delete settings.perchanceStyle;
   delete settings.perchanceCount;
+  const costs = settings.gatewayImageCreditCosts && typeof settings.gatewayImageCreditCosts === 'object'
+    ? settings.gatewayImageCreditCosts : {};
+  settings.gatewayImageCreditCosts = Object.fromEntries(Object.entries(costs)
+    .filter(([key, value]) => /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/.test(key) && Number.isFinite(Number(value)) && Number(value) >= 0)
+    .map(([key, value]) => [key, Number(value)]));
   settings.flowProjectId = normalizeFlowProjectId(settings.flowProjectId);
   settings.flowWorkspaceUrl = normalizeFlowWorkspaceUrl(settings.flowWorkspaceUrl);
   if (!QWEN_ASPECT_RATIOS.has(settings.qwenAspectRatio)) settings.qwenAspectRatio = DEFAULTS.qwenAspectRatio;

@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as pause } from 'node:timers/promises';
 import { gatewayBinding, imageGatewayJobToItem } from '../src/lib/gateway-worker.js';
+import { payloadSha256 as sha256Of } from '../src/lib/gateway-account.js';
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j9ZkAAAAASUVORK5CYII=';
 const JOB = { jobId: 'image/a', kind: 'image', provider: 'flow', prompt: 'A quiet village.', modelKey: 'nano-banana-2', aspectRatio: '16:9', flowProjectId: '5852b0c6-e4a4-455a-8215-5513c208c29d', referenceImages: [{ mediaType: 'image/png', dataBase64: PNG }] };
@@ -38,7 +39,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, observedAccount, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -66,6 +67,15 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
       if (command.op === 'listImageModels') {
         if (inventory instanceof Error) throw inventory;
         return [{ result: { ok: true, result: clone(inventory) } }];
+      }
+      if (command.op === 'inspectAccount') {
+        if (observedAccount === null) return [{ result: { ok: true, result: { account: null } } }];
+        const observedAt = new Date(Date.now()).toISOString();
+        return [{ result: { ok: true, result: { account: observedAccount || {
+          schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account', observedAt,
+          connection: 'connected', signIn: 'signed_in', readiness: 'ready',
+          balance: { value: 23, unit: 'credits', source: 'flow.nzlxg', observedAt },
+        } } } }];
       }
       if (command.op === 'uploadImage') return [{ result: { ok: true, result: uploadConfirmed ? { mediaId: 'ref-exact' } : {} } }];
       if (command.op === 'prepareGenerateImage') {
@@ -100,6 +110,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     if (url.endsWith('/claim')) {
       await onClaim?.(JSON.parse(init.body), local, sync.settings);
       if (claimLost) throw new Error('Fixture claim connection lost.');
+      if (claimAnswers.length) return Response.json(claimAnswers.shift());
       return Response.json({ job: quoteRequired ? null : job, ...(quoteRequired ? { quoteRequired } : {}), control, ...claimEnvelope });
     }
     if (url.endsWith('/result')) {
@@ -217,22 +228,62 @@ test('a stop received after preparation is enforced at the persisted provider su
   } finally { worker.restore(); }
 });
 
-test('unclaimed quote previews remain read-only, preserve the payload hash and never enter the queue', async () => {
+test('unclaimed quote previews remain read-only and never enter the queue when no price is set', async () => {
   const quoteRequired = { job: JOB, payloadSha256: 'a'.repeat(64), executionAuthorized: false };
   const worker = await boot({ quoteRequired });
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('quote preview only')); await worker.stopped();
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('No credit price is set')); await worker.stopped();
     assert.equal(worker.local.gatewayUnsettledClaim, undefined);
     assert.equal(worker.local.queue?.length || 0, 0);
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     const sent = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(sent.account, undefined);
+    assert.equal(sent.account.accountId, 'fixture-account');
     assert.equal(sent.quote, undefined);
-    assert.equal(sent.telemetry.state.signIn, 'unknown');
-    assert.equal(sent.telemetry.state.readiness, 'not_ready');
+    assert.equal(sent.telemetry.state.signIn, 'signed_in');
     assert.equal(quoteRequired.payloadSha256, 'a'.repeat(64));
   } finally { worker.restore(); }
 });
+
+test('no claim is attempted without a fresh signed-in Flow account observation', async () => {
+  const stale = { schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account',
+    observedAt: '2020-01-01T00:00:00Z', connection: 'connected', signIn: 'signed_in', readiness: 'ready' };
+  for (const observedAccount of [null, stale]) {
+    const worker = await boot({ observedAccount });
+    try {
+      worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('signed-in Flow tab')); await worker.stopped();
+      assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+      assert.equal(worker.local.queue?.length || 0, 0);
+    } finally { worker.restore(); }
+  }
+});
+
+test('a quoted claim runs one image and reports progress along the way', async () => {
+  const payloadSha256 = await sha256Of(JOB);
+  const worker = await boot({
+    synced: { flowProjectId: JOB.flowProjectId, gatewayImageCreditCosts: { NARWHAL: 0 } },
+    claimAnswers: [
+      { job: null, quoteRequired: { job: JOB, payloadSha256, executionAuthorized: false } },
+      { job: JOB, accountBinding: { provider: 'flow', accountId: 'fixture-account' },
+        reservation: { payloadSha256, value: 0, unit: 'credits' } },
+    ],
+  });
+  try {
+    worker.tick();
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    const claims = worker.calls.filter(({ url }) => url.endsWith('/claim')).map(({ init }) => JSON.parse(init.body));
+    assert.equal(claims.length, 2);
+    assert.equal(claims[0].quote, undefined);
+    assert.equal(claims[1].quote.payloadSha256, payloadSha256);
+    assert.equal(claims[1].quote.value, 0);
+    assert.equal(claims[1].account.accountId, 'fixture-account');
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/progress')).length, 1);
+    const result = worker.calls.find(({ url }) => url.endsWith('/result'));
+    assert.deepEqual(Buffer.from(result.bytes), Buffer.from(PNG, 'base64'));
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
+  } finally { worker.restore(); }
+});
+
 
 test('telemetry reports the actual longer cooldown, unknown account facts and retained custom fractional pacing', async () => {
   const clock = { now: 9_000_000 };
@@ -347,11 +398,11 @@ test('claim state reads the freshly applied current revision and pacing after bo
     assert.deepEqual(state.pacing, control.pacing);
     assert.deepEqual([claimed.settings.humanDelayMinSec, claimed.settings.humanDelayMaxSec], [control.pacing.minSeconds, control.pacing.maxSeconds]);
     assert.equal(state.observedAt, new Date(clock.now).toISOString());
-    assert.equal(claimed.body.account, undefined);
+    assert.equal(claimed.body.account.accountId, 'fixture-account');
     assert.equal(claimed.body.quote, undefined);
     assert.deepEqual(reports.map((state) => state.controlRevision), ['pace-1', 'pace-2']);
     assert.equal(worker.local.gatewayWorkerControl.revision, 'pace-3');
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
   } finally { worker.restore(); }
 });
 
@@ -373,23 +424,21 @@ test('desired resume is acknowledged only after the actual stop and pacing readb
     assert.equal(reports[1].paused, false);
     assert.equal(reports[1].enabled, true);
     assert.deepEqual(reports[1].pacing, { minSeconds: 0.5, maxSeconds: 1 });
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
   } finally { worker.restore(); }
 });
 
-test('server accountBinding and reservation cannot replace an actual same-request account observation and exact quote', async () => {
+test('a server accountBinding and reservation never authorize work the extension did not quote', async () => {
   const worker = await boot({ claimEnvelope: { accountBinding: { provider: 'flow', accountId: 'server-only-account' },
     reservation: { payloadSha256: 'c'.repeat(64), value: 0, unit: 'credits' } } });
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without a verified provider account')); await worker.stopped();
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without our exact price')); await worker.stopped();
     const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(body.account, undefined);
+    assert.equal(body.account.accountId, 'fixture-account');
     assert.equal(body.quote, undefined);
-    assert.equal(body.telemetry.state.signIn, 'unknown');
-    assert.equal(body.telemetry.state.readiness, 'not_ready');
-    assert.equal(worker.local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.equal(worker.local.gatewayUnsettledClaim.jobId, undefined);
     assert.equal(worker.local.queue?.length || 0, 0);
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(worker.calls.some(({ url }) => /\/admin\/|\/(result|fail)$/.test(url)), false, 'Worker never changes the app-only spending flag or settles an unobserved offer.');
   } finally { worker.restore(); }
 });
@@ -397,10 +446,10 @@ test('server accountBinding and reservation cannot replace an actual same-reques
 test('a quoteRequired preview remains non-executable even if its executionAuthorized flag is incorrectly true', async () => {
   const worker = await boot({ quoteRequired: { job: JOB, payloadSha256: 'd'.repeat(64), executionAuthorized: true } });
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('quote preview only')); await worker.stopped();
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('No credit price is set')); await worker.stopped();
     assert.equal(worker.local.gatewayUnsettledClaim, undefined);
     assert.equal(worker.local.queue?.length || 0, 0);
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
   } finally { worker.restore(); }
 });
@@ -605,7 +654,7 @@ test('fallback, empty, cached, unattributed or failed inventory never authorizes
       await waitFor(() => worker.local.lastStatus?.text.includes('no captured live inventory'));
       await worker.stopped();
       assert.equal(worker.workCalls.length, 0, 'No Gateway request, including claim, may rely on fallback.');
-      assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+      assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
       assert.equal(worker.local.gatewayUnsettledClaim, undefined);
       assert.equal(worker.local.flowImageModelInventory.source, 'fallback');
       assert.equal(worker.local.flowImageModelInventory.models.some(({ modelId }) => modelId === 'STALE_MODEL'), false);
@@ -624,7 +673,7 @@ test('queued Gateway work loses eligibility when current inventory is only fallb
   try {
     await waitFor(() => worker.local.queue?.[0]?.status === 'failed');
     await worker.stopped();
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim') || url.endsWith('/result')).length, 0);
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
     assert.equal(worker.local.queue[0].gatewayAcknowledged, false);
@@ -645,7 +694,7 @@ test('a queued live manual model cannot be verified by the bundled list after in
     await worker.stopped();
     assert.equal(worker.workCalls.length, 0);
     assert.equal(worker.downloads.length, 0);
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
   } finally { worker.restore(); }
 });
 
@@ -700,16 +749,18 @@ test('an older completed row cannot settle a newer offered-job hold after restar
   const first = await boot({ local });
   try {
     first.tick();
-    await waitFor(() => local.gatewayUnsettledClaim?.jobId === JOB.jobId);
+    await waitFor(() => local.lastStatus?.text.includes('without our exact price'));
     await first.stopped();
     assert.deepEqual(local.queue, [completed]);
-    assert.equal(first.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(local.gatewayUnsettledClaim.jobId, undefined);
+    assert.equal(first.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
   } finally { first.restore(); }
   const second = await boot({ local });
   try {
     second.tick(); await second.stopped();
     assert.equal(second.workCalls.length, 0);
-    assert.equal(local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.equal(local.gatewayUnsettledClaim.jobId, undefined);
+    assert.ok(local.gatewayUnsettledClaim.claimId);
     assert.deepEqual(local.queue, [completed]);
   } finally { second.restore(); }
 });
@@ -801,20 +852,20 @@ test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scene
   } finally { worker.restore(); }
 });
 
-test('an executable job offered without locally observed account and quote is durably held, never submitted', async () => {
+test('an executable job offered without our own price is durably held, never submitted', async () => {
   const worker = await boot();
   try {
     worker.tick(); worker.tick();
-    await waitFor(() => worker.local.lastStatus?.text.includes('without a verified provider account'));
+    await waitFor(() => worker.local.lastStatus?.text.includes('without our exact price'));
     await worker.stopped();
-    assert.equal(worker.local.gatewayUnsettledClaim.jobId, JOB.jobId);
+    assert.equal(worker.local.gatewayUnsettledClaim.jobId, undefined);
+    assert.ok(worker.local.gatewayUnsettledClaim.claimId);
     assert.equal(worker.local.queue?.length || 0, 0);
-    assert.equal(worker.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
     const claim = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(claim.account, undefined);
+    assert.equal(claim.account.accountId, 'fixture-account');
     assert.equal(claim.quote, undefined);
-    assert.equal(claim.telemetry.state.readiness, 'not_ready');
   } finally { worker.restore(); }
 });
 
@@ -884,9 +935,9 @@ test('Story/standalone or disabled mode never claims; schema rejection never inv
   const invalid = await boot({ job: { ...JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] } });
   try {
     invalid.tick();
-    await waitFor(() => invalid.local.gatewayUnsettledClaim?.jobId === JOB.jobId);
+    await waitFor(() => invalid.local.lastStatus?.text.includes('without our exact price'));
     await invalid.stopped();
-    assert.equal(invalid.provider.filter(({ op }) => op !== 'listImageModels').length, 0);
+    assert.equal(invalid.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(invalid.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
   } finally { invalid.restore(); }
 });

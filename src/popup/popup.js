@@ -462,6 +462,10 @@ function wire() {
     settings = await saveSettings({ flowNewProjectEvery: v });
   };
   $('testConn').onclick = testConnection;
+  $('gatewayClaim').onclick = async () => {
+    try { await chrome.runtime.sendMessage({ type: 'gateway:claimNow' }); }
+    catch (error) { setStatus(error.message, 'err'); }
+  };
   $('confirmCancel').onclick = () => $('confirm').classList.add('hidden');
 }
 
@@ -473,6 +477,7 @@ function renderWorkMode() {
   $('standaloneWorkflow').classList.toggle('hidden', studioMode || gatewayMode);
   $('assetSettingsCard').classList.toggle('hidden', gatewayMode);
   $('saveDestination').textContent = studioMode ? 'Story Studio KH' : gatewayMode ? 'Gateway Studio' : 'Downloads';
+  $('gatewayActions').classList.toggle('hidden', !gatewayMode);
   $('workingMode').value = workMode;
 }
 

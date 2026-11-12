@@ -7,6 +7,7 @@ import {
 import { StudioClient } from '../lib/story-studio.js';
 import { initTheme, setTheme } from '../lib/theme.js';
 import { createImageGatewayWorkerId } from '../lib/gateway-worker.js';
+import { FLOW_FALLBACK_MODELS } from '../lib/providers.js';
 
 const $ = (id) => document.getElementById(id);
 const FIELDS = [
@@ -33,6 +34,41 @@ async function load() {
   refreshFleetGrant();
   refreshFlowGrant();
   refreshGatewayFields();
+  renderGatewayPrices(s);
+}
+
+// One price per Flow model. Blank means unknown, and unknown never generates.
+function renderGatewayPrices(settings) {
+  const box = $('gatewayPrices');
+  if (!box) return;
+  box.textContent = '';
+  for (const model of FLOW_FALLBACK_MODELS) {
+    const field = document.createElement('label');
+    field.className = 'field';
+    field.textContent = model.label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.step = '1';
+    input.dataset.model = model.internalId;
+    input.placeholder = 'unknown';
+    const stored = settings.gatewayImageCreditCosts?.[model.internalId] ?? settings.gatewayImageCreditCosts?.[model.id];
+    input.value = Number.isFinite(stored) ? String(stored) : '';
+    input.addEventListener('input', autoSave);
+    field.appendChild(input);
+    box.appendChild(field);
+  }
+}
+
+function gatewayPricePatch() {
+  const costs = {};
+  for (const input of document.querySelectorAll('#gatewayPrices input[data-model]')) {
+    const raw = input.value.trim();
+    if (raw === '') continue;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0) costs[input.dataset.model] = value;
+  }
+  return costs;
 }
 
 let savedTimer = null;
@@ -49,6 +85,7 @@ async function save() {
   const patch = {};
   for (const f of FIELDS) if ($(f)) patch[f] = typeof $(f).value === 'string' ? $(f).value.trim() : $(f).value;
   for (const f of CHECKBOX_FIELDS) if ($(f)) patch[f] = $(f).checked;
+  if ($('gatewayPrices')) patch.gatewayImageCreditCosts = gatewayPricePatch();
   await saveSettings(patch);
   showSaved();
 }
@@ -298,7 +335,7 @@ async function testGatewayConnection() {
  try {
  const result = await chrome.runtime.sendMessage({ type: 'gateway:testConnection' });
  if (result?.ok) {
- status.textContent = `Gateway connected. Upload limit: ${result.maxResultBytes} bytes. Select Gateway Studio in the side panel to receive jobs.`;
+ status.textContent = `Gateway connected. ${Number.isFinite(result.balance?.value) ? `${result.balance.value} credits remaining.` : 'Remaining credits unknown.'} Upload limit: ${result.maxResultBytes} bytes. Select Gateway Studio in the side panel to receive jobs.`;
  status.style.color = 'var(--ok)';
  } else {
  status.textContent = result?.error || 'Couldn’t connect to Gateway.';

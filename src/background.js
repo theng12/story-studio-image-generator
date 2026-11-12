@@ -21,7 +21,7 @@ import {
 } from './lib/config.js';
 import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
-import { DEFAULT_PROVIDER_ID, PROVIDERS, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
+import { DEFAULT_PROVIDER_ID, PROVIDERS, getFlowModel, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
 import {
   assertSupportedProjectScene,
   gatewayNeedsReview,
@@ -53,6 +53,7 @@ import {
 } from './lib/failure-policy.js';
 import {
   claimImageJob,
+  reportImageProgress,
   reportImageResult,
   reportImageFailure,
   testImageGateway,
@@ -60,7 +61,10 @@ import {
 } from './lib/gateway-client.js';
 import {
   gatewayBinding,
+  imageGatewayJobToItem,
+  isImageGatewayJobQueued,
 } from './lib/gateway-worker.js';
+import { imageQuote, observedAccount } from './lib/gateway-account.js';
 import { getGatewayArtifact, putGatewayArtifact, deleteGatewayArtifact } from './lib/gateway-artifacts.js';
 
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
@@ -426,6 +430,7 @@ async function send(tabId, message) {
     'flow:uploadImage',
     'flow:getContext',
     'flow:listImageModels',
+    'flow:inspectAccount',
     'chatgpt:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
@@ -1325,10 +1330,13 @@ async function processQueue() {
       try {
         assertSupportedProjectScene(item);
         if (item.target === 'gateway') {
-          // No verified provider account/quote capture exists in this source.
-          const error = new Error('Gateway generation needs an observed provider account and exact quote; retained for review.');
-          error.code = 'gateway-observation-unavailable';
-          throw error;
+          // Only a claim the Gateway reserved against an observed account and price may run.
+          if (!item.gatewayClaimId || !item.gatewayReservation) {
+            const error = new Error('Gateway work has no reserved account and price; retained for review.');
+            error.code = 'gateway-observation-unavailable';
+            throw error;
+          }
+          reportImageProgress(settings, item.gatewayJobId, 'generating').catch(() => {});
         }
         if (!tabs[provider]) tabs[provider] = await ensureProviderTab(provider);
         if (provider === 'aistudio') tabs[provider] = await ensureAiStudioReady(tabs[provider]);
@@ -2012,7 +2020,7 @@ function applyGatewayControl(settings, control) {
   gatewayControlTail = result.catch(() => {});
   return result;
 }
-async function gatewayTelemetry(settings) {
+async function gatewayTelemetry(settings, account = null) {
   const queue = await getQueue();
   const stored = await chrome.storage.local.get([NEXT_PROVIDER_RUN_KEY, COOLDOWN_KEY, GATEWAY_CLAIM_KEY]);
   const control = await getGatewayControl(settings);
@@ -2024,14 +2032,26 @@ async function gatewayTelemetry(settings) {
   const nextRunAt = Math.max(Date.now(), Number(stored[NEXT_PROVIDER_RUN_KEY]) || 0, cooldown);
   const activity = running ? 'generating' : held ? 'recovering' : cooldown > Date.now() ? 'cooling'
     : nextRunAt > Date.now() ? 'resting' : queue.some((item) => item.status === 'pending') ? 'waiting' : 'idle';
-  return { extensionVersion: chrome.runtime.getManifest().version, state: {
-    connection: 'unknown', signIn: 'unknown', readiness: 'not_ready', activity, attention: held,
+  const state = { extensionVersion: chrome.runtime.getManifest().version, state: {
+    connection: account?.connection || 'unknown', signIn: account?.signIn || 'unknown', readiness: account?.readiness || 'not_ready', activity, attention: held,
     enabled: await gatewayIsActive(settings) && control?.dispatchEnabled === true, paused,
     ...(control?.revision ? { controlRevision: control.revision } : {}),
     nextEligibleAt: paused || held ? null : new Date(nextRunAt).toISOString(),
     pacing: { minSeconds: settings.humanDelayMinSec, maxSeconds: settings.humanDelayMaxSec },
     source: 'image.worker', observedAt: new Date(Date.now()).toISOString(),
   } };
+  return state;
+}
+// Gateway requires this block to repeat telemetry.state exactly.
+const gatewayAccountBlock = (account, telemetry) => (account ? { ...account, ...telemetry.state } : null);
+// A price the user has not entered is unknown, and unknown never becomes a quote.
+function gatewayModelCredits(settings, job) {
+  const costs = settings.gatewayImageCreditCosts || {};
+  const model = getFlowModel(String(job?.modelKey || ''));
+  for (const key of [job?.modelKey, model?.id, model?.internalId]) {
+    if (typeof key === 'string' && Number.isFinite(costs[key])) return costs[key];
+  }
+  return undefined;
 }
 async function syncGatewayTelemetry(settings) {
   const health = await testImageGateway(settings);
@@ -2043,6 +2063,19 @@ async function syncGatewayTelemetry(settings) {
     const applied = await applyGatewayControl(settings, answer.control);
     if (telemetry.state.controlRevision === applied.revision) break;
   }
+}
+const GATEWAY_ACCOUNT_MAX_AGE_SECONDS = 90;
+// The signed-in Flow page is the only account/credit source; anything less is unknown.
+// Uses an open Flow tab only, so a paused or idle worker never opens one.
+async function inspectFlowAccount() {
+  try {
+    const { match } = flowWorkspace(await getSettings());
+    const tabs = await chrome.tabs.query({ url: match });
+    const tab = tabs.find((entry) => entry.status === 'complete');
+    if (!tab) return null;
+    const observed = await send(tab.id, { type: 'flow:inspectAccount' });
+    return observedAccount(observed.account, GATEWAY_ACCOUNT_MAX_AGE_SECONDS);
+  } catch { return null; }
 }
 async function gatewayIsActive(settings) {
   return settings.gatewayModeEnabled === true &&
@@ -2137,6 +2170,11 @@ async function gatewayClaimLoop() {
     await syncGatewayTelemetry(settings);
     settings = await getSettings();
     if (!(await gatewayCanClaim(settings))) return;
+    const account = await inspectFlowAccount();
+    if (!account) {
+      await writeStatus('Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
+      return;
+    }
     const inventory = await refreshFlowModels();
     if (!inventory.ok || inventory.source !== 'live') {
       throw modelError('model-unknown', 'Flow has no captured live inventory. Gateway work will not be claimed; manual work can use the bundled catalog.');
@@ -2144,19 +2182,40 @@ async function gatewayClaimLoop() {
     const binding = await gatewayBinding(settings);
     if (!(await gatewayCanClaim(await getSettings())) || await gatewayBinding(await getSettings()) !== binding) return;
     const claimId = crypto.randomUUID();
-    const telemetry = await gatewayTelemetry(settings);
+    const telemetry = await gatewayTelemetry(settings, account);
+    const accountBlock = gatewayAccountBlock(account, telemetry);
     await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, at: Date.now() } });
-    // Unbound state cannot authorize execution. A quote preview remains unclaimed.
-    const answer = await claimImageJob(settings, telemetry);
-    if (!answer.job) {
-      await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
-      if (answer.control) await applyGatewayControl(settings, answer.control);
-      if (answer.quoteRequired) await writeStatus('Gateway quote preview only: an observed provider account and exact quote are unavailable. Nothing will generate.', 'err');
-      return;
-    }
-    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, jobId: answer.job.jobId, at: Date.now() } });
+    // A price-less job is a read-only preview: never enqueue it, never generate.
+    let answer = await claimImageJob(settings, telemetry, accountBlock);
     if (answer.control) await applyGatewayControl(settings, answer.control);
-    throw new Error('Gateway offered work without a verified provider account and exact quote. The claim is held; nothing will generate.');
+    // Only our own quoted claim may return work; anything else is held, never run.
+    if (answer.job) throw new Error('Gateway offered executable work without our exact price; the claim is held and nothing will generate.');
+    {
+      if (!answer.quoteRequired) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
+      const quote = imageQuote(answer.quoteRequired, account, gatewayModelCredits(settings, answer.quoteRequired.job));
+      if (!quote) {
+        await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+        await writeStatus(`No credit price is set for ${answer.quoteRequired.job?.modelKey || 'this Flow model'}; nothing was claimed. Set credits per image in Settings.`, 'err');
+        return;
+      }
+      answer = await claimImageJob(settings, telemetry, accountBlock, quote);
+      if (answer.control) await applyGatewayControl(settings, answer.control);
+      if (!answer.job) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
+      if (answer.reservation?.payloadSha256 !== quote.payloadSha256 || answer.reservation?.value !== quote.value ||
+          answer.reservation?.unit !== quote.unit || answer.accountBinding?.accountId !== account.accountId) {
+        throw new Error('Gateway reservation does not match the observed account and price; the claim is held.');
+      }
+    }
+    const job = answer.job;
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, jobId: job.jobId, at: Date.now() } });
+    if (isImageGatewayJobQueued(await getQueue(), job.jobId)) {
+      throw new Error('Gateway returned an already recorded job; the new claim is held.');
+    }
+    const item = { ...imageGatewayJobToItem(job, settings, inventory), gatewayBinding: binding, gatewayClaimId: claimId,
+      gatewayAccountBinding: answer.accountBinding || null, gatewayReservation: answer.reservation || null };
+    await putGatewayArtifact(job.jobId, { binding, references: job.referenceImages || [] });
+    await queueStore.update((current) => [...current, item]);
+    await writeStatus(`Gateway job ${String(job.jobId).slice(0, 8)} queued.`, 'info');
   } catch (error) {
     await writeStatus(`Gateway work stopped: ${String(error?.message || error).slice(0, 200)}`, 'err');
   } finally {
@@ -2286,8 +2345,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reply(getSettings().then(async (settings) => {
         const health = await testImageGateway(settings);
         await applyGatewayControl(settings, health.control);
-        return health;
+        return { ...health, balance: (await inspectFlowAccount())?.balance || null };
       }));
+      return true;
+    case 'gateway:claimNow':
+      reply((async () => {
+        const settings = await getSettings();
+        if (!(await gatewayIsActive(settings))) throw new Error('Select Gateway Studio mode in the side panel first.');
+        await gatewayClaimLoop();
+        return { ok: true };
+      })());
       return true;
     case 'gateway:retryDelivery':
       reply(retryGatewayDelivery(msg.id));

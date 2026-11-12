@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version.
 
+## 0.50.16 — 2026-11-12
+
+- Reads the signed-in Flow account (opaque id) and remaining credits in the worker, and reports them to Gateway with each claim. Neither is derived from a profile, cookie or email.
+- Claims and runs a Gateway image job once the user has entered that model's credits-per-image price. A price is never guessed: blank means unknown, and unknown work is never claimed or generated.
+- Reports job progress to Gateway and adds a **Claim now** button in the side panel.
+- Gateway mode still needs Flow's live model inventory; without it, nothing is claimed.
+
 ## 0.50.15 — 2026-11-11
 
 - Adds Gateway Studio mode: pair this extension with Gateway as an image worker. Off by default.

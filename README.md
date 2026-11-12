@@ -111,19 +111,26 @@ never kill Chrome, erase holds or clear unknown outcomes. Retained bytes can sti
 be delivered without generation. Desired pacing never shortens a chosen deadline
 or provider cooldown, and an unchanged revision preserves explicit local edits.
 
-`POST /api/workers/telemetry` sends `{workerId,kind:'image',telemetry}`. Its unbound
+`POST /api/workers/telemetry` sends `{workerId,kind:'image',telemetry}`. Its
 `telemetry.state` reports actual activity, enabled/paused state, applied
 `controlRevision`, observed timestamp, current pacing and `nextEligibleAt` as a
-zoned ISO timestamp (null when paused/held). Connection and sign-in are unknown;
-readiness is not_ready because no authenticated account/quote capture exists.
-No account or credit observations are invented. Claim uses the same unbound
-telemetry. `quoteRequired` is an unclaimed, read-only preview, never a generation
-request. An unexpected executable offer is durably held, and legacy pending
-Gateway work is retained for review. New Gateway generation remains refused
-until the actual signed-in stable provider account and exact quote are captured.
-Executable claims require a fresh observation of that same provider/account in
-that same request, a matching exact quote, and the current applied control revision;
-a cached observation or server-returned account binding cannot replace them.
+zoned ISO timestamp (null when paused/held). Connection and sign-in stay unknown
+on a tick that is not claiming, because the account is only read when the worker
+is eligible to claim.
+
+`POST /api/workers/claim` adds `account` and, once priced, `quote`. The account is
+the opaque Flow identity and remaining credits (`o30O0e`, `nzlxg`) read from the
+signed-in Flow page in that same request; nothing is derived from a profile,
+cookie or email, and the account block must repeat `telemetry.state` exactly.
+`quoteRequired` is an unclaimed, read-only preview, never a generation request.
+An unexpected executable offer is durably held, and legacy pending Gateway work
+is retained for review. A quote needs the user's own credits-per-image price for
+that model (Settings, blank by default): a price is never guessed, and an unknown
+price means nothing is claimed or generated. Executable claims require a fresh
+observation of that same provider/account in that same request, a matching exact
+price, and the current applied control revision; a cached observation or
+server-returned account binding cannot replace them. Progress is reported along
+the job, and a quoted claim enqueues one ordinary queue item.
 A pause acknowledgement during generating/recovering work does not authorize
 closing Chrome. Gateway alone decides safe closure from fresh exact-revision
 paused state, known idle/cooling/resting/waiting activity and absence of active,

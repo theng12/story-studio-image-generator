@@ -35,15 +35,16 @@ function accepted(result) {
   if (result?.ok !== true || result.ignored === true) throw new Error('Gateway did not accept this answer; retained for review.');
   return result;
 }
-export async function claimImageJob(settings, telemetry) {
-  const result = await request(settings, '/api/workers/claim', { json: { workerId: settings.gatewayWorkerId, kind: 'image', ...(telemetry ? { telemetry } : {}) }, idle: true });
+export async function claimImageJob(settings, telemetry, account = null, quote = null) {
+  const result = await request(settings, '/api/workers/claim', { json: { workerId: settings.gatewayWorkerId, kind: 'image',
+    ...(telemetry ? { telemetry } : {}), ...(account ? { account } : {}), ...(quote ? { quote } : {}) }, idle: true });
   if (result === null) return { job: null };
   if (result.job != null && (typeof result.job.jobId !== 'string' || !result.job.jobId)) throw new Error('Gateway claim returned a malformed job.');
   if (result.job == null && result.quoteRequired == null && !Object.hasOwn(result, 'job')) throw new Error('Gateway claim returned a malformed job.');
   return result;
 }
-export async function reportImageTelemetry(settings, telemetry) {
-  return accepted(await request(settings, '/api/workers/telemetry', { json: { workerId: settings.gatewayWorkerId, kind: 'image', telemetry } }));
+export async function reportImageTelemetry(settings, telemetry, account = null) {
+  return accepted(await request(settings, '/api/workers/telemetry', { json: { workerId: settings.gatewayWorkerId, kind: 'image', telemetry, ...(account ? { account } : {}) } }));
 }
 const jobPath = (jobId, action) => `/api/workers/jobs/${encodeURIComponent(jobId)}/${action}`;
 export async function reportImageProgress(settings, jobId, phase, message = '') {

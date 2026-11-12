@@ -15,7 +15,7 @@
 export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
-    const RPC = { generate: 'ogiZ0b', upload: 'maseQ' };
+    const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
     // ponytail: only 16:9 was captured (enum 3). Map other ratios once observed.
     const IMAGE_ASPECT = { '16:9': 3 };
     const KNOWN_MODELS = [
@@ -276,6 +276,39 @@ export async function flowCommand(command) {
       if (typeof mediaId !== 'string' || !mediaId) throw new Error('Flow upload returned no media id.');
       return { mediaId };
     };
+    // Signed-in account identity and remaining credits, both captured 2026-11-05.
+    // Only the opaque id and the credit number are read; profile fields are ignored.
+    const inspectAccount = async () => {
+      try {
+        wiz();
+      } catch {
+        return { account: null };
+      }
+      const projectId = projectIdFor(payload.projectId);
+      try {
+        const observedAt = new Date().toISOString();
+        const me = await rpc(RPC.account,
+          [['me'], [[['person.photo', 'person.name', 'person.email', 'person.metadata']], null, [1, 7, 10]]], projectId);
+        const identity = me?.[0]?.[0] === 'me' ? me[0][2]?.[0] : null;
+        if (typeof identity !== 'string' || !identity) return { account: null };
+        let balance = null;
+        try {
+          const credits = await rpc(RPC.credits, [], projectId);
+          const value = Array.isArray(credits) ? credits[0] : null;
+          if (Number.isFinite(value) && value >= 0) {
+            balance = { value, unit: 'credits', source: 'flow.nzlxg', observedAt };
+          }
+        } catch { /* credits stay unknown, never zero */ }
+        return { account: {
+          schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
+          connection: 'connected', signIn: 'signed_in',
+          // Ready for manual work; Gateway still needs a price before generation.
+          readiness: 'ready', balance,
+        } };
+      } catch {
+        return { account: null };
+      }
+    };
     const getContext = async () => {
       let signedIn = false;
       try {
@@ -298,6 +331,7 @@ export async function flowCommand(command) {
       submitGenerateImage,
       generateImage,
       uploadImage,
+      inspectAccount,
       getContext,
       createProject,
     };
