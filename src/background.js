@@ -1971,6 +1971,9 @@ async function pauseQueue({ byHub = false, commandId = '', expectedRevision } = 
 
 // Gateway jobs use the same provider queue and pacing. Held answers block claims.
 let gatewayPolling = false;
+// Why the last claim tick could not ask Gateway for work: 'flow-tab' or 'flow-inventory'.
+// Reported as activity 'waiting' so an armed but blocked worker never looks idle.
+let gatewayBlocked = null;
 const GATEWAY_CLAIM_KEY = 'gatewayUnsettledClaim';
 const GATEWAY_CONTROL_KEY = 'gatewayWorkerControl';
 let gatewayControlTail = Promise.resolve();
@@ -2031,7 +2034,8 @@ async function gatewayTelemetry(settings, account = null) {
   const cooldown = Number(stored[COOLDOWN_KEY]?.[provider]) || 0;
   const nextRunAt = Math.max(Date.now(), Number(stored[NEXT_PROVIDER_RUN_KEY]) || 0, cooldown);
   const activity = running ? 'generating' : held ? 'recovering' : cooldown > Date.now() ? 'cooling'
-    : nextRunAt > Date.now() ? 'resting' : queue.some((item) => item.status === 'pending') ? 'waiting' : 'idle';
+    : nextRunAt > Date.now() ? 'resting' : queue.some((item) => item.status === 'pending') ? 'waiting'
+    : gatewayBlocked ? 'waiting' : 'idle';
   const state = { extensionVersion: chrome.runtime.getManifest().version, state: {
     connection: account?.connection || 'unknown', signIn: account?.signIn || 'unknown', readiness: account?.readiness || 'not_ready', activity, attention: held,
     enabled: await gatewayIsActive(settings) && control?.dispatchEnabled === true, paused,
@@ -2161,6 +2165,26 @@ async function gatewayCanClaim(settings) {
   return true;
 }
 
+// Opens (or waits for) the Flow workspace so a panel-closed worker can claim instead of
+// idling until someone opens a tab by hand.
+async function waitForFlowTab(tabId) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(500);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.status === 'complete') return tab;
+  }
+  return null;
+}
+async function openFlowForGateway(settings) {
+  const workspace = flowWorkspace(settings);
+  const existing = await chrome.tabs.query({ url: workspace.match });
+  let tab = existing.find((entry) => entry.status === 'complete');
+  if (!tab) {
+    const created = existing[0] || await chrome.tabs.create({ url: workspace.url, active: false, autoDiscardable: false });
+    tab = await waitForFlowTab(created.id);
+  }
+  return tab ? inspectFlowAccount() : null;
+}
 async function gatewayClaimLoop() {
   if (gatewayPolling) return;
   gatewayPolling = true;
@@ -2171,13 +2195,20 @@ async function gatewayClaimLoop() {
     await syncGatewayTelemetry(settings);
     settings = await getSettings();
     if (!(await gatewayCanClaim(settings))) return;
-    const account = await inspectFlowAccount();
+    let account = await inspectFlowAccount();
     if (!account) {
-      await writeStatus('Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
-      return;
+      gatewayBlocked = 'flow-tab';
+      await writeStatus('Gateway is waiting for a signed-in Flow tab; opening one.', 'info');
+      account = await openFlowForGateway(settings);
+      if (!account) {
+        await writeStatus('Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
+        return;
+      }
     }
+    gatewayBlocked = null;
     const inventory = await refreshFlowModels();
     if (!inventory.ok || inventory.source !== 'live') {
+      gatewayBlocked = 'flow-inventory';
       throw modelError('model-unknown', 'Flow has no captured live inventory. Gateway work will not be claimed; manual work can use the bundled catalog.');
     }
     const binding = await gatewayBinding(settings);

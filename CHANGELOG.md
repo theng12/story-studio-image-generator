@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.17 — 2026-11-12
+
+- An armed Gateway worker no longer idles when no Flow tab is open: the claim tick opens the Flow workspace itself, waits for it to load, then claims. A panel-closed or headless worker can take jobs.
+- While the Flow tab or model inventory blocks a claim, the worker reports activity "waiting" instead of "idle", so Gateway and Relay show that it is armed but blocked rather than healthy and silent.
+
 ## 0.50.16 — 2026-11-12
 
 - Gateway image worker reads the signed-in Flow account (opaque id) and remaining credits and sends them with each claim; nothing comes from a profile, cookie or email.
