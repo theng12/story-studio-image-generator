@@ -2038,7 +2038,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // Gateway alarm listener: wake the worker to poll for new image jobs.
 chrome.alarms?.onAlarm.addListener((alarm) => {
-  if (alarm.name === GATEWAY_ALARM) gatewayClaimLoop();
+  if (alarm.name === GATEWAY_ALARM) {
+    // Listener-level proof, separate from the loop's own marker: an alarm that exists but
+    // never fires must be visible as such.
+    chrome.storage.local.set({ gatewayAlarmFiredAt: Date.now(), gatewayAlarmPeriodMinutes: alarm.periodInMinutes ?? null });
+    gatewayClaimLoop();
+  }
 });
 
 async function syncGatewayAlarm() {

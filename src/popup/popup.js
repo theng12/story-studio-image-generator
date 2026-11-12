@@ -1907,6 +1907,11 @@ async function pollQueue() {
   }
   // An armed but silent worker must never look merely absent: say whether the claim loop ticks.
   if (workMode === 'gateway' && !liveStatus) {
+    const connection = (await chrome.storage.local.get('gatewayConnection')).gatewayConnection || {};
+    if (connection.gatewayWorkerId && connection.gatewayModeEnabled !== true) {
+      setStatus('Gateway mode is selected, but the connection is not enabled on the Settings page.', 'err');
+      return;
+    }
     const tick = Number(tickStore.gatewayLastTickAt) || 0;
     if (!tick || Date.now() - tick > 90000) setStatus('Gateway claim loop is not ticking. Reload this extension or restart Chrome so it can pick up jobs.', 'err');
     else setStatus(`Gateway claim loop ticking · last check ${new Date(tick).toLocaleTimeString()}`, 'info');
