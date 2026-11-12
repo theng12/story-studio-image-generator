@@ -2189,7 +2189,7 @@ async function gatewayClaimLoop() {
     let answer = await claimImageJob(settings, telemetry, accountBlock);
     if (answer.control) await applyGatewayControl(settings, answer.control);
     // Only our own quoted claim may return work; anything else is held, never run.
-    if (answer.job) throw new Error('Gateway offered executable work without our exact price; the claim is held and nothing will generate.');
+    if (answer.job) throw new Error('Gateway offered executable work without our own quoted price; the claim is held and nothing will generate.');
     {
       if (!answer.quoteRequired) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
       const quote = imageQuote(answer.quoteRequired, account, gatewayModelCredits(settings, answer.quoteRequired.job));

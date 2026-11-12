@@ -452,7 +452,7 @@ test('a server accountBinding and reservation never authorize work the extension
   const worker = await boot({ claimEnvelope: { accountBinding: { provider: 'flow', accountId: 'server-only-account' },
     reservation: { payloadSha256: 'c'.repeat(64), value: 0, unit: 'credits' } } });
   try {
-    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without our exact price')); await worker.stopped();
+    worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without our own quoted price')); await worker.stopped();
     const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
     assert.equal(body.account.accountId, 'fixture-account');
     assert.equal(body.quote, undefined);
@@ -769,7 +769,7 @@ test('an older completed row cannot settle a newer offered-job hold after restar
   const first = await boot({ local });
   try {
     first.tick();
-    await waitFor(() => local.lastStatus?.text.includes('without our exact price'));
+    await waitFor(() => local.lastStatus?.text.includes('without our own quoted price'));
     await first.stopped();
     assert.deepEqual(local.queue, [completed]);
     assert.equal(local.gatewayUnsettledClaim.jobId, undefined);
@@ -876,7 +876,7 @@ test('an executable job offered without our own price is durably held, never sub
   const worker = await boot();
   try {
     worker.tick(); worker.tick();
-    await waitFor(() => worker.local.lastStatus?.text.includes('without our exact price'));
+    await waitFor(() => worker.local.lastStatus?.text.includes('without our own quoted price'));
     await worker.stopped();
     assert.equal(worker.local.gatewayUnsettledClaim.jobId, undefined);
     assert.ok(worker.local.gatewayUnsettledClaim.claimId);
@@ -955,7 +955,7 @@ test('Story/standalone or disabled mode never claims; schema rejection never inv
   const invalid = await boot({ job: { ...JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] } });
   try {
     invalid.tick();
-    await waitFor(() => invalid.local.lastStatus?.text.includes('without our exact price'));
+    await waitFor(() => invalid.local.lastStatus?.text.includes('without our own quoted price'));
     await invalid.stopped();
     assert.equal(invalid.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(invalid.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
