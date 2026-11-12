@@ -1,150 +1,141 @@
 # Story Studio Image Generator extension
 
-Repository instructions supplement the global Codex and development-workstation safety rules.
+Repository instructions supplement the global Codex and development-workstation
+safety rules.
 
 ## Purpose
 
-This Manifest V3 Chrome extension reads scene and thumbnail prompts from Story
-Studio KH, generates assets through web providers, and saves them back to the
+A Manifest V3 Chrome extension that reads scene and thumbnail prompts from Story
+Studio KH, generates images through web providers, and saves them back to the
 episode with canonical filenames.
 
-Supported providers:
+Maintained providers, all image-only and driven through the signed-in web session:
+Google Flow, Google AI Studio, Qwen Studio, Leonardo AI, ChatGPT.
 
-- Google Flow: image only; uses the logged-in Flow web session.
-- Google AI Studio: image only; drives the signed-in image-mode UI.
-- Qwen Studio: image only; drives the signed-in conversational image workflow.
-- Leonardo AI: image only; drives the logged-in website and spends web tokens.
-- ChatGPT: image only; drives the signed-in conversational image workflow.
-
-Video generation belongs in the sibling `story-studio-video-generator`
-extension. Do not add Veo, clip, or video queue paths back to Image Generator.
+Video generation belongs in the sibling `story-studio-video-generator`. Do not add
+Veo, clip or video queue paths here.
 
 ## Architecture
 
 - `manifest.json`: permissions, provider hosts, content-script pairs, version.
-- `src/background.js`: persistent queue, provider tabs, generation dispatch,
-  retry policy, and Story Studio ingestion.
-- `src/popup/`: side-panel project/episode selection and queue controls.
-- `src/options/`: Story Studio, image-provider, and model settings.
+- `src/background.js`: persistent queue, provider tabs, dispatch, retry policy, Story Studio ingestion.
+- `src/popup/`: side-panel selection, mode, queue controls.
+- `src/options/`: Story Studio, provider, model and Gateway worker settings.
 - `src/lib/config.js`: settings defaults and storage boundary.
-- `src/lib/providers.js`: maintained provider registry and capabilities.
-- `src/lib/reference-assets.js`: Story Studio reference normalization and
-  descriptor resolution.
-- `src/lib/story-studio.js`: Story Studio REST client.
-- `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands.
-- `src/content/aistudio-main.js` + `aistudio.js`: AI Studio conversational
-  image pair using prompt, attachment, run, and output contracts.
-- `src/content/qwen-main.js` + `qwen.js`: Qwen Studio conversational image
-  pair using the prompt, send, assistant-response, and qwen-image contracts.
-- `src/content/leonardo-main.js` + `leonardo.js`: Leonardo-specific visible-UI
-  pair with explicit model, style, mode, ratio, size, and background-safe
-  MutationObserver result-card handling.
-- `src/content/chatgpt-main.js` + `chatgpt.js`: ChatGPT conversational image
-  pair using a fresh chat, verified attachments, and output contracts.
+- `src/lib/providers.js`: provider registry and capabilities.
+- `src/lib/model-identity.js`: model snapshots, inventory provenance, generation params.
+- `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands (generate, upload, account/credits, inventory).
+- `src/lib/gateway-*.js`: worker transport, job→queue mapping, account/quote, durable bytes.
+- `src/lib/reference-assets.js`, `src/lib/story-studio.js`: reference descriptors and the Story Studio REST client.
+- `src/content/<provider>-main.js` + `<provider>.js`: MAIN-world and isolated pairs per provider.
 
-MAIN-world scripts may access page JavaScript, auth state, and controls. Their
-isolated-world partner is the only layer that talks to `chrome.runtime`. Keep
-that boundary when adding or changing providers.
+MAIN-world scripts may touch page JavaScript, auth state and controls; only the
+isolated partner talks to `chrome.runtime`. Keep that boundary.
 
 ## Queue guarantees
 
-Long-running work belongs in the background queue, never in the side panel.
-The queue must remain:
+Long-running work lives in the background queue, never the side panel. The queue
+must stay:
 
 - Persistent through side-panel closure and service-worker termination.
-- Strictly sequential so providers are not flooded.
+- Strictly sequential, so no provider is flooded.
 - Deduplicated by provider and scene identity.
-- Resumable for operations known to be safe to repeat.
-- Human-paced using the persisted, user-configured min/max delay; worker death
-  must not bypass the next allowed provider-request timestamp.
-- Flow image reCAPTCHA uses a configurable total of 1–10 fresh-token attempts
-  (default 4). Exhaustion re-pends the current item and uses the persisted,
-  configurable cooldown timestamp before automatic alarm-driven resume. Manual
-  Resume may clear that cooldown early.
+- Resumable only for operations known safe to repeat.
+- Human-paced with the persisted user min/max delay; worker death must not bypass
+  the next allowed provider-request timestamp.
+- Flow reCAPTCHA: 1–10 fresh-token attempts (default 4). Exhaustion re-pends the
+  item and uses the persisted cooldown before alarm-driven resume; manual Resume
+  may clear that cooldown early.
 
-Leonardo image jobs interrupted after submission must ask the user to inspect
-the provider tab before retrying.
+Leonardo jobs interrupted after submission must ask the user to inspect the
+provider tab before retrying.
 
 ## Provider adapters
 
-Websites change without notice. Provider failures should be explicit and
-actionable: identify missing controls, sign-in/browser verification, quota
-limits, download failures, and unknown outcomes. Do not silently fall back to a
-different provider or private endpoint.
+Website changes are expected. Failures must be explicit and actionable — missing
+controls, sign-in/browser checks, quota, download failures, unknown outcomes — and
+never silently fall back to another provider or private endpoint.
 
-For visible-UI adapters:
+For visible-UI adapters: operate the real prompt, ratio and Generate controls;
+capture existing outputs before clicking Generate; return only a newly rendered
+result; keep verified selectors with careful semantic fallbacks; treat quota
+signals as a pause, not a failed batch.
 
-- Operate the site's real prompt, aspect-ratio, and Generate controls.
-- Capture the set of existing outputs before clicking Generate.
-- Return only a newly rendered result.
-- Keep selectors specific where verified and provide careful semantic fallbacks.
-- Treat quota signals as a pause, not a failed batch.
+References are descriptor-only queue data. Bound bytes before an adapter sees them:
+Flow, AI Studio and ChatGPT at most four; Qwen one; Leonardo is provider-page
+managed and never auto-ingests. AI Studio and ChatGPT clear old attachments, paste
+each reference in order and verify the final count; Qwen keeps its one-chip check.
 
-Story Studio references are descriptor-only queue data. Bound reference bytes
-before adapters receive them: Flow, AI Studio, and ChatGPT support at most four;
-Qwen supports one; Leonardo is provider-page-managed and never auto-ingests
-Story Studio references. AI Studio and ChatGPT must clear old attachments, paste
-each bounded reference sequentially, and verify the final count. Qwen must keep
-its one-chip safety check.
-
-The provider registry is released with the extension; new providers need a code
-and manifest update. Existing providers must refresh their model listings as new
-models appear, using exact provider-owned IDs and labels from a verified capture
-mechanism. Track new controls and additional duration choices the same way.
-Bundled/known records, observed captures, authenticated current availability,
-supported request schemas, and generation eligibility are distinct facts: a
-listed model or an open tab proves none of the others. Missing capture support
-is an explicit parity gap, never permission to relabel fallback records as live.
-Leonardo model discovery is intentionally live from the signed-in page, so its
-newly available models appear after a model refresh.
+The registry ships with the extension, so new providers need code and manifest
+changes. Existing providers refresh their model listings as new models appear,
+using exact provider-owned IDs and labels from a verified capture. A known or
+bundled model, an observed capture, an authenticated current listing, a supported
+request schema and generation eligibility are five separate facts — one proves
+none of the others. Missing capture support is an explicit parity gap, never
+permission to relabel fallback records as live. Leonardo discovery is live from
+the signed-in page by design.
 
 ## Story Studio contract
 
-Default server URLs are `http://localhost:8000` for desktop and
-`http://localhost:8766` for server mode. Remote mode uses the session cookie and
-runtime-granted host permission.
+Default servers: `http://localhost:8000` desktop, `http://localhost:8766` server
+mode. Remote mode uses the session cookie and a runtime-granted host permission.
 
-Do not casually change filenames or ingest routes. Story Studio depends on the
-scene and thumbnail naming scheme. Keep generated credentials, request
-templates, and API keys in local Chrome storage only.
+Do not change filenames or ingest routes casually — Story Studio depends on the
+scene and thumbnail naming scheme. Credentials, request templates and API keys
+stay in local Chrome storage only.
 
-Project scene images require `source: 'plan'` and stable Scene Review IDs, and
-must save through the Scene Review upload route. Image Prompts ingestion is
+Project scene images require `source: 'plan'` and stable Scene Review IDs and must
+save through the Scene Review upload route. Image Prompts ingestion is
 thumbnail-only; only an explicit `target: 'download'` bypasses project-scene
-safety. Never spend provider work for non-plan project scene jobs.
+safety. Never spend provider work on non-plan project scene jobs.
 
-When references are enabled, resolve Story Studio's episode, matching scene,
-character, composition, and style assets into bounded descriptors at enqueue,
-then fetch bytes lazily in the worker. Do not store base64 payloads in queue
-storage.
+With references enabled, resolve episode, matching scene, character, composition
+and style assets into bounded descriptors at enqueue and fetch bytes lazily in the
+worker.
+
+## Gateway worker mode
+
+A third mode beside `studio` and `standalone`; those two keep their behaviour.
+Gateway items are the only ones carrying `gatewayJobId`. Outbound only: the
+extension never listens for inbound requests.
+
+- The account observation is the opaque Flow identity and credits read from the
+  signed-in page in the same claim request. Never derive identity from a profile,
+  cookie, email or session id, and never invent a balance.
+- Executable claims require that fresh same-request account, a matching quote and
+  the current control revision. A cached observation or a server-returned account
+  binding cannot substitute.
+- Flow images are free: an unset price quotes 0 credits and 0 is a real price,
+  never "unknown". Settings only overrides it, and the UI states which is in force.
+- Unknown outcomes are held, never replayed: unexpected executable offers,
+  ambiguous paid submissions and claims we did not quote stay for review, and
+  retained bytes can be delivered again without generating.
+- Dispatch stops and pacing are persisted before being acknowledged; an invalid or
+  unknown control stops dispatch without acknowledging it, and local Resume cannot
+  override the manager stop. A close request never kills Chrome, erases a hold or
+  clears an unknown outcome.
 
 ## Development and verification
 
-There is no build step. Edit source files, reload the unpacked extension at
-`chrome://extensions`, then reload open provider tabs so content scripts update.
+No build step: edit source, reload the unpacked extension at `chrome://extensions`,
+then reload open provider tabs.
 
 Before handing off changes:
 
-1. Run `node --check` on every JavaScript file when Node is available.
-2. Parse `manifest.json` and confirm every declared content script exists.
-3. Run `git diff --check`.
-4. Verify Story Studio ingestion when save behavior changes.
-5. Bump `manifest.json` for user-facing changes.
-6. Check refreshed model listings and newly exposed controls/duration choices
-   against actual provider captures. Keep known/fallback, captured, authenticated
-   availability, schema support and generation eligibility labelled separately;
-   never claim live discovery or complete parity from a bundled list or fixture.
-7. Trace supported control values through selection, queue snapshots, provider
-   requests and Story/Gateway callers. Preserve the caller's verified fields and
-   exact scene duration where supplied, without guessing names, units or default
-   values. Queue elapsed time (`durationMs`) is not scene duration. Missing or
-   unsupported counterpart fields must be reported as concrete parity gaps,
-   rather than silently discarded or advertised as supported.
-8. Retain the exact source binding, commands, raw focused check output and exits
-   for discovery/control changes. Add authenticated live evidence for each mode
-   and model before reporting that part accepted. Carry unresolved capture and
-   counterpart-schema gaps forward with their owner and next action; blocked
-   fields do not stop independent source work.
+1. `node --check` every JavaScript file, parse `manifest.json`, confirm each
+   declared content script exists, and run `git diff --check`.
+2. Run the Node test suite (`npm test`). It is fixture-level: it never proves live
+   provider behaviour.
+3. Bump `manifest.json` for user-facing changes and add a CHANGELOG entry.
+4. Verify Story Studio ingestion when save behaviour changes.
+5. For discovery or control changes, check refreshed listings against real
+   provider captures and trace each supported value through selection, queue
+   snapshot, provider request and the Story/Gateway caller. Preserve the caller's
+   verified fields; `durationMs` is queue time, not scene duration.
+6. Keep the exact source binding, commands, focused check output and exit codes.
+   Add authenticated live evidence for each mode and model before calling it
+   accepted. Carry unresolved capture and counterpart gaps forward with owner and
+   next action; a blocked field does not stop independent source work.
 
-Do not commit generated assets, captured requests, cookies, credentials, or API
+Do not commit generated assets, captured requests, cookies, credentials or API
 keys. Preserve unrelated local changes and the user's active queue data.

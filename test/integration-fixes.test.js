@@ -969,9 +969,10 @@ test('Flow refresh preserves a rendered live selection after a delayed save', ()
 
 test('README distinguishes bundled Flow records from Leonardo discovery and Gateway eligibility', () => {
   const readme = source('README.md');
-  assert.match(readme, /Flow currently uses bundled model records/);
-  assert.match(readme, /no verified Flow live inventory\s+capture/);
-  assert.match(readme, /Gateway claims and submissions require captured live inventory/);
+  assert.match(readme, /counts as live only while the signed-in page shows its exact label/);
+  assert.match(readme, /leaves both as\s+manual fallback choices and claims nothing/);
+  assert.match(readme, /Leonardo is discovered live/);
+  assert.match(readme, /refused at claim rather than guessed/);
 });
 
 test('Flow disables model selection throughout refresh and leaves an empty inventory disabled', () => {

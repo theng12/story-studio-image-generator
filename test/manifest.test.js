@@ -9,10 +9,10 @@ const root = path.resolve(import.meta.dirname, '..');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const removed = /grok|perchance|freegen|pollinations|piclumen/i;
 
-test('manifest matches the latest release notes and retains the queue-all cleanup', () => {
+test('manifest matches the latest release notes and points older ones at git log', () => {
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
   assert.equal(manifest.version, changelog.match(/^## (\d+\.\d+\.\d+)\b/m)?.[1]);
-  assert.match(changelog, /## 0\.50\.9 - One queue-all action/);
+  assert.match(changelog, /Older releases live in `git log`/);
 });
 
 test('manifest contains no retired provider hosts or content scripts', () => {
