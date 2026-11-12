@@ -62,7 +62,7 @@ test('a bundled model counts as live only while the signed-in page shows its exa
   assert.equal(result.result.source, 'live');
   assert.equal(result.result.projectId, '12345678-1234-1234-1234-123456789abc');
   // Observed labels only, in catalog order, with our own keys.
-  assert.deepEqual(Array.from(result.result.entries, ({ id }) => id), ['NARWHAL', 'HARBOR_SEAL']);
+  assert.deepEqual(Array.from(result.result.entries, ({ id }) => id), ['BELUGA', 'HARBOR_SEAL']);
   assert.equal(flowInventoryResult(result.result.entries, result.result.source).source, 'live');
 
   const signedOut = runInNewContext(`(${flowCommand.toString()})`, { window: {}, location: locate, document: { body } });

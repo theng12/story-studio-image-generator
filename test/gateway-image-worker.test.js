@@ -14,17 +14,18 @@ test('strict captured model, ratio and reference validation; actual queue identi
   const item = imageGatewayJobToItem({ ...JOB, referenceImages: [{ mediaType: 'image/png', dataBase64: PNG }] }, {});
   assertQueuedModelIdentity(item, 'flow');
   assert.equal(item.prompt, JOB.prompt);
-  assert.equal(item.modelSnapshot.modelId, 'NARWHAL');
+  assert.equal(item.modelSnapshot.modelId, 'BELUGA');
   assert.equal(item.gatewayReferenceCount, 1);
   assert.equal(item.references, undefined);
   assert.equal(isUnsupportedProjectScene(item), false);
   assert.equal(isUnsupportedProjectScene({ source: 'prompts', kind: 'scene', target: 'project' }), true);
   for (const patch of [{ kind: 'video' }, { modelKey: 'invented' }, { provider: 'chatgpt' }, { aspectRatio: '' }, { aspectRatio: '2:1' }, { aspectRatio: '21:9' },
+    { aspectRatio: '4:3' }, { aspectRatio: '1:1' }, { aspectRatio: '3:4' },
     { count: 3 }, { count: 0 }, { size: '1024x1024' }, { referenceImages: null }, { referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] }, { prompt: 42 }]) {
     assert.throws(() => normalizeImageGatewayJob({ ...JOB, ...patch }));
   }
-  // All five observed ratios and the three observed counts are accepted.
-  for (const aspectRatio of ['16:9', '4:3', '1:1', '3:4', '9:16']) {
+  // Only the ratios with a real submit behind them, plus the three observed counts.
+  for (const aspectRatio of ['16:9', '9:16']) {
     assert.equal(normalizeImageGatewayJob({ ...JOB, aspectRatio }).aspectRatio, aspectRatio);
   }
   for (const count of [1, 2, 4]) {

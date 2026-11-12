@@ -87,7 +87,7 @@ export const DEFAULTS = {
   },
 
   // Image model + aspect ratio. Nano Banana 2 is free (0 credits).
-  imageModel: 'nano-banana-2', // -> internal "NARWHAL"
+  imageModel: 'nano-banana-2', // -> internal "BELUGA"
   aspectRatio: '16:9',
 
   // Re-generate scenes that already have an image? Off by default.
@@ -118,8 +118,9 @@ export const DEFAULTS = {
   gatewayUrl: '',
   gatewayToken: '',
   gatewayWorkerId: '',
-  // Credits Flow charges per image, keyed by Flow model id. Empty means unknown,
-  // and an unknown price is never quoted, so nothing generates.
+  // What the user says one image costs, keyed by Flow model id. Flow shows no
+  // price line and its balance does not move, so this is declared, not observed.
+  // Empty means unknown, and an unknown price is never quoted.
   gatewayImageCreditCosts: {},
 };
 

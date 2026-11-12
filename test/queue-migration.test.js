@@ -241,11 +241,11 @@ test('legacy Flow work retains its prompt and friendly model', () => {
   assert.equal(migrated.prompt, input[0].prompt);
   assert.equal(migrated.model, 'nano-banana-2');
   assert.deepEqual(migrated.modelSnapshot, {
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     modelLabel: 'Nano Banana 2.1',
     modelSource: 'fallback',
   });
-  assert.equal(migrated.generationSettings.modelId, 'NARWHAL');
+  assert.equal(migrated.generationSettings.modelId, 'BELUGA');
 });
 
 test('legacy picker-driven web work becomes explicitly provider-controlled', () => {

@@ -16,7 +16,7 @@ const capturedInventory = (entries) => flowInventoryResult(entries, 'live');
 
 test('Flow exposes only exact tested fallback IDs', () => {
   assert.deepEqual(FLOW_FALLBACK_MODELS, [
-    { id: 'nano-banana-2', internalId: 'NARWHAL', label: 'Nano Banana 2.1', source: 'fallback' },
+    { id: 'nano-banana-2', internalId: 'BELUGA', label: 'Nano Banana 2.1', source: 'fallback' },
     { id: 'nano-banana-2-lite', internalId: 'HARBOR_SEAL', label: 'Nano Banana 2 Lite', source: 'fallback' },
   ]);
   assert.deepEqual(getFlowModel('nano-banana-2'), FLOW_FALLBACK_MODELS[0]);
@@ -25,7 +25,7 @@ test('Flow exposes only exact tested fallback IDs', () => {
 
 test('Flow snapshots its exact internal ID as fallback data', () => {
   assert.deepEqual(snapshotProviderModel({ provider: 'flow', configuredModel: 'nano-banana-2' }), {
-    modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback',
+    modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback',
   });
 });
 
@@ -64,7 +64,7 @@ test('Flow uses fallback provenance only when live discovery is empty', () => {
   assert.deepEqual(capturedInventory([]), {
     source: 'fallback',
     models: [
-      { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1' },
+      { modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1' },
       { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
     ],
   });
@@ -118,14 +118,14 @@ test('fallback Flow selection ignores persisted internal IDs across consecutive 
   });
 
   assert.deepEqual(first, {
-    modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback',
+    modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback',
   });
   assert.deepEqual(second, first);
   assert.deepEqual(switched, {
     modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite', modelSource: 'fallback',
   });
   assert.deepEqual(resolveFlowModel(first.modelId, inventory), {
-    modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1',
+    modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1',
   });
   assert.equal(modelIdentity.configuredFlowModel({
     imageModel: 'nano-banana-2-lite',
@@ -136,7 +136,7 @@ test('fallback Flow selection ignores persisted internal IDs across consecutive 
 
 test('first enqueue maps a tested fallback selection to its exact live Flow ID', () => {
   assert.equal(typeof modelIdentity.configuredFlowModel, 'function');
-  const inventory = capturedInventory([{ id: 'NARWHAL', label: 'Provider Nano Banana 2' }]);
+  const inventory = capturedInventory([{ id: 'BELUGA', label: 'Provider Nano Banana 2' }]);
   const snapshot = snapshotProviderModel({
     provider: 'flow',
     configuredModel: modelIdentity.configuredFlowModel({ imageModel: 'nano-banana-2' }, inventory),
@@ -144,18 +144,18 @@ test('first enqueue maps a tested fallback selection to its exact live Flow ID',
   });
 
   assert.deepEqual(snapshot, {
-    modelId: 'NARWHAL', modelLabel: 'Provider Nano Banana 2', modelSource: 'live',
+    modelId: 'BELUGA', modelLabel: 'Provider Nano Banana 2', modelSource: 'live',
   });
 });
 
 test('released Flow settings resolve friendly and exact IDs without losing provenance', () => {
   const live = capturedInventory([
-    { id: 'NARWHAL', label: 'Provider Nano Banana 2' },
+    { id: 'BELUGA', label: 'Provider Nano Banana 2' },
     { id: 'FLOW_LIVE_NEW', label: 'Workspace Model' },
   ]);
 
-  assert.equal(resolveStoredFlowModelId({ imageModel: 'nano-banana-2' }, live.models), 'NARWHAL');
-  assert.equal(resolveStoredFlowModelId({ imageModel: 'NARWHAL' }, live.models), 'NARWHAL');
+  assert.equal(resolveStoredFlowModelId({ imageModel: 'nano-banana-2' }, live.models), 'BELUGA');
+  assert.equal(resolveStoredFlowModelId({ imageModel: 'BELUGA' }, live.models), 'BELUGA');
   assert.equal(resolveStoredFlowModelId({
     imageModel: 'FLOW_LIVE_NEW',
     flowModelId: 'FLOW_LIVE_NEW',
@@ -194,7 +194,7 @@ test('explicit live Flow selection remains authoritative over the fallback catal
 
 test('live Flow snapshots follow a changed friendly selection across consecutive enqueues', () => {
   const inventory = capturedInventory([
-    { id: 'NARWHAL', label: 'Provider Nano Banana 2' },
+    { id: 'BELUGA', label: 'Provider Nano Banana 2' },
     { id: 'HARBOR_SEAL', label: 'Provider Nano Banana 2 Lite' },
   ]);
   const firstSettings = { imageModel: 'nano-banana-2' };
@@ -217,7 +217,7 @@ test('live Flow snapshots follow a changed friendly selection across consecutive
     flowInventory: inventory,
   });
 
-  assert.equal(first.modelId, 'NARWHAL');
+  assert.equal(first.modelId, 'BELUGA');
   assert.deepEqual(switched, {
     modelId: 'HARBOR_SEAL', modelLabel: 'Provider Nano Banana 2 Lite', modelSource: 'live',
   });
@@ -227,16 +227,16 @@ test('generation parameters reject every queued model identity mismatch', () => 
   assert.equal(typeof modelIdentity.assertQueuedModelIdentity, 'function');
   const item = {
     prompt: 'A moonlit river',
-    modelSnapshot: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' },
+    modelSnapshot: { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'live' },
     generationSettings: {
-      modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live', aspectRatio: '16:9',
+      modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'live', aspectRatio: '16:9',
     },
   };
 
   assert.deepEqual(modelIdentity.generationParamsFor('flow', item, { projectId: 'flow-project' }), {
     projectId: 'flow-project',
     prompt: 'A moonlit river',
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     aspectRatio: '16:9',
     recaptchaMaxAttempts: undefined,
   });
@@ -265,9 +265,9 @@ test('generation parameter construction produces every immutable provider payloa
 
   assert.deepEqual(modelIdentity.generationParamsFor('flow', {
     ...base,
-    modelSnapshot: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' },
+    modelSnapshot: { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'live' },
     generationSettings: {
-      modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live', aspectRatio: '16:9',
+      modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'live', aspectRatio: '16:9',
     },
   }, {
     projectId: 'flow-project',
@@ -276,7 +276,7 @@ test('generation parameter construction produces every immutable provider payloa
   }), {
     projectId: 'flow-project',
     prompt: 'A moonlit river',
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     aspectRatio: '16:9',
     recaptchaMaxAttempts: 4,
     imageInputs: [{ imageInputType: 'IMAGE_INPUT_TYPE_REFERENCE', name: 'media/reference-1' }],
@@ -432,7 +432,7 @@ test('diagnostics distinguish provider labels from provider-controlled snapshots
 
 test('missing model snapshots fail closed', () => {
   assert.throws(
-    () => assertProviderModel({ provider: 'flow', current: { id: 'NARWHAL', label: 'Nano Banana 2' } }),
+    () => assertProviderModel({ provider: 'flow', current: { id: 'BELUGA', label: 'Nano Banana 2' } }),
     (error) => error.code === 'model-unknown' && /refresh the signed-in Flow page/i.test(error.message),
   );
 });

@@ -16,14 +16,13 @@ export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
     const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
-    const IMAGE_ASPECT = {
-      '16:9': 3, // observed: a real 2026-11-05 submit sent numeric enum 3
-      // The four crop codes below come from the picker, not a submit; unproven.
-      '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16',
-    };
+    // Slot 4 of the request, which matches `aspectRatio` in the app's own stored
+    // settings: 16:9 sent 3 in the 2026-11-05 captures, 9:16 sent 2 on 2026-11-12.
+    // 4:3, 1:1 and 3:4 have no observed value, so they are refused, not guessed.
+    const IMAGE_ASPECT = { '16:9': 3, '9:16': 2 };
     // Labels exactly as the picker renders them; the keys are ours.
     const KNOWN_MODELS = [
-      ['NARWHAL', 'Nano Banana 2.1'],
+      ['BELUGA', 'Nano Banana 2.1'],
       ['HARBOR_SEAL', 'Nano Banana 2 Lite'],
     ];
     const payload = command?.payload || {};
@@ -169,7 +168,7 @@ export async function flowCommand(command) {
         throw new Error('Flow model ID is malformed. Refresh the signed-in Flow page and choose an advertised model before retrying.');
       }
       const aspect = IMAGE_ASPECT[payload.aspectRatio || '16:9'];
-      if (!aspect) throw new Error(`Flow aspect ratio ${payload.aspectRatio} is not one of the five picker ratios.`);
+      if (!aspect) throw new Error(`Flow aspect ratio ${payload.aspectRatio} has no observed submit value — 16:9 and 9:16 only.`);
       const count = payload.count === undefined ? 1 : payload.count;
       if (![1, 2, 4].includes(count)) throw new Error(`Flow image count ${count} is not 1, 2 or 4.`);
       const seed = Number.isFinite(payload.seed) ? payload.seed : randomSeed();

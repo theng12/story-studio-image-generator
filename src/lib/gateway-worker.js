@@ -5,7 +5,8 @@ import { normalizeFlowProjectId } from './config.js';
 // This candidate serves captured Flow image models only. Other providers need
 // their own verified Gateway capability mapping; never invent model aliases.
 export const GATEWAY_IMAGE_KINDS = Object.freeze(['image']);
-export const GATEWAY_IMAGE_ASPECTS = Object.freeze(['16:9', '4:3', '1:1', '3:4', '9:16']);
+// Only the ratios with an observed submit value; the rest are refused at claim.
+export const GATEWAY_IMAGE_ASPECTS = Object.freeze(['16:9', '9:16']);
 export const createImageGatewayWorkerId = () => `imgworker_${crypto.randomUUID()}`;
 function required(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`Gateway image job has no ${label}.`);
@@ -20,7 +21,7 @@ export function normalizeImageGatewayJob(job) {
   const model = getFlowModel(required(job.modelKey, 'model key'));
   if (!model) throw new Error('Gateway image job has no known Flow model.');
   const aspectRatio = job.aspectRatio ?? '16:9';
-  if (!GATEWAY_IMAGE_ASPECTS.includes(aspectRatio)) throw new Error(`Flow image aspect ${aspectRatio} is not one of the five observed ratios.`);
+  if (!GATEWAY_IMAGE_ASPECTS.includes(aspectRatio)) throw new Error(`Flow image aspect ${aspectRatio} has no observed submit value — 16:9 and 9:16 only.`);
   const count = job.count ?? 1;
   if (![1, 2, 4].includes(count)) throw new Error(`Flow image count ${count} is not 1, 2 or 4.`);
   // No observed provider encoding exists for size.

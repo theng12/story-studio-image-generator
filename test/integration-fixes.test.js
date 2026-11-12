@@ -490,7 +490,7 @@ test('Flow generation identity drift performs zero fetch, upload, or generation 
     fetchImagePayload: async () => { calls.fetch++; return {}; },
   };
   const generateAndSave = runInNewContext(`(${body})`, context);
-  const snapshot = { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'live' };
+  const snapshot = { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'live' };
 
   for (const modelId of ['GEM_PIX_2', 'malformed model id']) {
     await assert.rejects(
@@ -554,7 +554,7 @@ test('Flow model listing never touches the network and yields bundled fallback m
   assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries, listed.result.source))), {
     source: 'fallback',
     models: [
-      { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1' },
+      { modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1' },
       { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
     ],
   });
@@ -808,7 +808,7 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
   const payload = {
     projectId: '12345678-1234-1234-1234-123456789abc',
     prompt: 'A moonlit lake',
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     aspectRatio: '16:9',
     recaptchaMaxAttempts: 4,
   };
@@ -829,16 +829,16 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
   assert.deepEqual(events, ['recaptcha', 'persist-checkpoint', 'generation-request', 'download']);
 });
 
-test('every picker ratio sends its crop code and the observed counts are carried', async () => {
-  // 16:9 keeps the captured numeric enum; the other four use the picker's crop
-  // codes as an experiment until a real submit proves or corrects them.
-  const ratios = { '16:9': 3, '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16' };
+test('every observed ratio sends its submit value and the observed counts are carried', async () => {
+  // Only the two ratios with a real submit behind them: 16:9 = 3 (2026-11-05),
+  // 9:16 = 2 (2026-11-12). The rest are refused rather than guessed.
+  const ratios = { '16:9': 3, '9:16': 2 };
   for (const [aspectRatio, code] of Object.entries(ratios)) {
     for (const count of [1, 2, 4]) {
       const requests = [];
       const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext([], { requests }));
       const prepared = await execute({ op: 'prepareGenerateImage', payload: {
-        projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'NARWHAL', aspectRatio, count,
+        projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'BELUGA', aspectRatio, count,
       } });
       assert.equal(prepared.ok, true, prepared.error);
       const submitted = await execute({ op: 'submitGenerateImage', payload: { preparationId: prepared.result.preparationId } });
@@ -849,11 +849,13 @@ test('every picker ratio sends its crop code and the observed counts are carried
     }
   }
   const invalid = runInNewContext(`(${flowCommand.toString()})`, flowContext([]));
-  const rejected = await invalid({ op: 'prepareGenerateImage', payload: {
-    projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'NARWHAL', aspectRatio: '2:1',
-  } });
-  assert.equal(rejected.ok, false);
-  assert.match(rejected.error, /not one of the five picker ratios/);
+  for (const aspectRatio of ['4:3', '1:1', '3:4', '2:1']) {
+    const rejected = await invalid({ op: 'prepareGenerateImage', payload: {
+      projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'BELUGA', aspectRatio,
+    } });
+    assert.equal(rejected.ok, false, `${aspectRatio} has no observed submit value`);
+    assert.match(rejected.error, /no observed submit value/);
+  }
 });
 
 test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', async () => {
@@ -864,7 +866,7 @@ test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', asy
     payload: {
       projectId: '12345678-1234-1234-1234-123456789abc',
       prompt: 'A moonlit lake',
-      modelId: 'NARWHAL',
+      modelId: 'BELUGA',
       aspectRatio: '16:9',
       recaptchaMaxAttempts: 1,
     },

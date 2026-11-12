@@ -10,7 +10,7 @@ const standalone = (overrides = {}) => ({
   provider: 'flow',
   prompt: '  A quiet cabin   at dusk  ',
   generationSettings: {
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     modelLabel: 'Nano Banana 2',
     modelSource: 'live',
     aspectRatio: '16:9',
@@ -36,7 +36,7 @@ const legacyStandalone = (overrides = {}) => ({
   provider: 'flow',
   target: 'download',
   projectId: 'project-1',
-  model: 'NARWHAL',
+  model: 'BELUGA',
   aspectRatio: '16:9',
   label: 'Standalone 01/01 — image',
   project: 'Standalone',

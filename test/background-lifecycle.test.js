@@ -290,9 +290,9 @@ test('Fleet heartbeat snapshots queue and revision atomically and rejects a comm
       status: 'failed',
       prompt: 'A quiet lake',
       failure: { code: 'network', raw: 'offline' },
-      modelSnapshot: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
+      modelSnapshot: { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
       generationSettings: {
-        modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback', aspectRatio: '16:9',
+        modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'fallback', aspectRatio: '16:9',
       },
     }],
     fleetV2QueueRevision: 7,

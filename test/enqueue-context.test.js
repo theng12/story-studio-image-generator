@@ -83,7 +83,7 @@ test('standalone capture is not redirected while Flow selection persistence is a
 
 test('Flow confirmation provenance stays immutable and rejects changed discovery at enqueue', () => {
   const approval = {
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     modelLabel: 'Nano Banana 2',
     modelSource: 'live',
   };
@@ -103,19 +103,19 @@ test('Flow confirmation provenance stays immutable and rejects changed discovery
   approval.modelSource = 'fallback';
 
   assert.deepEqual(payload.flowModelApproval, {
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     modelLabel: 'Nano Banana 2',
     modelSource: 'live',
   });
   assert.doesNotThrow(() => assertFlowModelApproval(payload.flowModelApproval, {
-    modelId: 'NARWHAL',
+    modelId: 'BELUGA',
     modelLabel: 'Nano Banana 2',
     modelSource: 'live',
   }));
   for (const current of [
     { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2', modelSource: 'live' },
-    { modelId: 'NARWHAL', modelLabel: 'Renamed Model', modelSource: 'live' },
-    { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
+    { modelId: 'BELUGA', modelLabel: 'Renamed Model', modelSource: 'live' },
+    { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
   ]) {
     assert.throws(
       () => assertFlowModelApproval(payload.flowModelApproval, current),

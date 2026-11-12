@@ -72,12 +72,15 @@ Image's remaining gaps are explicit:
   page leaves both records as manual fallback choices and claims nothing. The
   catalogue carries the two labels the picker shows — "Nano Banana 2.1" and
   "Nano Banana 2 Lite" — and a label it no longer shows is never fuzzy-matched.
-- Gateway Image maps the captured Flow model IDs, all five picker ratios, counts
-  of 1, 2 or 4, up to four references and the Flow project ID. `size` has no
-  observed encoding and is refused. 16:9 sends the numeric enum 3 a real submit
-  used; 4:3, 1:1, 3:4 and 9:16 send their `crop_*` codes, which come from the
-  picker and are still unproven. The count slot is unproven too: the capture
-  carried `null` there with a count of 1.
+- Gateway Image maps the observed Flow model keys (`BELUGA` for Nano Banana 2.1,
+  `HARBOR_SEAL` for Nano Banana 2 Lite), the two ratios with a real submit behind
+  them (16:9 sends 3, 9:16 sends 2), counts of 1, 2 or 4, up to four references and
+  the Flow project ID. 4:3, 1:1, 3:4 and `size` have no observed submit value and
+  are refused at claim rather than guessed. The count slot is unproven: the
+  capture carried `null` there with a count of 1.
+- The price per image is **declared by the user**, not observed: Flow shows no
+  credits line and its balance did not move across a generated image (50 before,
+  50 after). A blank price means no quote, and no quote means no claim.
 - Story Scene Review rows are reduced to image identity, prompt and image-state
   fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
   additional caller controls have no preservation mapping in that path yet.

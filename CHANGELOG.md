@@ -10,7 +10,9 @@ new version.
 - Reports job progress to Gateway and adds a **Claim now** button in the side panel.
 - Reads Flow's model list from the signed-in page: a bundled model counts as live only while that page shows its exact label, so an unobserved or signed-out page still claims nothing.
 - Matches Flow's picker as it is now: "Nano Banana 2.1" and "Nano Banana 2 Lite". "Nano Banana Pro" is gone, and a name the picker no longer shows is never matched loosely.
-- Accepts all five picker ratios (16:9, 4:3, 1:1, 3:4, 9:16) and counts of 1, 2 or 4; a size is still refused for having no observed encoding. 16:9 keeps the numeric enum a real submit used; the other four send their picker codes until a live run confirms them.
+- Uses the model key Flow actually receives (`BELUGA` for Nano Banana 2.1).
+- Submits 16:9 and 9:16, the two ratios with a real submit behind them; 4:3, 1:1, 3:4 and any size are refused for having no observed value instead of being guessed. Counts of 1, 2 or 4 are carried.
+- Records honestly that the per-image price is yours to declare: Flow shows no credits line and the balance did not move across a generated image.
 
 ## 0.50.15 — 2026-11-11
 
