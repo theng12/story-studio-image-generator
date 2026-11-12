@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.18 — 2026-11-12
+
+- The Gateway claim alarm is recreated on browser startup and on extension update, not only when settings are saved. A worker whose settings arrive by restore or sync now starts ticking by itself.
+- The side panel says whether the claim loop is ticking (`last check <time>`) or not ticking at all, so an armed but silent worker is visible instead of merely absent.
+
 ## 0.50.17 — 2026-11-12
 
 - An armed Gateway worker no longer idles when no Flow tab is open: the claim tick opens the Flow workspace itself, waits for it to load, then claims. A panel-closed or headless worker can take jobs.

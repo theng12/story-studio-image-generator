@@ -2189,6 +2189,8 @@ async function gatewayClaimLoop() {
   if (gatewayPolling) return;
   gatewayPolling = true;
   try {
+    // Visible proof the loop is alive; the panel compares this against the clock.
+    await chrome.storage.local.set({ gatewayLastTickAt: Date.now() });
     let settings = await getSettings();
     if (!(await gatewayIsActive(settings))) return;
     // Stop acknowledgements must continue while paused, busy, cooling or held.
@@ -2408,6 +2410,10 @@ async function syncGatewayAlarm() {
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && (changes.imageGeneratorWorkMode || changes.gatewayConnection)) {
     syncGatewayAlarm().catch(() => {});
+// Alarms are profile-local and are not restored with synced/restored settings; a browser
+// launch or extension update must (re)create the claim alarm, not only a settings save.
+try { chrome.runtime.onStartup?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }
+try { chrome.runtime.onInstalled?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }
     processQueue().catch(() => {});
   }
 });

@@ -1886,9 +1886,10 @@ function queuedModelLabel(item) {
 let lastQueueSig = '';
 let previousQueue = null;
 async function pollQueue() {
-  const [{ queue = [], paused = false } = {}, st] = await Promise.all([
+  const [{ queue = [], paused = false } = {}, st, tickStore] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'getQueue' }).then((r) => r || {}),
     chrome.storage.local.get('lastStatus'),
+    chrome.storage.local.get('gatewayLastTickAt'),
   ]);
   renderQueueTiming(queue);
   const s = st.lastStatus;
@@ -1896,6 +1897,12 @@ async function pollQueue() {
   if (liveStatus) {
     if (Number.isFinite(liveStatus.countdownUntil)) renderLiveStatus();
     else setStatus(liveStatus.text, liveStatus.kind);
+  }
+  // An armed but silent worker must never look merely absent: say whether the claim loop ticks.
+  if (workMode === 'gateway' && !liveStatus) {
+    const tick = Number(tickStore.gatewayLastTickAt) || 0;
+    if (!tick || Date.now() - tick > 90000) setStatus('Gateway claim loop is not ticking. Reload this extension or restart Chrome so it can pick up jobs.', 'err');
+    else setStatus(`Gateway claim loop ticking · last check ${new Date(tick).toLocaleTimeString()}`, 'info');
   }
   // Pause/Resume only matters while there is still work to do.
   const hasWork = queue.some((i) => i.status === 'pending' || i.status === 'running');
