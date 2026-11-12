@@ -554,9 +554,8 @@ test('Flow model listing never touches the network and yields bundled fallback m
   assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries, listed.result.source))), {
     source: 'fallback',
     models: [
-      { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2' },
+      { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1' },
       { modelId: 'HARBOR_SEAL', modelLabel: 'Nano Banana 2 Lite' },
-      { modelId: 'GEM_PIX_2', modelLabel: 'Nano Banana Pro' },
     ],
   });
   assert.equal(fetches.length, 0);
@@ -757,7 +756,7 @@ function flowRpcBody(rpcId, result) {
   return `)]}'\n\n${row.length}\n${row}\n`;
 }
 const flowGeneration = [[['media-id', null, 'workflow-id', null, null, null, [[null, 7, null, null, null, null, 1, 'A moonlit lake', 25, null, null, 'workflow-id', null, 'https://flow-content.google/image/media-id?sig=1', 3]], null, [1376, 768]]]];
-function flowContext(events, { rpcStatus = 200 } = {}) {
+function flowContext(events, { rpcStatus = 200, requests = null } = {}) {
   return {
     window: {
       WIZ_global_data: { SNlM0e: 'anti-forgery', FdrFJe: 'session-id', cfb2h: 'build' },
@@ -784,6 +783,7 @@ function flowContext(events, { rpcStatus = 200 } = {}) {
     fetch: async (url, init) => {
       if (String(url).includes('/batchexecute?')) {
         events.push('generation-request');
+        requests?.push(String(init.body));
         assert.equal(init.headers['X-Same-Domain'], '1');
         assert.match(String(init.body), /^f\.req=.*&at=anti-forgery$/);
         if (rpcStatus !== 200) return { ok: false, status: rpcStatus, text: async () => 'reCAPTCHA evaluation failed' };
@@ -827,6 +827,31 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
   assert.equal(submitted.result.mediaId, 'media-id');
   assert.deepEqual([submitted.result.width, submitted.result.height], [1376, 768]);
   assert.deepEqual(events, ['recaptcha', 'persist-checkpoint', 'generation-request', 'download']);
+});
+
+test('every picker ratio sends its crop code and the observed counts are carried', async () => {
+  const ratios = { '16:9': 'crop_16_9', '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16' };
+  for (const [aspectRatio, code] of Object.entries(ratios)) {
+    for (const count of [1, 2, 4]) {
+      const requests = [];
+      const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext([], { requests }));
+      const prepared = await execute({ op: 'prepareGenerateImage', payload: {
+        projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'NARWHAL', aspectRatio, count,
+      } });
+      assert.equal(prepared.ok, true, prepared.error);
+      const submitted = await execute({ op: 'submitGenerateImage', payload: { preparationId: prepared.result.preparationId } });
+      assert.equal(submitted.ok, true, submitted.error);
+      const args = JSON.parse(JSON.parse(new URLSearchParams(requests[0]).get('f.req'))[0][0][1]);
+      assert.equal(args[1][0][4], code, `${aspectRatio} must send ${code}`);
+      assert.equal(args[1][0][6], count, `count ${count} must be carried`);
+    }
+  }
+  const invalid = runInNewContext(`(${flowCommand.toString()})`, flowContext([]));
+  const rejected = await invalid({ op: 'prepareGenerateImage', payload: {
+    projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'NARWHAL', aspectRatio: '2:1',
+  } });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /not one of the five picker ratios/);
 });
 
 test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', async () => {

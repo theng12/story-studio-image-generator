@@ -117,7 +117,7 @@ export function generationSettingsFor(provider, settings = {}, modelSnapshot = {
     style: provider === 'leonardo' ? settings.leonardoStyle : undefined,
     mode: provider === 'leonardo' ? settings.leonardoMode : undefined,
     size: provider === 'leonardo' ? settings.leonardoSize : undefined,
-    count: provider === 'leonardo' ? settings.leonardoCount : undefined,
+    count: provider === 'leonardo' ? settings.leonardoCount : provider === 'flow' ? settings.count : undefined,
     maxWaitSec: provider === 'chatgpt' ? settings.chatgptMaxWaitSec : undefined,
   };
 }
@@ -148,6 +148,7 @@ export function generationParamsFor(provider, item = {}, operational = {}) {
       prompt: item.prompt,
       modelId: snapshot.modelId,
       aspectRatio: generation.aspectRatio,
+      ...(generation.count ? { count: generation.count } : {}),
       recaptchaMaxAttempts: operational.recaptchaMaxAttempts,
     };
     if (operational.referenceIds?.length) {

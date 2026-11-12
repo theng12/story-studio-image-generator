@@ -69,10 +69,14 @@ Image's remaining gaps are explicit:
 - Flow's model list is observed from the page, not from a backend listing: a
   bundled record counts as live only while the signed-in Flow page shows its exact
   label as a line of its own. A closed picker, a signed-out tab or an unlabelled
-  page leaves all three records as manual fallback choices and claims nothing.
-- Gateway Image currently maps the captured Flow model IDs, 16:9 output,
-  up to four references and the Flow project ID. Other providers, newly exposed
-  controls and other aspect ratios have no verified Gateway mapping here.
+  page leaves both records as manual fallback choices and claims nothing. The
+  catalogue carries the two labels the picker shows — "Nano Banana 2.1" and
+  "Nano Banana 2 Lite" — and a label it no longer shows is never fuzzy-matched.
+- Gateway Image maps the captured Flow model IDs, all five picker ratios
+  (16:9, 4:3, 1:1, 3:4, 9:16 by their `crop_*` codes), counts of 1, 2 or 4, up to
+  four references and the Flow project ID. `size` has no observed encoding and is
+  refused. The count slot is unproven: the capture carried `null` there with a
+  count of 1, so the first live run must confirm Flow reads it.
 - Story Scene Review rows are reduced to image identity, prompt and image-state
   fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
   additional caller controls have no preservation mapping in that path yet.

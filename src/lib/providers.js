@@ -1,9 +1,10 @@
 const provider = (value) => Object.freeze(value);
 
+// Labels as the Flow picker shows them (observed live 2026-11-12). The 2.1 id
+// keeps its old slug so saved selections survive the upstream rename.
 export const FLOW_FALLBACK_MODELS = Object.freeze([
-  Object.freeze({ id: 'nano-banana-2', internalId: 'NARWHAL', label: 'Nano Banana 2', source: 'fallback' }),
+  Object.freeze({ id: 'nano-banana-2', internalId: 'NARWHAL', label: 'Nano Banana 2.1', source: 'fallback' }),
   Object.freeze({ id: 'nano-banana-2-lite', internalId: 'HARBOR_SEAL', label: 'Nano Banana 2 Lite', source: 'fallback' }),
-  Object.freeze({ id: 'nano-banana-pro', internalId: 'GEM_PIX_2', label: 'Nano Banana Pro', source: 'fallback' }),
 ]);
 
 export function getFlowModel(id) {

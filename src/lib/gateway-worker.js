@@ -5,6 +5,7 @@ import { normalizeFlowProjectId } from './config.js';
 // This candidate serves captured Flow image models only. Other providers need
 // their own verified Gateway capability mapping; never invent model aliases.
 export const GATEWAY_IMAGE_KINDS = Object.freeze(['image']);
+export const GATEWAY_IMAGE_ASPECTS = Object.freeze(['16:9', '4:3', '1:1', '3:4', '9:16']);
 export const createImageGatewayWorkerId = () => `imgworker_${crypto.randomUUID()}`;
 function required(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`Gateway image job has no ${label}.`);
@@ -19,10 +20,11 @@ export function normalizeImageGatewayJob(job) {
   const model = getFlowModel(required(job.modelKey, 'model key'));
   if (!model) throw new Error('Gateway image job has no known Flow model.');
   const aspectRatio = job.aspectRatio ?? '16:9';
-  if (aspectRatio !== '16:9') throw new Error('Only captured 16:9 Flow output is available.');
-  // No observed provider encoding exists for size or multi-image counts.
+  if (!GATEWAY_IMAGE_ASPECTS.includes(aspectRatio)) throw new Error(`Flow image aspect ${aspectRatio} is not one of the five observed ratios.`);
+  const count = job.count ?? 1;
+  if (![1, 2, 4].includes(count)) throw new Error(`Flow image count ${count} is not 1, 2 or 4.`);
+  // No observed provider encoding exists for size.
   if (job.size !== undefined) throw new Error(`Flow image size ${job.size} has no observed Gateway mapping.`);
-  if (job.count !== undefined && job.count !== 1) throw new Error(`Flow image count ${job.count} has no observed Gateway mapping.`);
   const raw = job.referenceImages === undefined ? [] : job.referenceImages;
   if (!Array.isArray(raw) || raw.length > getProvider('flow').capabilities.maxReferences) {
     throw new Error('Gateway Flow references must be an array of at most four images.');
@@ -40,7 +42,7 @@ export function normalizeImageGatewayJob(job) {
     if (!matches) throw new Error('Gateway reference bytes do not match their image type.');
     return { base64: ref.dataBase64, mime: ref.mediaType, sourceKey: `${jobId}:${raw.indexOf(ref)}`, name: 'reference' };
   });
-  return { jobId, kind: 'image', provider: 'flow', prompt, model, aspectRatio, references, flowProjectId: job.flowProjectId };
+  return { jobId, kind: 'image', provider: 'flow', prompt, model, aspectRatio, count, references, flowProjectId: job.flowProjectId };
 }
 export function imageGatewayJobToItem(job, settings, flowInventory) {
   const normalized = normalizeImageGatewayJob(job);
@@ -52,7 +54,7 @@ export function imageGatewayJobToItem(job, settings, flowInventory) {
     status: 'pending', queuedAt: Date.now(), source: 'gateway', kind: 'scene', target: 'gateway',
     provider: 'flow', prompt: normalized.prompt, projectId,
     label: `Gateway ${normalized.jobId.slice(0, 8)}`, modelSnapshot,
-    generationSettings: generationSettingsFor('flow', { aspectRatio: normalized.aspectRatio }, modelSnapshot),
+    generationSettings: generationSettingsFor('flow', { aspectRatio: normalized.aspectRatio, count: normalized.count }, modelSnapshot),
     gatewayReferenceCount: normalized.references.length,
   };
 }

@@ -242,7 +242,7 @@ test('legacy Flow work retains its prompt and friendly model', () => {
   assert.equal(migrated.model, 'nano-banana-2');
   assert.deepEqual(migrated.modelSnapshot, {
     modelId: 'NARWHAL',
-    modelLabel: 'Nano Banana 2',
+    modelLabel: 'Nano Banana 2.1',
     modelSource: 'fallback',
   });
   assert.equal(migrated.generationSettings.modelId, 'NARWHAL');

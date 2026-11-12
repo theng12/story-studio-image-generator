@@ -16,11 +16,15 @@ export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
     const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
-    // ponytail: only 16:9 was captured (enum 3). Map other ratios once observed.
-    const IMAGE_ASPECT = { '16:9': 3 };
+    // Picker codes observed live 2026-11-12.
+    // shortcut: the captured 16:9 body sent numeric enum 3, so the first live run
+    // must confirm Flow takes the string code; if not, only this map changes.
+    const IMAGE_ASPECT = {
+      '16:9': 'crop_16_9', '4:3': 'crop_landscape', '1:1': 'crop_square', '3:4': 'crop_portrait', '9:16': 'crop_9_16',
+    };
+    // Labels exactly as the picker renders them; the keys are ours.
     const KNOWN_MODELS = [
-      ['GEM_PIX_2', 'Nano Banana Pro'],
-      ['NARWHAL', 'Nano Banana 2'],
+      ['NARWHAL', 'Nano Banana 2.1'],
       ['HARBOR_SEAL', 'Nano Banana 2 Lite'],
     ];
     const payload = command?.payload || {};
@@ -166,7 +170,9 @@ export async function flowCommand(command) {
         throw new Error('Flow model ID is malformed. Refresh the signed-in Flow page and choose an advertised model before retrying.');
       }
       const aspect = IMAGE_ASPECT[payload.aspectRatio || '16:9'];
-      if (!aspect) throw new Error(`Flow aspect ratio ${payload.aspectRatio} is not mapped for the new Flow yet — use 16:9.`);
+      if (!aspect) throw new Error(`Flow aspect ratio ${payload.aspectRatio} is not one of the five picker ratios.`);
+      const count = payload.count === undefined ? 1 : payload.count;
+      if (![1, 2, 4].includes(count)) throw new Error(`Flow image count ${count} is not 1, 2 or 4.`);
       const seed = Number.isFinite(payload.seed) ? payload.seed : randomSeed();
       const maxAttempts = Math.min(10, Math.max(1, Math.round(Number(payload.recaptchaMaxAttempts) || 4)));
       wiz(); // fail before minting if the page cannot sign requests
@@ -185,6 +191,7 @@ export async function flowCommand(command) {
         prompt: String(payload.prompt),
         modelId,
         aspect,
+        count,
         seed,
         maxAttempts,
         imageInputs,
@@ -216,7 +223,7 @@ export async function flowCommand(command) {
             prepared.seed,
             prepared.aspect,
             prepared.modelId,
-            null,
+            prepared.count, // unproven slot: the capture had null here and count 1
             context,
             [[[prepared.prompt]]],
             null,

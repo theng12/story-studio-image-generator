@@ -39,7 +39,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, observedAccount, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, observedAccount, inventory = { source: 'live', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2.1' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -661,9 +661,9 @@ test('an expired pacing gap never clears an unknown claim across restart', async
 
 test('fallback, empty, cached, unattributed or failed inventory never authorizes a Gateway claim or stale live cache', async () => {
   for (const inventory of [
-    { source: 'fallback', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
-    { entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
-    { source: 'cached', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2' }] },
+    { source: 'fallback', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2.1' }] },
+    { entries: [{ id: 'NARWHAL', label: 'Nano Banana 2.1' }] },
+    { source: 'cached', entries: [{ id: 'NARWHAL', label: 'Nano Banana 2.1' }] },
     { source: 'live', entries: [] },
     new Error('fixture inventory unavailable'),
   ]) {
@@ -848,7 +848,7 @@ test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scene
   } });
   const payload = { slug: 'my project', episodeCode: 'EP 0001', kind: 'scene', provider: 'flow',
     scenes: [{ key: 'scene/one', prompt: JOB.prompt }],
-    flowModelApproval: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2', modelSource: 'fallback' } };
+    flowModelApproval: { modelId: 'NARWHAL', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback' } };
   try {
     const refused = await worker.send({ type: 'enqueueScenes', payload: { ...payload, source: 'prompts' } });
     assert.equal(refused.ok, false);

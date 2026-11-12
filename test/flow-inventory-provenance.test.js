@@ -39,9 +39,22 @@ test('real serialized Flow helper never calls the provider for inventory and sta
   }
 });
 
+test('a label the picker no longer shows yields no live entry', async () => {
+  // Old names seen before the rename: neither is live now, and nothing is fuzzy-matched.
+  const body = { innerText: 'Nano Banana Pro\nNano Banana 2\nNano Banana\nNano Banana 2.1 beta' };
+  const command = runInNewContext(`(${flowCommand.toString()})`, {
+    window: { WIZ_global_data: { SNlM0e: 'fixture-only' } },
+    location: { pathname: '/project/12345678-1234-1234-1234-123456789abc' },
+    document: { body },
+  });
+  const result = await command({ op: 'listImageModels' });
+  assert.equal(result.result.source, 'fallback');
+  assert.equal(result.result.entries.length, 0);
+});
+
 test('a bundled model counts as live only while the signed-in page shows its exact label', async () => {
   const locate = { pathname: '/project/12345678-1234-1234-1234-123456789abc' };
-  const body = { innerText: 'New project\nNano Banana 2 Lite\nNano Banana Pro\nCreate\nNano Banana 2 Lite' };
+  const body = { innerText: 'New project\nNano Banana 2 Lite\nNano Banana 2.1\nCreate\nNano Banana 2 Lite' };
   const signedIn = runInNewContext(`(${flowCommand.toString()})`, {
     window: { WIZ_global_data: { SNlM0e: 'fixture-only' } }, location: locate, document: { body },
   });
@@ -49,7 +62,7 @@ test('a bundled model counts as live only while the signed-in page shows its exa
   assert.equal(result.result.source, 'live');
   assert.equal(result.result.projectId, '12345678-1234-1234-1234-123456789abc');
   // Observed labels only, in catalog order, with our own keys.
-  assert.deepEqual(Array.from(result.result.entries, ({ id }) => id), ['GEM_PIX_2', 'HARBOR_SEAL']);
+  assert.deepEqual(Array.from(result.result.entries, ({ id }) => id), ['NARWHAL', 'HARBOR_SEAL']);
   assert.equal(flowInventoryResult(result.result.entries, result.result.source).source, 'live');
 
   const signedOut = runInNewContext(`(${flowCommand.toString()})`, { window: {}, location: locate, document: { body } });

@@ -19,9 +19,19 @@ test('strict captured model, ratio and reference validation; actual queue identi
   assert.equal(item.references, undefined);
   assert.equal(isUnsupportedProjectScene(item), false);
   assert.equal(isUnsupportedProjectScene({ source: 'prompts', kind: 'scene', target: 'project' }), true);
-  for (const patch of [{ kind: 'video' }, { modelKey: 'invented' }, { provider: 'chatgpt' }, { aspectRatio: '' }, { aspectRatio: '9:16' }, { referenceImages: null }, { referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] }, { prompt: 42 }]) {
+  for (const patch of [{ kind: 'video' }, { modelKey: 'invented' }, { provider: 'chatgpt' }, { aspectRatio: '' }, { aspectRatio: '2:1' }, { aspectRatio: '21:9' },
+    { count: 3 }, { count: 0 }, { size: '1024x1024' }, { referenceImages: null }, { referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] }, { prompt: 42 }]) {
     assert.throws(() => normalizeImageGatewayJob({ ...JOB, ...patch }));
   }
+  // All five observed ratios and the three observed counts are accepted.
+  for (const aspectRatio of ['16:9', '4:3', '1:1', '3:4', '9:16']) {
+    assert.equal(normalizeImageGatewayJob({ ...JOB, aspectRatio }).aspectRatio, aspectRatio);
+  }
+  for (const count of [1, 2, 4]) {
+    const item = imageGatewayJobToItem({ ...JOB, count }, {});
+    assert.equal(item.generationSettings.count, count);
+  }
+  assert.equal(normalizeImageGatewayJob(JOB).count, 1);
   assert.throws(() => imageGatewayJobToItem({ ...JOB, flowProjectId: '' }, {}));
 });
 
