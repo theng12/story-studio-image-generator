@@ -66,6 +66,7 @@ import {
 } from './lib/gateway-worker.js';
 import { imageQuote, observedAccount } from './lib/gateway-account.js';
 import { getGatewayArtifact, putGatewayArtifact, deleteGatewayArtifact } from './lib/gateway-artifacts.js';
+chrome.storage.local.set({ workerBootAt: Date.now() });
 
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
@@ -108,6 +109,8 @@ const NEXT_PROVIDER_RUN_KEY = 'nextProviderRunAt';
 // regular provider queue.
 const GATEWAY_ALARM = 'gatewayTick';
 const GATEWAY_WORKER_ID_KEY = 'gatewayWorkerId';
+// Set by any context to ask the worker for a claim without a panel page being open.
+const CLAIM_NOW_KEY = 'gatewayClaimNowAt';
 // Per-provider auto-resume timestamps: { [provider]: resumeAtMs }. One key so a
 // cooldown is scoped to the provider that hit its limit and never blocks others.
 const COOLDOWN_KEY = 'cooldownUntil';
@@ -2404,17 +2407,24 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 });
 
 async function syncGatewayAlarm() {
-  if (await gatewayIsActive(await getSettings())) gatewayAlarmCreate();
-  else gatewayAlarmClear();
+  // Always keep the tick. Gateway settings can arrive from restored or synced storage with no
+  // panel save, and a missing alarm is a worker that silently never claims. The loop itself
+  // refuses instantly when gateway mode is off, so the idle cost is one quick wake per 30 s.
+  gatewayAlarmCreate();
 }
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && (changes.imageGeneratorWorkMode || changes.gatewayConnection)) {
     syncGatewayAlarm().catch(() => {});
+    processQueue().catch(() => {});
+  }
+  // Settings live in sync storage; a restored or admin-written value never touches the panel.
+  if (area === 'sync' && changes.settings) syncGatewayAlarm().catch(() => {});
+  // Any context (a test harness included) can request a claim by writing CLAIM_NOW_KEY.
+  if (area === 'local' && changes[CLAIM_NOW_KEY]) gatewayClaimLoop();
+});
+syncGatewayAlarm().catch(() => {});
 // Alarms are profile-local and are not restored with synced/restored settings; a browser
 // launch or extension update must (re)create the claim alarm, not only a settings save.
 try { chrome.runtime.onStartup?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }
 try { chrome.runtime.onInstalled?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }
-    processQueue().catch(() => {});
-  }
-});
-syncGatewayAlarm().catch(() => {});
+chrome.storage.local.set({ workerReadyAt: Date.now() });

@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.19 — 2026-11-12
+
+- The Gateway claim alarm exists from worker start and is recreated on any local or synced settings change, including restored or externally written settings; it is no longer cleared when gateway mode is off.
+- Any context — including a worker with no panel open — can request a claim by writing `gatewayClaimNowAt` to local storage. `gateway:claimNow` remains the panel message.
+- Boot and ready markers (`workerBootAt`, `workerReadyAt`) and `gatewayLastTickAt` make a silent worker diagnosable from storage.
+
 ## 0.50.18 — 2026-11-12
 
 - The Gateway claim alarm is recreated on browser startup and on extension update, not only when settings are saved. A worker whose settings arrive by restore or sync now starts ticking by itself.
