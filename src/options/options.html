@@ -69,54 +69,6 @@
       </div>
     </section>
 
-    <!-- Provider, workspace, model, ratio, style, pacing, and cooldown choices
-         are intentional side-panel controls: they apply to the batch being set
-         up and must have one visible source of truth. -->
-    <section class="card settings-section">
-      <div class="label">Fleet Hub (optional coordination)</div>
-      <div class="field">
-        <label class="checkbox">
-          <input type="checkbox" id="fleetAgentEnabled" />
-          <span>Enable Fleet Hub for this extension</span>
-        </label>
-        <div class="hint">This extension keeps its own queue and provider safety limits. Fleet Hub cannot change providers, workspaces, models, credentials, or cooldowns.</div>
-      </div>
-      <div class="field">
-        <span class="label">Hub URL</span>
-        <input type="text" id="fleetHubUrl" placeholder="http://your-main-mac.tailXXXX.ts.net:8799" />
-        <div class="row">
-          <button id="grantFleet" class="btn small">Grant access to this hub</button>
-          <button id="testFleet" class="btn small">Test Hub connection</button>
-          <span id="fleetGrantStatus" class="muted small"></span>
-        </div>
-        <div id="fleetTestStatus" class="hint" aria-live="polite"></div>
-      </div>
-      <div class="field">
-        <span class="label">Machine display name</span>
-        <input type="text" id="fleetAgentName" placeholder="Mac Mini A" />
-        <div class="hint">A display label only. This extension generates a separate stable local agent identity.</div>
-      </div>
-      <div class="field">
-        <span class="label">Local pairing secret</span>
-        <input type="password" id="fleetSharedSecret" autocomplete="new-password" placeholder="same secret configured on the Fleet Hub" />
-        <div class="hint">Stored locally, never synced. Every request and response is authenticated with it.</div>
-      </div>
-      <div class="field">
-        <label class="checkbox">
-          <input type="checkbox" id="fleetTelemetryEnabled" />
-          <span>Allow read-only queue telemetry</span>
-        </label>
-        <div class="hint">Shares queue state/counts, current item label, cooldown, pacing range, and recent local status. Prompts, credentials, and provider sessions are never shared.</div>
-      </div>
-      <div class="field">
-        <label class="checkbox">
-          <input type="checkbox" id="fleetQueueControlEnabled" />
-          <span>Allow safe queue controls</span>
-        </label>
-        <div class="hint">Allows revision-checked Pause after current item, resume of a Hub-owned pause, clear pending, and only locally proven-safe retries.</div>
-      </div>
-    </section>
-
     <section class="card settings-section">
       <div class="label">Gateway Studio (image worker)</div>
       <div class="field">

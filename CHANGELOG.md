@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.21 — 2026-11-12
+
+- Fleet Hub was removed: if you had it enabled, this extension no longer reports to or accepts queue controls from a Hub.
+
 ## 0.50.20 — 2026-11-12
 
 - Fixes the Flow tab the claim tick opens: Chrome rejects `autoDiscardable` on `tabs.create`, which stopped every claim before it reached Gateway. The tab is created and then marked non-discardable.

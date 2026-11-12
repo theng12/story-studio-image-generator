@@ -36,7 +36,7 @@ test('only explicit pre-submit Leonardo limits retain the pause and re-pend path
   assert.equal(isKnownPreSubmitLimit('leonardo', { submitted: false }), false);
 });
 
-test('Leonardo ambiguous failures become terminal and Fleet-unsafe with paid-work recovery guidance', () => {
+test('Leonardo ambiguous failures become terminal with paid-work recovery guidance', () => {
   const failed = ambiguousLeonardoQueueItem(
     { provider: 'leonardo', status: 'running', startedAt: 100 },
     new Error('The message port closed.'),
@@ -48,7 +48,6 @@ test('Leonardo ambiguous failures become terminal and Fleet-unsafe with paid-wor
   assert.match(failed.failure.title, /Leonardo AI/i);
   assert.match(failed.failure.hint, /inspect|check/i);
   assert.match(failed.failure.hint, /manually retry|manual retry/i);
-  assert.equal(failed.fleetRetrySafe, false);
   assert.equal(failed.finishedAt, 175);
   assert.equal(failed.durationMs, 75);
 });
@@ -627,22 +626,6 @@ test('startup recovery delegates to evidence-aware queue recovery', () => {
   const migration = source('src/lib/queue-migration.js');
   const migrate = migration.slice(migration.indexOf('export function migrateQueue'), migration.indexOf('export function canRetryItem'));
   assert.doesNotMatch(migrate, /recoveryEvidenceQueueItem|ambiguousRecoveryQueueItem/);
-});
-
-test('Fleet queue mutations compare revisions inside the atomic queue boundary', () => {
-  const background = source('src/background.js');
-  const heartbeat = background.slice(background.indexOf('async function fleetHeartbeat'), background.indexOf('async function executeFleetCommand'));
-  const command = background.slice(background.indexOf('async function executeFleetCommand'), background.indexOf('setInterval'));
-  const pauseResume = background.slice(background.indexOf('async function resumeQueue'), background.indexOf('chrome.runtime.onMessage'));
-
-  assert.match(heartbeat, /queueStore\.snapshot\(\)/);
-  assert.doesNotMatch(heartbeat, /getQueueRevision\(\)/);
-  assert.ok((background.match(/updateIfRevision/g) || []).length >= 4);
-  assert.match(command, /expectedRevision:\s*command\.expectedQueueRevision/);
-  assert.match(command, /clearPendingFromFleet\(command\.expectedQueueRevision\)/);
-  assert.match(command, /retryFleetSafeFailed\(command\.expectedQueueRevision\)/);
-  assert.doesNotMatch(command, /expectedQueueRevision[^\n]+await getQueueRevision/);
-  assert.match(pauseResume, /touch:\s*true/);
 });
 
 test('popup and options route settings patches through the background owner', () => {

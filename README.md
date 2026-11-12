@@ -89,11 +89,10 @@ hold or clears an unknown outcome — Gateway alone decides safe closure from fr
 exact-revision paused state.
 
 Worker IDs and tokens identify a connection, not a Chrome profile, provider
-account or shared credit pool. Fleet v2 sends extension-local agent/machine/
-session IDs and pacing; those are not attested account identities. Relay owns
-shared browser/account mapping, enablement and scheduling. No balance, allowance,
-reset timezone or per-worker duplicate balance is inferred. Browser TTS is
-outside this extension and stays optional/off in Relay.
+account or shared credit pool. Relay owns shared browser/account mapping,
+enablement and scheduling. No balance, allowance, reset timezone or per-worker
+duplicate balance is inferred. Browser TTS is outside this extension and stays
+optional/off in Relay.
 
 ## Parity gaps, stated plainly
 

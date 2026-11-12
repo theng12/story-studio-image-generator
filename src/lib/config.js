@@ -102,16 +102,6 @@ export const DEFAULTS = {
   lastProject: '',
   lastEpisode: '',
 
-  // Fleet Hub v2: identity and secrets stay local; this synced portion contains
-  // only the user's explicit participation/consent choices and display name.
-  // The Hub may observe the queue only when telemetry consent is on, and may
-  // request the small safe-control set only when queue-control consent is on.
-  fleetAgentEnabled: false,
-  fleetTelemetryEnabled: false,
-  fleetQueueControlEnabled: false,
-  fleetHubUrl: '',
-  fleetAgentName: '',
-
   // Gateway Studio image worker (third mode). Off by default; the user opts in
   // by filling URL + token + worker id. Health test is user-triggered only.
   gatewayModeEnabled: false,
@@ -264,29 +254,17 @@ export async function getSettings() {
     delete secrets.pollinationsToken;
     await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
   }
-  delete storedSettings.fleetSharedSecret;
   const next = normalizeSettings({ ...DEFAULTS, ...storedSettings, ...gateway });
   const syncNext = { ...next };
   for (const key of GATEWAY_LOCAL_FIELDS) delete syncNext[key];
   if (JSON.stringify(syncNext) !== JSON.stringify(synced[STORAGE_KEY] || {})) {
     await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   }
-  return {
-    ...next,
-    fleetSharedSecret: secrets.fleetSharedSecret || '',
-  };
+  return next;
 }
 
-export async function persistSettings(next, patch = {}) {
+export async function persistSettings(next) {
   next = normalizeSettings({ ...DEFAULTS, ...next });
-  if (Object.prototype.hasOwnProperty.call(patch, 'fleetSharedSecret')) {
-    const local = await chrome.storage.local.get(PROVIDER_SECRETS_KEY);
-    const secrets = { ...(local[PROVIDER_SECRETS_KEY] || {}) };
-    const secret = String(patch.fleetSharedSecret || '').trim();
-    if (secret) secrets.fleetSharedSecret = secret;
-    else delete secrets.fleetSharedSecret;
-    await chrome.storage.local.set({ [PROVIDER_SECRETS_KEY]: secrets });
-  }
   const syncNext = { ...next };
   const gateway = {};
   for (const key of GATEWAY_LOCAL_FIELDS) {
@@ -294,7 +272,6 @@ export async function persistSettings(next, patch = {}) {
     delete syncNext[key];
   }
   await chrome.storage.local.set({ [GATEWAY_CONNECTION_KEY]: gateway });
-  delete syncNext.fleetSharedSecret;
   await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   return next;
 }

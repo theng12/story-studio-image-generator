@@ -617,12 +617,12 @@ async function saveStudioConnection(next) {
 }
 
 // Keep the indicator current when Settings is edited in another extension tab.
-// Who last set pacing / cooldown — this machine (local) or the Fleet Hub.
+// Who last set pacing / cooldown on this machine.
 let settingsSource = {};
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'sync' && changes.settings?.newValue && settings) {
-    // A change here can come from a Fleet Hub push (applySettings) — reflect it.
+    // A change here can arrive from another browser context — reflect it.
     settings = { ...settings, ...changes.settings.newValue };
     renderHumanPace();
     renderCooldownCard();
@@ -646,12 +646,12 @@ function renderAppliedSettings() {
   const cdText = cd.autoResume ? `auto-resume ${cooldownMinutesLabel(cd.minutes)}` : 'stops on limit';
   const tag = (grp) => {
     const by = settingsSource[grp]?.by;
-    return by ? ` <span class="src ${by === 'hub' ? 'hub' : 'local'}">${by === 'hub' ? 'Fleet Hub' : 'local'}</span>` : '';
+    return by ? ' <span class="src local">local</span>' : '';
   };
   el.innerHTML = `<span>⚙ Pacing ${min}–${max}s${tag('pace')}</span><span>${prov} cooldown: ${cdText}${tag('cooldown')}</span>`;
 }
 
-// Note that THIS machine (not the hub) last set a settings group.
+// Note that THIS machine last set a settings group.
 async function markSource(group) {
   settingsSource = { ...settingsSource, [group]: { by: 'local', at: Date.now() } };
   await chrome.storage.local.set({ settingsSource });

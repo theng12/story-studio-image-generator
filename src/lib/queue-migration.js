@@ -51,7 +51,6 @@ function failedModelQueueItem(item, provider, now) {
     status: 'failed',
     error: failure.raw,
     failure,
-    fleetRetrySafe: false,
     finishedAt: now,
     ...(Number.isFinite(item?.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
   };
@@ -70,7 +69,6 @@ function ambiguousRecoveryQueueItem(item, now) {
     status: 'failed',
     error: failure.raw,
     failure,
-    fleetRetrySafe: false,
     finishedAt: now,
     ...(Number.isFinite(item.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
   };
@@ -89,7 +87,6 @@ function recoveryEvidenceQueueItem(item, now) {
       : Math.max(0, completed.finishedAt - (item.startedAt || completed.finishedAt));
     delete completed.error;
     delete completed.failure;
-    delete completed.fleetRetrySafe;
     return completed;
   }
   if (item.providerAttempted !== true && !item.mediaId) return null;
@@ -100,7 +97,7 @@ export function recoverInterruptedQueue(queue, now = Date.now()) {
   if (!Array.isArray(queue)) return [];
   return queue.map((item) => {
     if (gatewayNeedsReview(item) && item.status === 'running') {
-      return { ...item, status: 'failed', fleetRetrySafe: false, finishedAt: now,
+      return { ...item, status: 'failed', finishedAt: now,
         failure: { code: 'gateway-held', title: 'Gateway work is held', hint: 'Deliver retained bytes again or review the job in Gateway.', raw: 'Worker restarted. Retained bytes may be delivered again; generation will not repeat.' },
         error: 'Gateway work is held after worker restart.' };
     }
@@ -164,7 +161,6 @@ export function unsupportedSceneQueueItem(item, now = Date.now()) {
     status: 'failed',
     error: failure.raw,
     failure,
-    fleetRetrySafe: false,
     finishedAt: now,
     ...(Number.isFinite(item?.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
   };
@@ -190,7 +186,6 @@ export function migrateQueue(queue, now = Date.now()) {
       status: 'failed',
       error: removedFailure(provider).raw,
       failure: removedFailure(provider),
-      fleetRetrySafe: false,
       finishedAt: now,
       ...(Number.isFinite(item?.startedAt) ? { durationMs: Math.max(0, now - item.startedAt) } : {}),
     };

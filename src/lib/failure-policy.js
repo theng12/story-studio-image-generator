@@ -37,7 +37,6 @@ export function ambiguousProviderQueueItem(item, error, now = Date.now()) {
       hint: `Inspect the ${provider} tab for a completed image before manually retrying so paid tokens are not spent twice.`,
       raw,
     },
-    fleetRetrySafe: false,
     finishedAt: now,
     durationMs: Math.max(0, now - (Number.isFinite(item.startedAt) ? item.startedAt : now)),
   };

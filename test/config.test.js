@@ -71,7 +71,7 @@ test('does not mutate the input settings during normalization', () => {
 test('removes a retired Pollinations token from local storage during settings migration', async () => {
   const synced = { settings: { provider: 'flow' } };
   const local = {
-    providerSecrets: { pollinationsToken: 'retired-token', fleetSharedSecret: 'keep-me' },
+    providerSecrets: { pollinationsToken: 'retired-token' },
   };
   globalThis.chrome = {
     storage: {
@@ -89,9 +89,7 @@ test('removes a retired Pollinations token from local storage during settings mi
   try {
     const settings = await getSettings();
 
-    assert.equal(settings.fleetSharedSecret, 'keep-me');
     assert.equal(Object.hasOwn(local.providerSecrets, 'pollinationsToken'), false);
-    assert.equal(local.providerSecrets.fleetSharedSecret, 'keep-me');
   } finally {
     delete globalThis.chrome;
   }

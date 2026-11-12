@@ -219,7 +219,6 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .applied-settings { font-size: 11px; color: var(--muted); margin: -2px 0 8px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .applied-settings:empty { display: none; }
 .applied-settings .src { padding: 0 5px; border-radius: 999px; font-size: 10px; margin-left: 4px; }
-.applied-settings .src.hub { color: #0c1230; background: var(--accent); }
 .applied-settings .src.local { color: var(--muted); border: 1px solid var(--line); }
 
 .queue { max-height: 180px; overflow-y: auto; }
@@ -375,7 +374,6 @@ select, input[type="text"], input[type="password"], input[type="number"] { backg
 .advanced-card-body .row:first-child { margin-top: 0; }
 .pace-card .pace-state, .advanced-card .pace-state { margin-left: auto; }
 .pace-state { border-radius: 5px; padding: 1px 5px; }
-.fleet-card { margin-bottom: 8px; }
 .open-options-link { vertical-align: baseline; }
 
 .scenes { max-height: 245px; border-radius: 6px; background: #1d1d1b; }

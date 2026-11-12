@@ -20,7 +20,6 @@ test('fails pending and running work for retired providers without changing reta
 
   assert.equal(migrated[0].status, 'failed');
   assert.equal(migrated[0].failure.code, 'provider-removed');
-  assert.equal(migrated[0].fleetRetrySafe, false);
   assert.equal(migrated[0].finishedAt, NOW);
   assert.equal(migrated[1].status, 'failed');
   assert.equal(migrated[1].failure.code, 'provider-removed');
@@ -59,7 +58,6 @@ test('defaults only an absent legacy provider and fails every explicit invalid p
   for (const item of once.slice(1)) {
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'provider-removed');
-    assert.equal(item.fleetRetrySafe, false);
     assert.equal(canRetryItem(item), false);
   }
   assert.deepEqual(twice, once);
@@ -137,7 +135,6 @@ test('terminalizes active non-plan project scenes without changing allowed jobs 
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'scene-source-retired');
     assert.match(item.failure.hint, /create or load a Scene Plan/i);
-    assert.equal(item.fleetRetrySafe, false);
     assert.equal(item.finishedAt, NOW);
   }
   assert.equal(migrated[1].durationMs, 250);
@@ -177,7 +174,6 @@ test('terminalizes legacy non-download scenes with omitted, null, or empty targe
   for (const item of once.slice(0, 4)) {
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'scene-source-retired');
-    assert.equal(item.fleetRetrySafe, false);
     assert.equal(item.finishedAt, NOW);
   }
   assert.deepEqual(once.slice(4), queue.slice(4));
@@ -211,7 +207,6 @@ test('legacy Leonardo work without a model snapshot fails closed', () => {
   assert.equal(migrated.status, 'failed');
   assert.equal(migrated.failure.code, 'model-unknown');
   assert.match(migrated.failure.hint, /refresh.*re-queue/i);
-  assert.equal(migrated.fleetRetrySafe, false);
   assert.equal(migrated.finishedAt, NOW);
   assert.deepEqual(input[0], {
     id: 'legacy-leonardo',
@@ -359,7 +354,6 @@ test('migration is schema-only while startup recovery classifies persisted lifec
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'ambiguous');
     assert.match(item.failure.hint, /inspect.*re-queue/i);
-    assert.equal(item.fleetRetrySafe, false);
   }
 });
 
@@ -417,7 +411,6 @@ test('ordinary migration reads preserve pending lifecycle evidence until startup
   for (const item of recovered.slice(1, 3)) {
     assert.equal(item.status, 'failed');
     assert.equal(item.failure.code, 'ambiguous');
-    assert.equal(item.fleetRetrySafe, false);
     assert.match(item.failure.hint, /inspect.*before.*re-queue/i);
   }
   assert.deepEqual(recovered[4], input[4]);
@@ -445,6 +438,5 @@ test('composed startup migration preserves ambiguous legacy running Leonardo rec
   assert.equal(recovered.status, 'failed');
   assert.equal(recovered.failure.code, 'ambiguous');
   assert.notEqual(recovered.failure.code, 'model-unknown');
-  assert.equal(recovered.fleetRetrySafe, false);
   assert.match(recovered.failure.hint, /inspect.*before.*re-queue/i);
 });

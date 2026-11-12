@@ -14,14 +14,11 @@ const FIELDS = [
   'theme',
   'studioBaseUrl',
   'flowWorkspaceUrl',
-  'fleetHubUrl',
-  'fleetAgentName',
-  'fleetSharedSecret',
   'gatewayUrl',
   'gatewayToken',
   'gatewayWorkerId',
 ];
-const CHECKBOX_FIELDS = ['fleetAgentEnabled', 'fleetTelemetryEnabled', 'fleetQueueControlEnabled', 'gatewayModeEnabled'];
+const CHECKBOX_FIELDS = ['gatewayModeEnabled'];
 
 async function load() {
   await initTheme();
@@ -31,7 +28,6 @@ async function load() {
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
   refreshGrantStatus();
-  refreshFleetGrant();
   refreshFlowGrant();
   refreshGatewayFields();
   renderGatewayPrices(s);
@@ -229,44 +225,6 @@ async function testConnection() {
   }
 }
 
-async function refreshFleetGrant() {
-  const el = $('fleetGrantStatus');
-  const url = $('fleetHubUrl').value.trim();
-  const pat = originPattern(url);
-  if (!pat) {
-    el.textContent = '';
-    return;
-  }
-  if (isLocalUrl(url)) {
-    el.textContent = 'Local — no grant needed.';
-    el.style.color = 'var(--muted)';
-    return;
-  }
-  const granted = await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
-  el.textContent = granted ? '✓ Access granted' : 'Not granted — click to grant.';
-  el.style.color = granted ? 'var(--ok)' : 'var(--warn)';
-}
-
-async function grantFleet() {
-  const url = $('fleetHubUrl').value.trim();
-  const pat = originPattern(url);
-  const el = $('fleetGrantStatus');
-  if (!pat) {
-    el.textContent = 'Enter a valid Hub URL first.';
-    el.style.color = 'var(--err)';
-    return;
-  }
-  if (isLocalUrl(url)) return refreshFleetGrant();
-  try {
-    const granted = await chrome.permissions.request({ origins: [pat] });
-    el.textContent = granted ? '✓ Access granted.' : 'Permission declined.';
-    el.style.color = granted ? 'var(--ok)' : 'var(--err)';
-  } catch (e) {
-    el.textContent = `Grant failed: ${e.message}`;
-    el.style.color = 'var(--err)';
-  }
-}
-
 async function refreshFlowGrant() {
   const el = $('flowGrantStatus');
   const pat = originPattern($('flowWorkspaceUrl').value.trim());
@@ -294,37 +252,12 @@ async function grantFlow() {
   }
 }
 
-async function testFleet() {
-  const status = $('fleetTestStatus');
-  status.textContent = 'Testing Hub connection…';
-  status.style.color = 'var(--muted)';
-  // Persist the form first: the worker deliberately reads only local settings
-  // when constructing the authenticated test heartbeat.
-  await save();
-  try {
-    const result = await chrome.runtime.sendMessage({ type: 'fleet:testConnection' });
-    if (result?.ok) {
-      status.textContent = `✓ Authenticated Hub connection${result.commands ? ` (${result.commands} command${result.commands === 1 ? '' : 's'} ignored during test)` : ''}.`;
-      status.style.color = 'var(--ok)';
-    } else {
-      status.textContent = result?.error || 'Couldn’t connect to the Hub.';
-      status.style.color = 'var(--err)';
-    }
-  } catch (error) {
-    status.textContent = `Couldn’t connect: ${error.message}`;
-    status.style.color = 'var(--err)';
-  }
-}
-
 $('save').onclick = save;
 $('login').onclick = login;
 $('grantAccess').onclick = grantAccess;
 $('testConnection').onclick = testConnection;
-$('grantFleet').onclick = grantFleet;
 $('grantFlow').onclick = grantFlow;
 $('flowWorkspaceUrl').addEventListener('input', refreshFlowGrant);
-$('testFleet').onclick = testFleet;
-$('fleetHubUrl').addEventListener('input', refreshFleetGrant);
 $('studioBaseUrl').addEventListener('input', refreshGrantStatus);
 
 // ── Gateway Studio image worker settings ────────────────────────────────────

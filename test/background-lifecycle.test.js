@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -87,26 +86,6 @@ async function waitFor(predicate, timeoutMs = 1000) {
   throw new Error('Timed out waiting for mocked background lifecycle work.');
 }
 
-function fleetResponse(secret, bodyText, commands) {
-  const timestamp = String(Date.now());
-  const nonce = 'response-nonce';
-  const text = JSON.stringify({ commands });
-  const signature = createHmac('sha256', secret)
-    .update(`POST\n/api/v2/agents/heartbeat\n${timestamp}\n${nonce}\n${text}`)
-    .digest('hex');
-  const headers = new Map([
-    ['x-fleet-timestamp', timestamp],
-    ['x-fleet-nonce', nonce],
-    ['x-fleet-signature', signature],
-  ]);
-  return {
-    ok: true,
-    status: 200,
-    headers: { get: (name) => headers.get(String(name).toLowerCase()) || null },
-    async text() { return text; },
-  };
-}
-
 const leonardoRunning = () => ({
   id: 'live-leonardo',
   provider: 'leonardo',
@@ -125,7 +104,6 @@ test('ordinary worker reads do not recover a live Leonardo item', async () => {
   const worker = await loadBackground();
   try {
     worker.local.queue = [leonardoRunning()];
-    worker.local.fleetV2QueueRevision = 4;
 
     const response = await worker.send({ type: 'getQueue' });
 
@@ -151,12 +129,11 @@ test('worker startup terminalizes a persisted submission instead of replaying it
     },
   };
   const worker = await loadBackground({
-    local: { queue: [submitted], fleetV2QueueRevision: 9 },
+    local: { queue: [submitted] },
   });
   try {
     assert.equal(worker.local.queue[0].status, 'failed');
     assert.equal(worker.local.queue[0].failure.code, 'ambiguous');
-    assert.equal(worker.local.queue[0].fleetRetrySafe, false);
     assert.equal(worker.local.queue[0].providerAttempted, true);
   } finally {
     worker.restore();
@@ -170,10 +147,9 @@ test('an explicit manual retry starts a fresh submission-checkpoint lifecycle', 
     providerAttempted: true,
     providerAttemptedAt: 100,
     failure: { code: 'ambiguous', raw: 'connection closed' },
-    fleetRetrySafe: false,
   };
   const worker = await loadBackground({
-    local: { queue: [failed], queuePaused: true, fleetV2QueueRevision: 3 },
+    local: { queue: [failed], queuePaused: true },
   });
   try {
     const response = await worker.send({ type: 'retryFailed', id: failed.id });
@@ -192,7 +168,7 @@ test('clear failed drops only failed items and leaves pending work', async () =>
   const failed = { ...leonardoRunning(), id: 'f1', status: 'failed', failure: { code: 'ambiguous', raw: 'x' } };
   const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
   const worker = await loadBackground({
-    local: { queue: [failed, pending], queuePaused: true, fleetV2QueueRevision: 3 },
+    local: { queue: [failed, pending], queuePaused: true },
   });
   try {
     const response = await worker.send({ type: 'clearFailed' });
@@ -211,7 +187,7 @@ test('clear pending preserves completed and failed history', async () => {
   const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
   const running = { ...leonardoRunning(), id: 'r1', status: 'running' };
   const worker = await loadBackground({
-    local: { queue: [done, failed, pending, running], queuePaused: true, fleetV2QueueRevision: 3 },
+    local: { queue: [done, failed, pending, running], queuePaused: true },
   });
   try {
     const response = await worker.send({ type: 'clearQueue' });
@@ -237,7 +213,7 @@ test('clear completed drops only done items and preserves actionable queue state
   const pending = { ...leonardoRunning(), id: 'p1', status: 'pending' };
   const running = { ...leonardoRunning(), id: 'r1', status: 'running' };
   const worker = await loadBackground({
-    local: { queue: [done, failed, pending, running], queuePaused: true, fleetV2QueueRevision: 3 },
+    local: { queue: [done, failed, pending, running], queuePaused: true },
   });
   try {
     const response = await worker.send({ type: 'clearCompleted' });
@@ -273,72 +249,6 @@ test('background-owned concurrent settings patches cannot overwrite unrelated fi
     assert.equal(options.settings.humanDelayMinSec, 12);
     assert.equal(worker.sync.settings.humanDelayMinSec, 12);
     assert.equal(worker.sync.settings.studioBaseUrl, 'http://localhost:8000');
-  } finally {
-    worker.restore();
-  }
-});
-
-test('Fleet heartbeat snapshots queue and revision atomically and rejects a command made stale before mutation', async () => {
-  const secret = 'fleet-test-secret';
-  const local = {
-    queue: [{
-      id: 'failed-before-heartbeat',
-      provider: 'flow',
-      source: 'standalone',
-      kind: 'scene',
-      target: 'download',
-      status: 'failed',
-      prompt: 'A quiet lake',
-      failure: { code: 'network', raw: 'offline' },
-      modelSnapshot: { modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'fallback' },
-      generationSettings: {
-        modelId: 'BELUGA', modelLabel: 'Nano Banana 2', modelSource: 'fallback', aspectRatio: '16:9',
-      },
-    }],
-    fleetV2QueueRevision: 7,
-    fleetV2Identity: { agentId: 'agent-1', machineId: 'machine-1' },
-    providerSecrets: { fleetSharedSecret: secret },
-  };
-  const heartbeats = [];
-  const fetchImpl = async (_url, options) => {
-    const body = JSON.parse(options.body);
-    heartbeats.push(body);
-    const command = {
-      commandId: 'stale-clear',
-      action: 'clear_pending',
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 60_000,
-      targetAgentId: body.agent.agentId,
-      targetSessionId: body.agent.sessionId,
-      expectedQueueRevision: body.snapshot.queueRevision,
-    };
-
-    local.queue = [...local.queue, { id: 'local-change', provider: 'flow', status: 'done' }];
-    local.fleetV2QueueRevision = body.snapshot.queueRevision + 1;
-    return fleetResponse(secret, options.body, [command]);
-  };
-  const worker = await loadBackground({
-    local,
-    sync: {
-      settings: {
-        provider: 'flow',
-        fleetAgentEnabled: true,
-        fleetTelemetryEnabled: true,
-        fleetQueueControlEnabled: true,
-        fleetHubUrl: 'https://fleet.test',
-      },
-    },
-    fetchImpl,
-  });
-
-  try {
-    const receipt = await waitFor(() => local.fleetV2CommandReceipts?.['stale-clear']);
-    assert.equal(heartbeats[0].snapshot.queueRevision, 7);
-    assert.deepEqual(heartbeats[0].snapshot.counts, { done: 0, failed: 1, pending: 0, running: 0 });
-    assert.equal(receipt.status, 'rejected');
-    assert.equal(receipt.reason, 'stale_queue_revision');
-    assert.equal(local.fleetV2QueueRevision, 8);
-    assert.deepEqual(local.queue.map(({ id }) => id), ['failed-before-heartbeat', 'local-change']);
   } finally {
     worker.restore();
   }

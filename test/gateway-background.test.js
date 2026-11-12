@@ -729,6 +729,7 @@ test('a queued live manual model cannot be verified by the bundled list after in
 test('local credential migration strips sync and does not activate a different mode', async () => {
   const worker = await boot({ local: { imageGeneratorWorkMode: 'standalone' }, synced: connection });
   try {
+    await worker.send({ type: 'settings:get' });
     assert.equal(worker.local.gatewayConnection.gatewayToken, connection.gatewayToken);
     for (const key of Object.keys(connection)) assert.equal(worker.sync.settings[key], undefined);
     worker.tick(); await worker.stopped();
