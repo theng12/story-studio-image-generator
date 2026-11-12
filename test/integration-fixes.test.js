@@ -518,11 +518,11 @@ test('every provider handler dispatches through immutable generation parameter c
   assert.match(generate, /recaptchaMaxAttempts:\s*settings\.flowRecaptchaMaxAttempts/);
 });
 
-test('Flow bundled model listing is read-only and explicitly fallback', () => {
+test('Flow bundled model listing is read-only and live only on an observed page label', () => {
   const flow = source('src/lib/flow-exec.js');
   const list = flow.slice(flow.indexOf('const listImageModels'), flow.indexOf('const preparedRequests'));
   assert.match(list, /KNOWN_MODELS/);
-  assert.match(list, /source: 'fallback'/);
+  assert.match(list, /source: entries\.length \? 'live' : 'fallback'/);
   assert.doesNotMatch(list, /fetch\(|rpc\(/);
   assert.doesNotMatch(flow, /IMAGE_MODELS\[.*\]\s*\|\|/);
 });

@@ -8,7 +8,8 @@ new version.
 - Reads the signed-in Flow account (opaque id) and remaining credits in the worker, and reports them to Gateway with each claim. Neither is derived from a profile, cookie or email.
 - Claims and runs a Gateway image job once the user has entered that model's credits-per-image price. A price is never guessed: blank means unknown, and unknown work is never claimed or generated.
 - Reports job progress to Gateway and adds a **Claim now** button in the side panel.
-- Gateway mode still needs Flow's live model inventory; without it, nothing is claimed.
+- Reads Flow's model list from the signed-in page: a bundled model counts as live only while that page shows its exact label, so an unobserved or signed-out page still claims nothing.
+- Refuses a Gateway job that asks for a size or an image count other than one, because Flow has no observed encoding for either.
 
 ## 0.50.15 — 2026-11-11
 

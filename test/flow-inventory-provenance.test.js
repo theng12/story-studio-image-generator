@@ -22,7 +22,7 @@ test('explicit captured inventory keeps exact IDs and labels; an empty capture i
   assert.equal(flowInventoryResult([], 'live').source, 'fallback');
 });
 
-test('real serialized Flow helper reports bundled provenance regardless of open or signed-in tab', async () => {
+test('real serialized Flow helper never calls the provider for inventory and stays fallback without a visible page', async () => {
   for (const signedIn of [false, true]) {
     let reads = 0;
     const command = runInNewContext(`(${flowCommand.toString()})`, {
@@ -33,8 +33,27 @@ test('real serialized Flow helper reports bundled provenance regardless of open 
     const result = await command({ op: 'listImageModels' });
     assert.equal(result.ok, true);
     assert.equal(result.result.source, 'fallback');
-    assert.equal(result.result.entries.find(({ id }) => id === 'HARBOR_SEAL').label, 'Nano Banana 2 Lite');
+    assert.equal(result.result.entries.length, 0);
     assert.equal(flowInventoryResult(result.result.entries, result.result.source).source, 'fallback');
     assert.equal(reads, 0);
   }
+});
+
+test('a bundled model counts as live only while the signed-in page shows its exact label', async () => {
+  const locate = { pathname: '/project/12345678-1234-1234-1234-123456789abc' };
+  const body = { innerText: 'New project\nNano Banana 2 Lite\nNano Banana Pro\nCreate\nNano Banana 2 Lite' };
+  const signedIn = runInNewContext(`(${flowCommand.toString()})`, {
+    window: { WIZ_global_data: { SNlM0e: 'fixture-only' } }, location: locate, document: { body },
+  });
+  const result = await signedIn({ op: 'listImageModels' });
+  assert.equal(result.result.source, 'live');
+  assert.equal(result.result.projectId, '12345678-1234-1234-1234-123456789abc');
+  // Observed labels only, in catalog order, with our own keys.
+  assert.deepEqual(Array.from(result.result.entries, ({ id }) => id), ['GEM_PIX_2', 'HARBOR_SEAL']);
+  assert.equal(flowInventoryResult(result.result.entries, result.result.source).source, 'live');
+
+  const signedOut = runInNewContext(`(${flowCommand.toString()})`, { window: {}, location: locate, document: { body } });
+  const outResult = await signedOut({ op: 'listImageModels' });
+  assert.equal(outResult.result.source, 'fallback');
+  assert.equal(outResult.result.entries.length, 0);
 });

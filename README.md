@@ -66,9 +66,10 @@ facts. Preserve that distinction when showing or forwarding provider data.
 
 Image's remaining gaps are explicit:
 
-- Flow has no verified live inventory capture in this source. Its three bundled
-  model records remain manual fallback choices; dynamic Flow discovery is not
-  complete and cannot establish Gateway eligibility.
+- Flow's model list is observed from the page, not from a backend listing: a
+  bundled record counts as live only while the signed-in Flow page shows its exact
+  label as a line of its own. A closed picker, a signed-out tab or an unlabelled
+  page leaves all three records as manual fallback choices and claims nothing.
 - Gateway Image currently maps the captured Flow model IDs, 16:9 output,
   up to four references and the Flow project ID. Other providers, newly exposed
   controls and other aspect ratios have no verified Gateway mapping here.

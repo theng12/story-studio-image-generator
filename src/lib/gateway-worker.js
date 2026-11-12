@@ -20,6 +20,9 @@ export function normalizeImageGatewayJob(job) {
   if (!model) throw new Error('Gateway image job has no known Flow model.');
   const aspectRatio = job.aspectRatio ?? '16:9';
   if (aspectRatio !== '16:9') throw new Error('Only captured 16:9 Flow output is available.');
+  // No observed provider encoding exists for size or multi-image counts.
+  if (job.size !== undefined) throw new Error(`Flow image size ${job.size} has no observed Gateway mapping.`);
+  if (job.count !== undefined && job.count !== 1) throw new Error(`Flow image count ${job.count} has no observed Gateway mapping.`);
   const raw = job.referenceImages === undefined ? [] : job.referenceImages;
   if (!Array.isArray(raw) || raw.length > getProvider('flow').capabilities.maxReferences) {
     throw new Error('Gateway Flow references must be an array of at most four images.');

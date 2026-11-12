@@ -257,30 +257,50 @@ test('no claim is attempted without a fresh signed-in Flow account observation',
   }
 });
 
-test('a quoted claim runs one image and reports progress along the way', async () => {
+async function quotedBoot(extra = {}) {
   const payloadSha256 = await sha256Of(JOB);
-  const worker = await boot({
+  return boot({
     synced: { flowProjectId: JOB.flowProjectId, gatewayImageCreditCosts: { NARWHAL: 0 } },
     claimAnswers: [
       { job: null, quoteRequired: { job: JOB, payloadSha256, executionAuthorized: false } },
       { job: JOB, accountBinding: { provider: 'flow', accountId: 'fixture-account' },
         reservation: { payloadSha256, value: 0, unit: 'credits' } },
     ],
+    ...extra,
   });
+}
+
+test('a priced claim enqueues exactly one job and delivers its result', async () => {
+  const payloadSha256 = await sha256Of(JOB);
+  const worker = await quotedBoot();
   try {
     worker.tick();
     await waitFor(() => worker.local.queue?.[0]?.status === 'done');
     await worker.stopped();
     const claims = worker.calls.filter(({ url }) => url.endsWith('/claim')).map(({ init }) => JSON.parse(init.body));
-    assert.equal(claims.length, 2);
+    assert.equal(claims.length, 2, 'the preview is never executable; only the quoted claim is');
     assert.equal(claims[0].quote, undefined);
     assert.equal(claims[1].quote.payloadSha256, payloadSha256);
     assert.equal(claims[1].quote.value, 0);
     assert.equal(claims[1].account.accountId, 'fixture-account');
-    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/progress')).length, 1);
+    assert.deepEqual(worker.local.queue.map(({ gatewayJobId }) => gatewayJobId), [JOB.jobId]);
     const result = worker.calls.find(({ url }) => url.endsWith('/result'));
     assert.deepEqual(Buffer.from(result.bytes), Buffer.from(PNG, 'base64'));
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/fail')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('a claimed job reports progress before it generates', async () => {
+  const progressAtSubmit = [];
+  const worker = await quotedBoot({ onSubmit: () => {
+    progressAtSubmit.push(worker.calls.filter(({ url }) => url.endsWith('/progress')).length);
+  } });
+  try {
+    worker.tick();
+    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
+    await worker.stopped();
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/progress')).length, 1);
+    assert.deepEqual(progressAtSubmit, [1], 'progress must precede the generation submit');
   } finally { worker.restore(); }
 });
 

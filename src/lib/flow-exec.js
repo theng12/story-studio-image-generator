@@ -140,9 +140,22 @@ export async function flowCommand(command) {
       if (buffer.byteLength > 50 * 1024 * 1024) throw new Error('Downloaded image exceeded 50 MB.');
       return { base64: bufToBase64(buffer), mime: contentType || 'image/png' };
     };
-    // No verified inventory capture exists for this app; these bundled IDs
-    // support manual generation but prove neither current availability nor sign-in.
-    const listImageModels = async () => ({ source: 'fallback', entries: KNOWN_MODELS.map(([id, label]) => ({ id, label })) });
+    // Model keys never appear in a capturable RPC; the app renders their labels
+    // from its own bundle. A bundled record counts as live only while the signed-in
+    // page shows its exact label as a line of its own. The key still comes from us.
+    // shortcut: a closed model picker shows no labels, so it stays fallback;
+    // move to a backend listing once Flow exposes one.
+    const listImageModels = async () => {
+      let signedIn = false;
+      try {
+        wiz();
+        signedIn = true;
+      } catch { /* a signed-out tab still needs a state result */ }
+      const lines = new Set(typeof document === 'undefined' ? []
+        : String(document.body?.innerText || '').split('\n').map((line) => line.replace(/\s+/g, ' ').trim()));
+      const entries = signedIn ? KNOWN_MODELS.filter(([, label]) => lines.has(label)).map(([id, label]) => ({ id, label })) : [];
+      return { entries, source: entries.length ? 'live' : 'fallback', signedIn, projectId: currentProjectId() };
+    };
     const preparedRequests = window.__STORY_STUDIO_FLOW_IMAGE_PREPARATIONS__ ||= new Map();
     const prepareGenerateImage = async () => {
       const projectId = projectIdFor(payload.projectId);
@@ -302,8 +315,8 @@ export async function flowCommand(command) {
         return { account: {
           schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
           connection: 'connected', signIn: 'signed_in',
-          // Ready for manual work; Gateway still needs a price before generation.
-          readiness: 'ready', balance,
+          // No credits means not ready; an unreadable balance stays unknown, not zero.
+          readiness: balance && balance.value === 0 ? 'not_ready' : 'ready', balance,
         } };
       } catch {
         return { account: null };
