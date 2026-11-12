@@ -2183,7 +2183,9 @@ async function openFlowForGateway(settings) {
   const existing = await chrome.tabs.query({ url: workspace.match });
   let tab = existing.find((entry) => entry.status === 'complete');
   if (!tab) {
-    const created = existing[0] || await chrome.tabs.create({ url: workspace.url, active: false, autoDiscardable: false });
+    const created = existing[0] || await chrome.tabs.create({ url: workspace.url, active: false });
+    // autoDiscardable is an update property, not a create property; passing it to create throws.
+    await chrome.tabs.update(created.id, { autoDiscardable: false }).catch(() => {});
     tab = await waitForFlowTab(created.id);
   }
   return tab ? inspectFlowAccount() : null;

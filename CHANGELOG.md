@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.20 — 2026-11-12
+
+- Fixes the Flow tab the claim tick opens: Chrome rejects `autoDiscardable` on `tabs.create`, which stopped every claim before it reached Gateway. The tab is created and then marked non-discardable.
+
 ## 0.50.19 — 2026-11-12
 
 - The Gateway claim alarm exists from worker start and is recreated on any local or synced settings change, including restored or externally written settings; it is no longer cleared when gateway mode is off.
