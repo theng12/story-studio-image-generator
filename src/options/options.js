@@ -54,10 +54,24 @@ function renderGatewayPrices(settings) {
     input.placeholder = 'unknown';
     const stored = settings.gatewayImageCreditCosts?.[model.internalId] ?? settings.gatewayImageCreditCosts?.[model.id];
     input.value = Number.isFinite(stored) ? String(stored) : '';
-    input.addEventListener('input', autoSave);
+    input.addEventListener('input', () => { refreshPriceStatus(); autoSave(); });
     field.appendChild(input);
     box.appendChild(field);
   }
+  refreshPriceStatus();
+}
+
+// The rule we enforce is the rule we show: an unset price is free, not unpriced.
+function refreshPriceStatus() {
+  const status = $('gatewayPriceStatus');
+  if (!status) return;
+  const declared = Object.entries(gatewayPricePatch());
+  if (!declared.length) {
+    status.textContent = 'Priced as free: no price is set, so every image job quotes 0 credits and can claim.';
+    return;
+  }
+  const label = (id) => FLOW_FALLBACK_MODELS.find((model) => model.internalId === id)?.label || id;
+  status.textContent = `Priced from your settings, not from Flow: ${declared.map(([id, credits]) => `${label(id)} = ${credits} credits`).join(', ')}.`;
 }
 
 function gatewayPricePatch() {

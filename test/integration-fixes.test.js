@@ -561,6 +561,16 @@ test('Flow model listing never touches the network and yields bundled fallback m
   assert.equal(fetches.length, 0);
 });
 
+test('the free-price policy is stated where the user sets and sees it', () => {
+  const options = source('src/options/options.js');
+  const html = source('src/options/options.html');
+  const popup = source('src/popup/popup.js');
+  assert.match(html, /id="gatewayPriceStatus"/);
+  assert.match(options, /Priced as free: no price is set/);
+  assert.match(options, /Priced from your settings, not from Flow/);
+  assert.match(popup, /priced as free \(0 credits\)/);
+});
+
 test('web contexts expose only semantic visible model identity', () => {
   for (const file of ['src/content/aistudio-main.js', 'src/content/qwen-main.js', 'src/content/chatgpt-main.js']) {
     const adapter = source(file);

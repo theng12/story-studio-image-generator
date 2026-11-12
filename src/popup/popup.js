@@ -492,7 +492,7 @@ async function setWorkMode(mode) {
   await chrome.storage.local.set({ imageGeneratorWorkMode: workMode });
   renderWorkMode();
   if (workMode === 'studio') await loadProjects();
-  else if (workMode === 'gateway') setStatus('Gateway mode claims image jobs from the configured Gateway server. Enable in Settings.', 'info');
+  else if (workMode === 'gateway') setStatus('Gateway mode claims image jobs from the configured Gateway server. Images are priced as free (0 credits); any other price is one you set in Settings.', 'info');
   else setStatus('Standalone mode uses a local prompt and Downloads.', 'info');
 }
 
