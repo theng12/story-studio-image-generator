@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.24 — 2026-11-12
+
+- Google Flow settings were removed; the address is fixed.
+- The options page now shows only the working mode, the Story Studio connection (outside Gateway mode), and the Gateway Studio block.
+
 ## 0.50.23 — 2026-11-12
 
 - The alarm listener writes `gatewayAlarmFiredAt` (with the alarm's period) before the claim loop runs, so an alarm that exists but never fires is visible. The panel also names a selected Gateway mode whose connection is not enabled in Settings.
@@ -10,11 +15,6 @@ new version. Older releases live in `git log`.
 ## 0.50.22 — 2026-11-12
 
 - The side panel says "Gateway connection is saved, but Gateway mode is not selected" when a worker id and token exist while the mode is Studio or Standalone. That state looked paired and silently never claimed.
-
-## 0.50.22 — 2026-11-12
-
-- Google Flow settings were removed; the address is fixed.
-- The options page now shows only the working mode, the Story Studio connection (outside Gateway mode), and the Gateway Studio block.
 
 ## 0.50.21 — 2026-11-12
 
