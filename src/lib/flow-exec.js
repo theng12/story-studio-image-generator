@@ -16,9 +16,10 @@ export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
     const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
-    // Slot 4 of the request, which matches `aspectRatio` in the app's own stored
-    // settings: 16:9 sent 3 in the 2026-11-05 captures, 9:16 sent 2 on 2026-11-12.
-    // 4:3, 1:1 and 3:4 have no observed value, so they are refused, not guessed.
+    // Slot 4 is the aspect for ogiZ0b, proven by paired 9:16 and 16:9 runs at the
+    // same model and count (2026-11-12) and matching `aspectRatio` in the app's own
+    // stored settings. It is per-RPC: video's YhhmEf sends 2 for 16:9, so never copy
+    // these values across. 4:3, 1:1 and 3:4 have no body yet and are refused.
     const IMAGE_ASPECT = { '16:9': 3, '9:16': 2 };
     // Labels exactly as the picker renders them; the keys are ours.
     const KNOWN_MODELS = [
@@ -221,7 +222,7 @@ export async function flowCommand(command) {
             prepared.seed,
             prepared.aspect,
             prepared.modelId,
-            prepared.count, // unproven slot: the capture had null here and count 1
+            prepared.count, // unproven: [6] was null at count 1, and a count of 2 did not move [4] either
             context,
             [[[prepared.prompt]]],
             null,

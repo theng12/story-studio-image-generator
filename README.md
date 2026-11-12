@@ -79,8 +79,9 @@ Image's remaining gaps are explicit:
   are refused at claim rather than guessed. The count slot is unproven: the
   capture carried `null` there with a count of 1.
 - The price per image is **declared by the user**, not observed: Flow shows no
-  credits line and its balance did not move across a generated image (50 before,
-  50 after). A blank price means no quote, and no quote means no claim.
+  credits line and the balance did not move across generated images (50 before
+  and after one run, 30 before and after another). A blank price means no quote,
+  and no quote means no claim.
 - Story Scene Review rows are reduced to image identity, prompt and image-state
   fields in `loadScenePlan`, then mapped again at enqueue. Scene duration and
   additional caller controls have no preservation mapping in that path yet.
