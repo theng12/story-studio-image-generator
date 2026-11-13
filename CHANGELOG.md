@@ -3,6 +3,12 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.26 — 2026-11-13
+
+- Flow RPC ids are no longer hard-coded in the shipped command: a MAIN-world recorder learns them from the live page's own batchexecute exchanges, resolved per page load, with the previous ids kept only as a configurable fallback in Settings (Flow request ids, advanced).
+- An id that cannot be resolved is named with what was tried, in the panel and at worker start ("Account probe failed: …; manual work still works") — never collapsed into "signed out".
+- Tests simulate a changed id, discovery failing to fallback, and both failing, without hard-coding any expected id.
+
 ## 0.50.25 — 2026-11-13
 
 - A signed-in Flow project whose account probe fails is no longer treated as signed out: the extension falls back to the visible signed-in page with an unknown balance (images are free) and claims, instead of refusing every job.

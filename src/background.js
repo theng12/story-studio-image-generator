@@ -400,7 +400,8 @@ async function waitForTabReady(tabId, timeoutMs = 60000) {
 async function send(tabId, message) {
   if (String(message?.type || '').startsWith('flow:')) {
     const tab = await chrome.tabs.get(tabId);
-    const { origin } = flowWorkspace(await getSettings());
+    const flowSettings = await getSettings();
+    const { origin } = flowWorkspace(flowSettings);
     if (!String(tab?.url || '').startsWith(`${origin}/`)) {
       throw new Error(`Refusing to run a Flow command outside ${origin}.`);
     }
@@ -408,7 +409,8 @@ async function send(tabId, message) {
       target: { tabId },
       world: 'MAIN',
       func: flowCommand,
-      args: [{ op: message.type.slice('flow:'.length), payload: message.params || {} }],
+      // The configured ids are only a fallback; the page resolves them from observed exchanges first.
+      args: [{ op: message.type.slice('flow:'.length), payload: { ...(message.params || {}), rpcFallback: flowSettings.rpcIds } }],
     });
     if (!result?.ok) {
       throw Object.assign(new Error(result?.error || 'Flow command failed.'), {
@@ -2092,6 +2094,20 @@ chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && changes[CLAIM_NOW_KEY]) gatewayClaimLoop();
 });
 syncGatewayAlarm().catch(() => {});
+// One account probe per worker start: a broken Flow RPC id is named now, not at the first claim.
+async function rpcSelfCheck() {
+  try {
+    const settings = await getSettings();
+    if (!(await gatewayIsActive(settings))) return;
+    const inspected = await inspectFlowAccountDetailed();
+    if (!inspected.account && inspected.reason === 'unreadable') {
+      gatewayBlocked = 'account-probe';
+      await writeStatus(`Account probe failed: ${inspected.error}. Claims retry after the next check; manual work still works.`, 'err');
+    }
+  } catch { /* best effort */ }
+}
+// Delayed so it never races the first claim tick; the claim loop also names a failed probe.
+setTimeout(() => { rpcSelfCheck().catch(() => {}); }, 10000);
 // Alarms are profile-local and are not restored with synced/restored settings; a browser
 // launch or extension update must (re)create the claim alarm, not only a settings save.
 try { chrome.runtime.onStartup?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }

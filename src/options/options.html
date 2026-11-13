@@ -84,6 +84,16 @@
           <div id="gatewayTestStatus" class="hint" aria-live="polite"></div>
         </div>
         <div class="field">
+          <div class="label">Flow request ids (advanced)</div>
+          <div class="hint">Resolved from the live page each time; these are only the fallback used when discovery cannot identify one. A Flow change is fixed here, without reinstalling.</div>
+          <div class="edit-grid">
+            <label class="field">Account<input type="text" id="rpcIdAccount" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+            <label class="field">Credits<input type="text" id="rpcIdCredits" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+            <label class="field">Generate<input type="text" id="rpcIdGenerate" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+            <label class="field">Upload<input type="text" id="rpcIdUpload" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+          </div>
+        </div>
+        <div class="field">
           <div class="label">Credits per image</div>
           <div class="hint">Flow images are free, so blank is quoted as 0 credits. Fill a model in only to declare a different price; the worker never reads one from the page.</div>
           <div id="gatewayPrices"></div>

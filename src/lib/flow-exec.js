@@ -15,7 +15,49 @@
 export async function flowCommand(command) {
   try {
     const SITEKEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
-    const RPC = { generate: 'ogiZ0b', upload: 'maseQ', account: 'o30O0e', credits: 'nzlxg' };
+    const payload = command?.payload || {};
+    // Flow's RPC ids are internals that move between builds. They are resolved per page load
+    // from exchanges the recorder observed, with settings.rpcIds as a configurable fallback;
+    // a miss is named with what was tried, never collapsed into "signed out".
+    const RPC_NAMES = ['account', 'credits', 'generate', 'upload'];
+    const classifyExchange = ({ rpcid, request = '', response = '' } = {}) => {
+      if (typeof rpcid !== 'string' || !rpcid) return null;
+      const req = String(request);
+      const res = String(response);
+      if (/person\.(photo|name|email|metadata)/.test(req) || /"me"/.test(req)) return 'account';
+      if (/flow-content\.google/.test(res)) return 'generate';
+      if (/[A-Za-z0-9+/]{400,}={0,2}/.test(req)) return 'upload';
+      if (!req.trim() || req.trim() === '[]') {
+        if (/^\s*\[/.test(res) || /"\d+"/.test(res)) return 'credits';
+      }
+      return null;
+    };
+    const resolveRpc = () => {
+      const fallback = payload.rpcFallback || {};
+      const observations = Array.isArray(window.__relayRpcLog) ? window.__relayRpcLog : [];
+      const discovered = {};
+      for (const row of observations) {
+        const name = classifyExchange(row);
+        if (name && !discovered[name]) discovered[name] = row.rpcid;
+      }
+      const ids = {};
+      const problems = [];
+      for (const name of RPC_NAMES) {
+        if (discovered[name]) ids[name] = discovered[name];
+        else if (typeof fallback[name] === 'string' && fallback[name]) ids[name] = fallback[name];
+        else problems.push(`${name}: no id was observed on the page and no fallback is configured`);
+      }
+      return { ids, problems };
+    };
+    const rpcResolution = resolveRpc();
+    const RPC = rpcResolution.ids;
+    const requireRpc = (name) => {
+      const id = RPC[name];
+      if (!id) {
+        throw new Error(`Flow RPC id "${name}" is unresolved: ${rpcResolution.problems.join('; ') || 'not observed and no fallback configured'}.`);
+      }
+      return id;
+    };
     // Slot 4 is the aspect for ogiZ0b, proven by paired 9:16 and 16:9 runs at the
     // same model and count (2026-11-12) and matching `aspectRatio` in the app's own
     // stored settings. It is per-RPC: video's YhhmEf sends 2 for 16:9, so never copy
@@ -26,7 +68,6 @@ export async function flowCommand(command) {
       ['BELUGA', 'Nano Banana 2.1'],
       ['HARBOR_SEAL', 'Nano Banana 2 Lite'],
     ];
-    const payload = command?.payload || {};
 
     const uuid = () =>
       crypto.randomUUID
@@ -236,7 +277,7 @@ export async function flowCommand(command) {
           [uuid().toUpperCase()],
         ];
         try {
-          result = await rpc(RPC.generate, request, prepared.projectId);
+          result = await rpc(requireRpc('generate'), request, prepared.projectId);
           break;
         } catch (error) {
           const detail = String(error?.message || error);
@@ -277,7 +318,7 @@ export async function flowCommand(command) {
       if (!projectId) throw new Error('No Flow project selected.');
       if (!payload.base64) throw new Error('uploadImage needs base64 image bytes.');
       const token = await mintToken('UPLOAD_IMAGE');
-      const result = await rpc(RPC.upload, [
+      const result = await rpc(requireRpc('upload'), [
         clientContext(projectId, token),
         String(payload.base64),
         payload.mime || 'image/png',
@@ -313,13 +354,13 @@ export async function flowCommand(command) {
       try {
         wiz();
         const observedAt = new Date().toISOString();
-        const me = await rpc(RPC.account,
+        const me = await rpc(requireRpc('account'),
           [['me'], [[['person.photo', 'person.name', 'person.email', 'person.metadata']], null, [1, 7, 10]]], projectId);
         const identity = me?.[0]?.[0] === 'me' ? me[0][2]?.[0] : null;
         if (typeof identity === 'string' && identity) {
           let balance = null;
           try {
-            const credits = await rpc(RPC.credits, [], projectId);
+            const credits = RPC.credits ? await rpc(RPC.credits, [], projectId) : null;
             const value = Array.isArray(credits) ? credits[0] : null;
             if (Number.isFinite(value) && value >= 0) {
               balance = { value, unit: 'credits', source: 'flow.nzlxg', observedAt };

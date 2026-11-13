@@ -18,12 +18,15 @@ const FIELDS = [
   'gatewayWorkerId',
 ];
 const CHECKBOX_FIELDS = ['gatewayModeEnabled'];
+// Advanced fallback ids; discovery on the live page wins, these only fill a miss.
+const RPC_FIELDS = { rpcIdAccount: 'account', rpcIdCredits: 'credits', rpcIdGenerate: 'generate', rpcIdUpload: 'upload' };
 
 async function load() {
   await initTheme();
   const s = await getSettings();
   for (const f of FIELDS) if ($(f)) $(f).value = s[f] ?? '';
   for (const f of CHECKBOX_FIELDS) if ($(f)) $(f).checked = !!s[f];
+  for (const [id, name] of Object.entries(RPC_FIELDS)) if ($(id)) $(id).value = s.rpcIds?.[name] || '';
   const creds = await getCredentials();
   $('studioUsername').value = creds.username || '';
   await loadMode();
@@ -95,6 +98,12 @@ async function save() {
   for (const f of FIELDS) if ($(f)) patch[f] = typeof $(f).value === 'string' ? $(f).value.trim() : $(f).value;
   for (const f of CHECKBOX_FIELDS) if ($(f)) patch[f] = $(f).checked;
   if ($('gatewayPrices')) patch.gatewayImageCreditCosts = gatewayPricePatch();
+  const rpcIds = {};
+  for (const [id, name] of Object.entries(RPC_FIELDS)) {
+    const value = ($(id)?.value || '').trim();
+    if (value) rpcIds[name] = value;
+  }
+  patch.rpcIds = { ...(await getSettings()).rpcIds, ...rpcIds };
   await saveSettings(patch);
   showSaved();
 }

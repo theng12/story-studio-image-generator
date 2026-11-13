@@ -10,6 +10,14 @@ import { normalizeSelectedProvider } from './providers.js';
 // Google Flow's address is fixed; the setting key stays readable for compatibility.
 export const FLOW_WORKSPACE_URL = 'https://flow.google.com';
 
+// Known-good Flow RPC ids: a fallback data value, editable in Settings, never a code constant.
+export const FLOW_RPC_DEFAULTS = {
+  account: 'o30O0e',
+  credits: 'nzlxg',
+  generate: 'ogiZ0b',
+  upload: 'maseQ',
+};
+
 export const DEFAULTS = {
   // Shared presentation preference across the Story Studio generators.
   theme: 'system',
@@ -40,6 +48,7 @@ export const DEFAULTS = {
 
   // Generation provider. Every provider in this extension is image-only.
   provider: 'flow',
+  rpcIds: { ...FLOW_RPC_DEFAULTS },
 
   // Qwen has no reliable ratio control in its chat UI. Keep its preferred
   // shape separate and reinforce it with numeric + natural-language prompting.
@@ -169,6 +178,14 @@ function normalizeProviderCooldowns(settings) {
   delete settings.qwenQuotaCooldownHours;
 }
 
+function normalizeRpcIds(value) {
+  const next = { ...FLOW_RPC_DEFAULTS };
+  for (const name of Object.keys(FLOW_RPC_DEFAULTS)) {
+    const id = typeof value?.[name] === 'string' ? value[name].trim() : '';
+    if (id) next[name] = id.slice(0, 32);
+  }
+  return next;
+}
 export function normalizeSettings(settings) {
   settings = { ...settings };
   settings.provider = normalizeSelectedProvider(settings.provider);
@@ -206,6 +223,7 @@ export function normalizeSettings(settings) {
     DEFAULTS.flowRecaptchaMaxAttempts
   );
   normalizeProviderCooldowns(settings);
+  settings.rpcIds = normalizeRpcIds(settings.rpcIds);
   return settings;
 }
 

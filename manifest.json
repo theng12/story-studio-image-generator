@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.25",
+  "version": "0.50.26",
   "description": "Create and organize image assets for Story Studio projects.",
   "permissions": [
     "downloads",
@@ -80,6 +80,16 @@
         "src/content/chatgpt.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://flow.google.com/*"
+      ],
+      "js": [
+        "src/flow-recorder.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
     }
   ],
   "icons": {

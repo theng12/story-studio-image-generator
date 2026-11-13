@@ -11,6 +11,7 @@ import {
   providerLabelForItem,
 } from '../src/lib/failure-policy.js';
 import { flowCommand } from '../src/lib/flow-exec.js';
+import { FLOW_RPC_DEFAULTS } from '../src/lib/config.js';
 import * as modelIdentity from '../src/lib/model-identity.js';
 import { flowInventoryResult, generationParamsFor } from '../src/lib/model-identity.js';
 import { pendingEpisodeRows, queuePendingEpisodes, summarizeQueueAll } from '../src/lib/queue-all.js';
@@ -548,7 +549,7 @@ test('Flow model listing never touches the network and yields bundled fallback m
     },
   };
   const command = runInNewContext(`(${flowCommand.toString()})`, context);
-  const listed = await command({ op: 'listImageModels', payload: {} });
+  const listed = await command({ op: 'listImageModels', payload: { rpcFallback: FLOW_RPC_DEFAULTS, } });
   assert.equal(listed.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(flowInventoryResult(listed.result.entries, listed.result.source))), {
     source: 'fallback',
@@ -727,7 +728,7 @@ test('Flow command rejects missing and malformed exact model IDs without network
     const command = runInNewContext(`(${flowCommand.toString()})`, context);
     const result = await command({
       op: 'generateImage',
-      payload: {
+      payload: { rpcFallback: FLOW_RPC_DEFAULTS, 
         projectId: '12345678-1234-1234-1234-123456789abc',
         prompt: 'A moonlit lake',
         modelId,
@@ -813,7 +814,7 @@ test('Flow prepares read-only state before persisting ambiguity and submits only
   events.push('persist-checkpoint');
   const submitted = await execute({
     op: 'submitGenerateImage',
-    payload: { preparationId: prepared.result.preparationId },
+    payload: { rpcFallback: FLOW_RPC_DEFAULTS,  preparationId: prepared.result.preparationId },
   });
 
   assert.equal(submitted.ok, true, submitted.error);
@@ -830,11 +831,11 @@ test('every observed ratio sends its submit value and the observed counts are ca
     for (const count of [1, 2, 4]) {
       const requests = [];
       const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext([], { requests }));
-      const prepared = await execute({ op: 'prepareGenerateImage', payload: {
+      const prepared = await execute({ op: 'prepareGenerateImage', payload: { rpcFallback: FLOW_RPC_DEFAULTS, 
         projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'BELUGA', aspectRatio, count,
       } });
       assert.equal(prepared.ok, true, prepared.error);
-      const submitted = await execute({ op: 'submitGenerateImage', payload: { preparationId: prepared.result.preparationId } });
+      const submitted = await execute({ op: 'submitGenerateImage', payload: { rpcFallback: FLOW_RPC_DEFAULTS,  preparationId: prepared.result.preparationId } });
       assert.equal(submitted.ok, true, submitted.error);
       const args = JSON.parse(JSON.parse(new URLSearchParams(requests[0]).get('f.req'))[0][0][1]);
       assert.equal(args[1][0][4], code, `${aspectRatio} must send ${code}`);
@@ -843,7 +844,7 @@ test('every observed ratio sends its submit value and the observed counts are ca
   }
   const invalid = runInNewContext(`(${flowCommand.toString()})`, flowContext([]));
   for (const aspectRatio of ['4:3', '1:1', '3:4', '2:1']) {
-    const rejected = await invalid({ op: 'prepareGenerateImage', payload: {
+    const rejected = await invalid({ op: 'prepareGenerateImage', payload: { rpcFallback: FLOW_RPC_DEFAULTS, 
       projectId: '12345678-1234-1234-1234-123456789abc', prompt: 'A moonlit lake', modelId: 'BELUGA', aspectRatio,
     } });
     assert.equal(rejected.ok, false, `${aspectRatio} has no observed submit value`);
@@ -856,7 +857,7 @@ test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', asy
   const execute = runInNewContext(`(${flowCommand.toString()})`, flowContext(events, { rpcStatus: 403 }));
   const prepared = await execute({
     op: 'prepareGenerateImage',
-    payload: {
+    payload: { rpcFallback: FLOW_RPC_DEFAULTS, 
       projectId: '12345678-1234-1234-1234-123456789abc',
       prompt: 'A moonlit lake',
       modelId: 'BELUGA',
@@ -866,7 +867,7 @@ test('Flow marks an explicit reCAPTCHA rejection as proven safe to re-pend', asy
   });
   const result = await execute({
     op: 'submitGenerateImage',
-    payload: { preparationId: prepared.result.preparationId },
+    payload: { rpcFallback: FLOW_RPC_DEFAULTS,  preparationId: prepared.result.preparationId },
   });
 
   assert.equal(result.ok, false);
