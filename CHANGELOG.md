@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.32 — 2026-11-13
+- The RPC id list used by tests and tooling no longer carries the retired account/credits ids; only generate and upload are discovered.
+
 ## 0.50.31 — 2026-11-13
 - The tab's project address is the only account source; the in-page identity probe, sign-in selectors and account/credits RPC ids are gone. A home tab is `no_project` with its own message, never "unreadable".
 - Heartbeats now carry the real account and the project id, so Gateway sees connected/ready instead of unknown on every beat.
