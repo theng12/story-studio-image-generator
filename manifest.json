@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.29",
+  "version": "0.50.31",
   "description": "Generate images from prompts with a signed-in provider, or work as a Gateway Studio image worker.",
   "permissions": [
     "downloads",
@@ -98,5 +98,6 @@
     "32": "src/icons/icon32.png",
     "48": "src/icons/icon48.png",
     "128": "src/icons/icon128.png"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr9+EKtUaCqO06VPqRW87C4vQshuZMgC07Ibk5LwszsKugNx7PnwnI4oQO8kquFqwLYZkOYj5+UsvGmVntudLzupdMQOQcqjkhlxfXBW9XwDxJX2tY7+GWj1BYXbkKsz3X5PtCU1ctABFKIVxg70y/lLDSog1049mz0JewN1Ag9vKCphIfKp7fCkXFWOnLdTe0k8z87nnBU9eRbR2eieuSGrHpBu0nca++92NOo2Bgt6V4B3Cp0+gf8ts/jkUB3W5vSw+hZD16gtdElCe17NZUAz6APiONM9mAKuoSGU5/ahuqReVgc5yjb0O55BC4IMxi6ehfg9AZWhZ7gVuPl3GNQIDAQAB"
 }

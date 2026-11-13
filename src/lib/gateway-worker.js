@@ -45,9 +45,10 @@ export function normalizeImageGatewayJob(job) {
   });
   return { jobId, kind: 'image', provider: 'flow', prompt, model, aspectRatio, count, references, flowProjectId: job.flowProjectId };
 }
-export function imageGatewayJobToItem(job, settings, flowInventory) {
+export function imageGatewayJobToItem(job, settings, flowInventory, projectIdOverride = null) {
   const normalized = normalizeImageGatewayJob(job);
-  const projectId = normalizeFlowProjectId(normalized.flowProjectId ?? settings?.flowProjectId);
+  // The project comes from the tab Gateway is working in; a payload copy is only a fallback.
+  const projectId = normalizeFlowProjectId(projectIdOverride || normalized.flowProjectId || settings?.flowProjectId);
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(projectId)) throw new Error('Gateway image job needs a valid Flow project id.');
   const modelSnapshot = snapshotProviderModel({ provider: 'flow', configuredModel: normalized.model.internalId, flowInventory });
   return {

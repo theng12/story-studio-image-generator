@@ -3,6 +3,17 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.31 — 2026-11-13
+- The tab's project address is the only account source; the in-page identity probe, sign-in selectors and account/credits RPC ids are gone. A home tab is `no_project` with its own message, never "unreadable".
+- Heartbeats now carry the real account and the project id, so Gateway sees connected/ready instead of unknown on every beat.
+- A refused claim (HTTP 4xx) clears the unsettled-claim marker instead of holding every later tick, and every tick writes a status, including idle.
+- One readiness object (`gatewayReadiness`) is written by the background each tick and at startup; the panel shows its reason when blocked, and Relay reads the same object.
+- The manifest carries a fixed key, so the extension id and its storage survive versioned folders.
+
+## 0.50.30 — 2026-11-13
+- The Flow tab's own project address is the primary account source: a tab whose URL carries the project id claims with a known project and unknown balance, without asking the page at all. The in-page identity probe is only consulted when the tab has no project in its address.
+- Relay prefers a complete tab that is on a project before any other Flow tab, so a home tab can no longer shadow the worker's real tab.
+
 ## 0.50.29 — 2026-11-13
 - Gateway claims no longer depend on reading a Flow account identity: a real Flow project tab is enough, with `balance` unknown and the probe result kept as detail. Claims are never blocked by an identity Flow does not return.
 - Sign-in detection checks several markers — Google account links, the avatar and the Flow composer — instead of a single selector; a tab with no project says exactly which check failed.

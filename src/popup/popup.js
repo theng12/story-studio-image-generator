@@ -393,10 +393,13 @@ async function setWorkMode(mode) {
 }
 
 let gatewayRelayMachineId = '';
+let gatewayReadiness = null;
 
 async function refreshGatewayConnection() {
   settings = await getSettings();
-  gatewayRelayMachineId = (await chrome.storage.local.get('gatewayRelayMachineId')).gatewayRelayMachineId || '';
+  const stored = await chrome.storage.local.get(['gatewayRelayMachineId', 'gatewayReadiness']);
+  gatewayRelayMachineId = stored.gatewayRelayMachineId || '';
+  gatewayReadiness = stored.gatewayReadiness || null;
   populateGatewayPanel();
   renderGatewayConnection();
 }
@@ -404,8 +407,9 @@ async function refreshGatewayConnection() {
 // Relay seeds the connection while this panel may already be open; follow it live.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (!changes.gatewayConnection && !changes.gatewayRelayMachineId && !changes.imageGeneratorWorkMode) return;
+  if (!changes.gatewayConnection && !changes.gatewayRelayMachineId && !changes.imageGeneratorWorkMode && !changes.gatewayReadiness) return;
   if (changes.gatewayRelayMachineId) gatewayRelayMachineId = changes.gatewayRelayMachineId.newValue || '';
+  if (changes.gatewayReadiness) gatewayReadiness = changes.gatewayReadiness.newValue || null;
   if (changes.gatewayConnection) settings = { ...settings, ...(changes.gatewayConnection.newValue || {}) };
   populateGatewayPanel();
   renderGatewayConnection();
@@ -414,10 +418,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 function renderGatewayConnection() {
   const connected = !!(settings.gatewayUrl && settings.gatewayToken && settings.gatewayWorkerId);
   const state = $('gatewayRelayState');
-  state.textContent = connected
-    ? `Connected${gatewayRelayMachineId ? ` through Relay · ${gatewayRelayMachineId}` : ''}`
-    : 'Not connected';
-  state.classList.toggle('ok', connected);
+  // A connected connection with a blocked Flow project says why; never a bare success line.
+  const blocked = connected && gatewayReadiness && gatewayReadiness.ready === false;
+  state.textContent = blocked
+    ? `Connected through Relay · ${gatewayReadiness.reason || 'Flow is not ready'}`
+    : connected
+      ? `Connected${gatewayRelayMachineId ? ` through Relay · ${gatewayRelayMachineId}` : ''}`
+      : (gatewayReadiness?.ready === false && gatewayReadiness.reason) || 'Not connected';
+  state.classList.toggle('ok', connected && !blocked);
   // Fields are one click away when connected; open by default when nothing is connected.
   $('gatewayDetails').open = !connected;
   if (connected) {

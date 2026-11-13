@@ -19,17 +19,13 @@ export async function flowCommand(command) {
     // Flow's RPC ids are internals that move between builds. They are resolved per page load
     // from exchanges the recorder observed, with settings.rpcIds as a configurable fallback;
     // a miss is named with what was tried, never collapsed into "signed out".
-    const RPC_NAMES = ['account', 'credits', 'generate', 'upload'];
+    const RPC_NAMES = ['generate', 'upload'];
     const classifyExchange = ({ rpcid, request = '', response = '' } = {}) => {
       if (typeof rpcid !== 'string' || !rpcid) return null;
       const req = String(request);
       const res = String(response);
-      if (/person\.(photo|name|email|metadata)/.test(req) || /"me"/.test(req)) return 'account';
       if (/flow-content\.google/.test(res)) return 'generate';
       if (/[A-Za-z0-9+/]{400,}={0,2}/.test(req)) return 'upload';
-      if (!req.trim() || req.trim() === '[]') {
-        if (/^\s*\[/.test(res) || /"\d+"/.test(res)) return 'credits';
-      }
       return null;
     };
     const resolveRpc = () => {
@@ -341,83 +337,6 @@ export async function flowCommand(command) {
     // The account/credit RPC ids are Flow internals captured 2025-11-05 and can move
     // between Flow builds. A page that is visibly signed in and on a real project still counts
     // as signed in even when the probe fails; images are free, so the balance stays unknown.
-    // No single selector proves a signed-in Flow workspace: today's page may keep the
-    // account link inside a menu but still render the composer and avatar.
-    const SIGNED_IN_MARKERS = [
-      'a[href*="accounts.google.com"]',
-      'a[href*="myaccount.google.com"]',
-      '[aria-label*="Google Account" i]',
-      'img[src*="googleusercontent"]',
-      '[data-email]',
-      'img[alt*="profile" i]',
-      '[contenteditable="true"]',
-      'textarea',
-    ];
-    const visibleSignedIn = () => {
-      try {
-        return SIGNED_IN_MARKERS.some((selector) => document.querySelector(selector));
-      } catch {
-        return false;
-      }
-    };
-    const inspectAccount = async () => {
-      let projectId = null;
-      // background sends flow:inspectAccount with no payload; the tab's own project is the source.
-      try { projectId = projectIdFor(payload?.projectId) || projectIdFor(currentProjectId()); } catch { /* no real project: no fallback */ }
-      let probeError = null;
-      try {
-        wiz();
-        const observedAt = new Date().toISOString();
-        const me = await rpc(requireRpc('account'),
-          [['me'], [[['person.photo', 'person.name', 'person.email', 'person.metadata']], null, [1, 7, 10]]], projectId);
-        const identity = me?.[0]?.[0] === 'me' ? me[0][2]?.[0] : null;
-        if (typeof identity === 'string' && identity) {
-          let balance = null;
-          try {
-            const credits = RPC.credits ? await rpc(RPC.credits, [], projectId) : null;
-            const value = Array.isArray(credits) ? credits[0] : null;
-            if (Number.isFinite(value) && value >= 0) {
-              balance = { value, unit: 'credits', source: 'flow.nzlxg', observedAt };
-            }
-          } catch { /* credits stay unknown, never zero */ }
-          return { account: {
-            schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
-            connection: 'connected', signIn: 'signed_in',
-            // Images are free, so an empty balance still claims; an unreadable
-            // balance stays unknown, never zero. If Flow ever charges for images,
-            // readiness must weigh the balance again before this can claim.
-            readiness: 'ready', balance,
-          }, probe: { fallback: false, error: null } };
-        }
-        probeError = 'Flow returned no account identity for this tab.';
-      } catch (error) {
-        probeError = String(error?.message || error);
-      }
-      // A real Flow project is a working worker. The identity is informational, images
-      // are free, and an unreadable identity must never block a claim (owner rule: no
-      // verification for its own sake).
-      if (projectId) {
-        const ui = visibleSignedIn();
-        return { account: {
-          schema: 1, provider: 'flow', accountId: 'flow_signed_in', source: 'flow.project',
-          observedAt: new Date().toISOString(), connection: 'connected', signIn: 'signed_in',
-          readiness: 'ready', balance: null,
-        }, probe: {
-          fallback: true,
-          error: probeError,
-          detail: ui ? 'Flow project with signed-in UI; account identity unknown' : 'Flow project; no signed-in marker matched',
-        } };
-      }
-      return {
-        account: null,
-        probe: {
-          fallback: false,
-          error: probeError
-            ? `No Flow project in this tab's address; ${probeError}`
-            : "No Flow project in this tab's address.",
-        },
-      };
-    };
     const getContext = async () => {
       let signedIn = false;
       try {
@@ -440,7 +359,6 @@ export async function flowCommand(command) {
       submitGenerateImage,
       generateImage,
       uploadImage,
-      inspectAccount,
       getContext,
       createProject,
     };

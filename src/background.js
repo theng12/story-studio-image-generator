@@ -427,7 +427,6 @@ async function send(tabId, message) {
     'flow:uploadImage',
     'flow:getContext',
     'flow:listImageModels',
-    'flow:inspectAccount',
     'chatgpt:getContext',
     'leonardo:getContext',
     'leonardo:listModels',
@@ -1491,7 +1490,7 @@ function applyGatewayControl(settings, control) {
   gatewayControlTail = result.catch(() => {});
   return result;
 }
-async function gatewayTelemetry(settings, account = null) {
+async function gatewayTelemetry(settings, account = null, flow = null) {
   const queue = await getQueue();
   const stored = await chrome.storage.local.get([NEXT_PROVIDER_RUN_KEY, COOLDOWN_KEY, GATEWAY_CLAIM_KEY]);
   const control = await getGatewayControl(settings);
@@ -1510,6 +1509,7 @@ async function gatewayTelemetry(settings, account = null) {
     ...(control?.revision ? { controlRevision: control.revision } : {}),
     nextEligibleAt: paused || held ? null : new Date(nextRunAt).toISOString(),
     pacing: { minSeconds: settings.humanDelayMinSec, maxSeconds: settings.humanDelayMaxSec },
+    flow: { projectId: typeof flow?.projectId === 'string' && flow.projectId ? flow.projectId : null },
     source: 'image.worker', observedAt: new Date(Date.now()).toISOString(),
   } };
   return state;
@@ -1529,20 +1529,46 @@ function gatewayModelCredits(settings, job) {
 async function syncGatewayTelemetry(settings) {
   const health = await testImageGateway(settings);
   await applyGatewayControl(settings, health.control);
+  // Heartbeats carry the real account and project, or every one reports unknown/not_ready.
+  const inspected = await inspectFlowAccountDetailed();
   // A changed response is applied first; its acknowledgement uses a new readback.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const telemetry = await gatewayTelemetry(await getSettings());
-    const answer = await reportImageTelemetry(settings, telemetry);
+    const telemetry = await gatewayTelemetry(await getSettings(), inspected.account, inspected);
+    const answer = await reportImageTelemetry(settings, telemetry, inspected.account);
     const applied = await applyGatewayControl(settings, answer.control);
     if (telemetry.state.controlRevision === applied.revision) break;
   }
 }
+// One readiness object is the source the panel and Relay both read. It says what is
+// missing in the same words everywhere, instead of each surface composing its own.
+async function writeGatewayReadiness(inspected, settings) {
+  const reason = inspected.account ? null
+    : inspected.reason === 'no_project' ? 'Flow is open but no tab is on a project.'
+      : inspected.reason === 'no-tab' ? 'No open Flow tab.'
+        : String(inspected.error || 'Flow could not be read.');
+  const stored = await chrome.storage.local.get('gatewayRelayMachineId');
+  const readiness = {
+    state: inspected.account ? 'connected' : 'blocked',
+    reason,
+    projectId: inspected.projectId || null,
+    ready: Boolean(inspected.account),
+    workerId: settings?.gatewayWorkerId || null,
+    machineId: stored.gatewayRelayMachineId || null,
+    observedAt: new Date().toISOString(),
+  };
+  await chrome.storage.local.set({ gatewayReadiness: readiness });
+  return readiness;
+}
+
 const GATEWAY_ACCOUNT_MAX_AGE_SECONDS = 90;
 // The signed-in Flow page is the only account/credit source; anything less is unknown.
 // Uses an open Flow tab only, so a paused or idle worker never opens one.
 // Distinguishes "no Flow tab", "signed out" and "signed in but the probe failed", so the
-// panel never blames the person for a stale Flow RPC id. The page probe already falls back to
-// a visibly signed-in project page with an unknown balance.
+// panel never blames the person for a stale Flow RPC id. A project tab's URL is the primary
+// account source; the page probe is only asked when the tab has no project in its address.
+const FLOW_PROJECT_URL = /\/project\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+const projectIdFromUrl = (url) => String(url || '').match(FLOW_PROJECT_URL)?.[1] || null;
+
 async function inspectFlowAccountDetailed() {
   let tabs;
   try {
@@ -1551,20 +1577,23 @@ async function inspectFlowAccountDetailed() {
   } catch (error) {
     return { account: null, reason: 'unreadable', error: String(error?.message || error) };
   }
-  const tab = tabs.find((entry) => entry.status === 'complete');
-  if (!tab) return { account: null, reason: 'no-tab', error: null };
-  try {
-    const observed = await send(tab.id, { type: 'flow:inspectAccount' });
-    const account = observedAccount(observed?.account, GATEWAY_ACCOUNT_MAX_AGE_SECONDS);
-    if (account) return { account, reason: null, error: null };
-    return {
-      account: null,
-      reason: 'unreadable',
-      error: String(observed?.probe?.error || 'the Flow page returned no account'),
-    };
-  } catch (error) {
-    return { account: null, reason: 'unreadable', error: String(error?.message || error) };
-  }
+  const complete = tabs.filter((entry) => entry.status === 'complete');
+  if (!complete.length) return { account: null, reason: 'no-tab', error: null };
+  // The tab's project URL is the one account source: no in-page identity probe exists any
+  // more, and a home tab is a plain "no project", never an unreadable account.
+  const tab = complete.find((entry) => projectIdFromUrl(entry.url));
+  if (!tab) return { account: null, reason: 'no_project', error: null };
+  return {
+    account: {
+      schema: 1, provider: 'flow', accountId: 'flow_signed_in', source: 'flow.url',
+      observedAt: new Date().toISOString(), connection: 'connected', signIn: 'signed_in',
+      readiness: 'ready', balance: null,
+    },
+    reason: null,
+    error: null,
+    tab,
+    projectId: projectIdFromUrl(tab.url),
+  };
 }
 async function inspectFlowAccount() {
   return (await inspectFlowAccountDetailed()).account;
@@ -1665,12 +1694,15 @@ async function waitForFlowTab(tabId) {
 async function openFlowForGateway(settings) {
   const workspace = flowWorkspace(settings);
   const existing = await chrome.tabs.query({ url: workspace.match });
-  let tab = existing.find((entry) => entry.status === 'complete');
+  // A project tab is the account source; open the saved project itself, not the home page.
+  let tab = existing.find((entry) => entry.status === 'complete' && projectIdFromUrl(entry.url));
   if (!tab) {
-    const created = existing[0] || await chrome.tabs.create({ url: workspace.url, active: false });
+    const projectUrl = settings.flowProjectId ? workspace.project(settings.flowProjectId) : workspace.url;
+    const target = existing[0] || await chrome.tabs.create({ url: projectUrl, active: false });
+    if (!projectIdFromUrl(target.url)) await chrome.tabs.update(target.id, { url: projectUrl }).catch(() => {});
     // autoDiscardable is an update property, not a create property; passing it to create throws.
-    await chrome.tabs.update(created.id, { autoDiscardable: false }).catch(() => {});
-    tab = await waitForFlowTab(created.id);
+    await chrome.tabs.update(target.id, { autoDiscardable: false }).catch(() => {});
+    tab = await waitForFlowTab(target.id);
   }
   return tab ? inspectFlowAccount() : null;
 }
@@ -1681,33 +1713,39 @@ async function gatewayClaimLoop() {
     // Visible proof the loop is alive; the panel compares this against the clock.
     await chrome.storage.local.set({ gatewayLastTickAt: Date.now() });
     let settings = await getSettings();
-    if (!(await gatewayIsActive(settings))) return;
+    if (!(await gatewayIsActive(settings))) {
+      await writeStatus('Gateway mode is off for this extension; no jobs will be claimed.', 'info');
+      return;
+    }
     // Stop acknowledgements must continue while paused, busy, cooling or held.
     await syncGatewayTelemetry(settings);
     settings = await getSettings();
-    if (!(await gatewayCanClaim(settings))) return;
+    if (!(await gatewayCanClaim(settings))) {
+      await writeStatus('Gateway claims are paused or waiting; no job is being taken right now.', 'info');
+      return;
+    }
     let inspected = await inspectFlowAccountDetailed();
+    await writeGatewayReadiness(inspected, settings);
     let account = inspected.account;
     if (!account) {
       gatewayBlocked = 'flow-tab';
-      if (inspected.reason === 'unreadable') {
-        // Do not open a new tab for this; the page exists, the probe failed.
-        await writeStatus(`Flow is open but Relay could not read the account (${inspected.error}). Retrying on the next check.`, 'err');
+      if (inspected.reason === 'no_project') {
+        await writeStatus('Flow is open but this tab is not on a project. Open a Flow project so Gateway work can claim.', 'err');
         return;
       }
-      await writeStatus('Gateway is waiting for a signed-in Flow tab; opening one.', 'info');
+      await writeStatus('Gateway is waiting for a Flow project tab; opening one.', 'info');
       account = await openFlowForGateway(settings);
       inspected = account ? { account, reason: null, error: null } : await inspectFlowAccountDetailed();
       account = inspected.account;
       if (!account) {
-        await writeStatus(inspected.reason === 'unreadable'
-          ? `Flow is open but Relay could not read the account (${inspected.error}). Retrying on the next check.`
-          : 'Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
+        await writeStatus(inspected.reason === 'no_project'
+          ? 'Flow is open but no project tab was found. Pick a project in the panel, then claims resume.'
+          : 'Gateway needs an open Flow project tab before it can claim image work.', 'err');
         return;
       }
     }
     gatewayBlocked = null;
-    const inventory = await refreshFlowModels();
+    const inventory = await refreshFlowModels(inspected.tab?.id);
     if (!inventory.ok || inventory.source !== 'live') {
       gatewayBlocked = 'flow-inventory';
       throw modelError('model-unknown', 'Flow has no captured live inventory. Gateway work will not be claimed; manual work can use the bundled catalog.');
@@ -1715,7 +1753,7 @@ async function gatewayClaimLoop() {
     const binding = await gatewayBinding(settings);
     if (!(await gatewayCanClaim(await getSettings())) || await gatewayBinding(await getSettings()) !== binding) return;
     const claimId = crypto.randomUUID();
-    const telemetry = await gatewayTelemetry(settings, account);
+    const telemetry = await gatewayTelemetry(settings, account, inspected);
     const accountBlock = gatewayAccountBlock(account, telemetry);
     await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: { binding, claimId, at: Date.now() } });
     // A price-less job is a read-only preview: never enqueue it, never generate.
@@ -1724,7 +1762,11 @@ async function gatewayClaimLoop() {
     // Only our own quoted claim may return work; anything else is held, never run.
     if (answer.job) throw new Error('Gateway offered executable work without our own quoted price; the claim is held and nothing will generate.');
     {
-      if (!answer.quoteRequired) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
+      if (!answer.quoteRequired) {
+        await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+        await writeStatus('Gateway has no image work right now; checking again shortly.', 'info');
+        return;
+      }
       const quote = imageQuote(answer.quoteRequired, account, gatewayModelCredits(settings, answer.quoteRequired.job));
       if (!quote) {
         await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
@@ -1733,7 +1775,11 @@ async function gatewayClaimLoop() {
       }
       answer = await claimImageJob(settings, telemetry, accountBlock, quote);
       if (answer.control) await applyGatewayControl(settings, answer.control);
-      if (!answer.job) { await chrome.storage.local.remove(GATEWAY_CLAIM_KEY); return; }
+      if (!answer.job) {
+        await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+        await writeStatus('Gateway has no image work right now; checking again shortly.', 'info');
+        return;
+      }
       if (answer.reservation?.payloadSha256 !== quote.payloadSha256 || answer.reservation?.value !== quote.value ||
           answer.reservation?.unit !== quote.unit || answer.accountBinding?.accountId !== account.accountId) {
         throw new Error('Gateway reservation does not match the observed account and price; the claim is held.');
@@ -1744,13 +1790,22 @@ async function gatewayClaimLoop() {
     if (isImageGatewayJobQueued(await getQueue(), job.jobId)) {
       throw new Error('Gateway returned an already recorded job; the new claim is held.');
     }
-    const item = { ...imageGatewayJobToItem(job, settings, inventory), gatewayBinding: binding, gatewayClaimId: claimId,
+    const item = { ...imageGatewayJobToItem(job, settings, inventory, inspected.projectId), gatewayBinding: binding, gatewayClaimId: claimId,
       gatewayAccountBinding: answer.accountBinding || null, gatewayReservation: answer.reservation || null };
     await putGatewayArtifact(job.jobId, { binding, references: job.referenceImages || [] });
     await queueStore.update((current) => [...current, item]);
     await writeStatus(`Gateway job ${String(job.jobId).slice(0, 8)} queued.`, 'info');
   } catch (error) {
-    await writeStatus(`Gateway work stopped: ${String(error?.message || error).slice(0, 200)}`, 'err');
+    const message = String(error?.message || error);
+    // A definite 4xx refusal settles this attempt. Leaving the marker behind would hold
+    // every later tick forever, which is exactly the stall this marker caused.
+    const refusal = /Gateway request failed \((4\d\d)\)/.exec(message);
+    if (refusal) {
+      await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+      await writeStatus(`Gateway refused the claim (HTTP ${refusal[1]}); nothing was claimed and the next check will try again.`, 'err');
+    } else {
+      await writeStatus(`Gateway work stopped: ${message.slice(0, 200)}`, 'err');
+    }
   } finally {
     gatewayPolling = false;
     if (!processing && (await getQueue()).some((item) => item.status === 'pending')) processQueue();
@@ -1916,20 +1971,9 @@ chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && changes[CLAIM_NOW_KEY]) gatewayClaimLoop();
 });
 syncGatewayAlarm().catch(() => {});
-// One account probe per worker start: a broken Flow RPC id is named now, not at the first claim.
-async function rpcSelfCheck() {
-  try {
-    const settings = await getSettings();
-    if (!(await gatewayIsActive(settings))) return;
-    const inspected = await inspectFlowAccountDetailed();
-    if (!inspected.account && inspected.reason === 'unreadable') {
-      gatewayBlocked = 'account-probe';
-      await writeStatus(`Account probe failed: ${inspected.error}. Claims retry after the next check; manual work still works.`, 'err');
-    }
-  } catch { /* best effort */ }
-}
-// Delayed so it never races the first claim tick; the claim loop also names a failed probe.
-setTimeout(() => { rpcSelfCheck().catch(() => {}); }, 10000);
+// Publish readiness at startup too, so the panel never waits for the first claim tick.
+setTimeout(() => { writeGatewayReadiness(inspectFlowAccountDetailed(), null).catch(() => {}); }, 2000);
+// The account comes from the project tab address; there is no page probe to self-check.
 // Alarms are profile-local and are not restored with synced/restored settings; a browser
 // launch or extension update must (re)create the claim alarm, not only a settings save.
 try { chrome.runtime.onStartup?.addListener(() => { syncGatewayAlarm().catch(() => {}); }); } catch { /* older Chrome */ }

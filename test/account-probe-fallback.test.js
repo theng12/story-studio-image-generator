@@ -1,33 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { observedAccount } from '../src/lib/gateway-account.js';
 
 const flowExec = readFileSync(new URL('../src/lib/flow-exec.js', import.meta.url), 'utf8');
 const background = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
 
-test('a real Flow project claims even when the account identity cannot be read', () => {
-  // The RPC ids are captured internals and can move; the project itself is the fallback.
-  assert.match(flowExec, /const SIGNED_IN_MARKERS = \[/, 'sign-in markers are a list, never one selector');
-  assert.match(flowExec, /googleusercontent/, 'the avatar is a sign-in marker');
-  assert.match(flowExec, /flow_signed_in/, 'the fallback account is labelled as a signed-in Flow project');
-  assert.match(flowExec, /balance: null/, 'a fallback balance is unknown, never zero');
-  assert.match(flowExec, /readiness: 'ready'/, 'an unreadable identity never blocks a claim');
-  assert.match(flowExec, /probe: \{\s*fallback: true/, 'the probe error is carried to the panel as detail');
+test('the tab URL is the only account source; there is no in-page identity probe', () => {
+  assert.match(background, /const FLOW_PROJECT_URL/, 'the project url pattern is defined');
+  assert.match(background, /projectIdFromUrl/, 'the tab url is read directly');
+  assert.match(background, /source: 'flow\.url'/, 'the URL account is labelled honestly');
+  assert.match(background, /accountId: 'flow_signed_in'/, 'the synthesized account passes the validator');
+  assert.match(background, /complete\.find\(\(entry\) => projectIdFromUrl/, 'a project tab is preferred over a home tab');
+  assert.doesNotMatch(background, /flow:inspectAccount/, 'no account probe is sent to the page');
+  assert.doesNotMatch(flowExec, /visibleSignedIn|SIGNED_IN_MARKERS|inspectAccount/, 'the page has no account/sign-in logic');
+  assert.doesNotMatch(flowExec, /'account', 'credits'/, 'the account/credits RPC ids are gone');
 });
 
-test('the inspect message resolves the project from the tab, not a payload', () => {
-  // background sends flow:inspectAccount with no payload; the tab must supply its own id.
-  assert.match(flowExec, /payload\?\.projectId/, 'a missing payload is tolerated');
-  assert.match(flowExec, /projectIdFor\(currentProjectId\(\)\)/, 'the tab project id is a source');
-  assert.match(flowExec, /location\.href\.match/, 'the current project is read from the address, whatever its shape');
+test('a home tab is no_project, not an unreadable account', () => {
+  assert.match(background, /reason: 'no_project'/, 'the missing project has its own state');
+  assert.match(background, /not on a project/, 'the panel names the real condition');
 });
 
-test('a tab with no Flow project names the checks that failed', () => {
-  assert.match(flowExec, /No Flow project in this tab's address/, 'the missing project is named');
+test('every synthesized account survives the app validator', () => {
+  // A fallback the validator drops looks fixed and still never claims; run each through it.
+  const ids = [...background.matchAll(/accountId: '([^']+)'/g)].map((match) => match[1]);
+  assert.ok(ids.includes('flow_signed_in'));
+  for (const accountId of ids) {
+    const account = observedAccount({
+      schema: 1, provider: 'flow', accountId, source: 'flow.url',
+      observedAt: new Date().toISOString(), connection: 'connected', signIn: 'signed_in',
+      readiness: 'ready', balance: null,
+    }, 90);
+    assert.ok(account, `account ${accountId} survives observedAccount`);
+  }
 });
 
-test('the panel distinguishes a missing tab from a failed account read', () => {
-  assert.match(background, /reason: 'no-tab'/, 'no Flow tab is its own state');
-  assert.match(background, /reason: 'unreadable'/, 'a failed probe is its own state');
-  assert.match(background, /could not read the account .*Retrying on the next check/, 'the failure names itself and retries');
+test('one readiness object feeds the panel and Relay', () => {
+  assert.match(background, /gatewayReadiness/, 'the background writes the shared readiness object');
+  assert.match(background, /state: inspected\.account \? 'connected' : 'blocked'/, 'state is explicit');
+  const popup = readFileSync(new URL('../src/popup/popup.js', import.meta.url), 'utf8');
+  assert.match(popup, /gatewayReadiness/, 'the panel reads the same object');
+  assert.match(popup, /gatewayReadiness\.reason/, 'a blocked readiness shows its reason');
 });

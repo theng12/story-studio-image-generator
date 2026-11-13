@@ -39,7 +39,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, observedAccount, inventory = { source: 'live', entries: [{ id: 'BELUGA', label: 'Nano Banana 2.1' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, observedAccount, tabUrl = `https://flow.google.com/project/${JOB.flowProjectId}`, inventory = { source: 'live', entries: [{ id: 'BELUGA', label: 'Nano Banana 2.1' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -54,7 +54,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   }
   const alarms = [], calls = [], provider = [], downloads = [];
   let listener;
-  const tab = { id: 7, status: 'complete', url: `https://flow.google.com/project/${JOB.flowProjectId}` };
+  const tab = { id: 7, status: 'complete', url: tabUrl };
   globalThis.chrome = {
     storage: { local: area(local), sync: area(sync), session: area({}), onChanged: { addListener() {} } },
     alarms: { create() {}, clear() {}, onAlarm: { addListener(fn) { alarms.push(fn); } } },
@@ -72,7 +72,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
         if (observedAccount === null) return [{ result: { ok: true, result: { account: null } } }];
         const observedAt = new Date(Date.now()).toISOString();
         return [{ result: { ok: true, result: { account: observedAccount || {
-          schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account', observedAt,
+          schema: 1, provider: 'flow', accountId: 'flow_signed_in', source: 'flow.account', observedAt,
           connection: 'connected', signIn: 'signed_in', readiness: 'ready',
           balance: { value: 23, unit: 'credits', source: 'flow.nzlxg', observedAt },
         } } } }];
@@ -106,7 +106,13 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     if (url.endsWith('/claim')) {
       await onClaim?.(JSON.parse(init.body), local, sync.settings);
       if (claimLost) throw new Error('Fixture claim connection lost.');
-      if (claimAnswers.length) return Response.json(claimAnswers.shift());
+      if (claimAnswers.length) {
+        const answer = claimAnswers.shift();
+        if (answer && answer.__status) {
+          return new Response(JSON.stringify(answer.__body || {}), { status: answer.__status, headers: { 'content-type': 'application/json' } });
+        }
+        return Response.json(answer);
+      }
       return Response.json({ job: quoteRequired ? null : job, ...(quoteRequired ? { quoteRequired } : {}), control, ...claimEnvelope });
     }
     if (url.endsWith('/result')) {
@@ -229,7 +235,7 @@ test('a free image is quoted at 0 credits and claimed, even on a zero balance', 
   const observedAt = new Date(Date.now()).toISOString();
   const worker = await quotedBoot({
     synced: { flowProjectId: JOB.flowProjectId },
-    observedAccount: { schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account', observedAt,
+    observedAccount: { schema: 1, provider: 'flow', accountId: 'flow_signed_in', source: 'flow.account', observedAt,
       connection: 'connected', signIn: 'signed_in', readiness: 'ready',
       balance: { value: 0, unit: 'credits', source: 'flow.nzlxg', observedAt } },
   }, 0);
@@ -246,18 +252,15 @@ test('a free image is quoted at 0 credits and claimed, even on a zero balance', 
   } finally { worker.restore(); }
 });
 
-test('no claim is attempted without a fresh signed-in Flow account observation', async () => {
-  const stale = { schema: 1, provider: 'flow', accountId: 'fixture-account', source: 'flow.account',
-    observedAt: '2020-01-01T00:00:00Z', connection: 'connected', signIn: 'signed_in', readiness: 'ready' };
-  for (const observedAccount of [null, stale]) {
-    const worker = await boot({ observedAccount });
-    try {
-      // A tab exists but the probe failed: the panel must say so, still without a claim.
-      worker.tick(); await waitFor(() => /signed-in Flow tab|could not read the account/.test(worker.local.lastStatus?.text || '')); await worker.stopped();
-      assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
-      assert.equal(worker.local.queue?.length || 0, 0);
-    } finally { worker.restore(); }
-  }
+test('a home tab is no_project: no claim, and the panel names it', async () => {
+  const worker = await boot({ tabUrl: 'https://flow.google.com/' });
+  try {
+    worker.tick();
+    await waitFor(() => /not on a project/.test(worker.local.lastStatus?.text || ''));
+    await worker.stopped();
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+    assert.equal(worker.local.queue?.length || 0, 0);
+  } finally { worker.restore(); }
 });
 
 async function quotedBoot(extra = {}, price = 2) {
@@ -266,7 +269,7 @@ async function quotedBoot(extra = {}, price = 2) {
     synced: { flowProjectId: JOB.flowProjectId, gatewayImageCreditCosts: { BELUGA: price } },
     claimAnswers: [
       { job: null, quoteRequired: { job: JOB, payloadSha256, executionAuthorized: false } },
-      { job: JOB, accountBinding: { provider: 'flow', accountId: 'fixture-account' },
+      { job: JOB, accountBinding: { provider: 'flow', accountId: 'flow_signed_in' },
         reservation: { payloadSha256, value: price, unit: 'credits' } },
     ],
     ...extra,
@@ -285,7 +288,7 @@ test('a priced claim enqueues exactly one job and delivers its result', async ()
     assert.equal(claims[0].quote, undefined);
     assert.equal(claims[1].quote.payloadSha256, payloadSha256);
     assert.equal(claims[1].quote.value, 2, 'a declared Settings price overrides the free default');
-    assert.equal(claims[1].account.accountId, 'fixture-account');
+    assert.equal(claims[1].account.accountId, 'flow_signed_in');
     assert.deepEqual(worker.local.queue.map(({ gatewayJobId }) => gatewayJobId), [JOB.jobId]);
     const result = worker.calls.find(({ url }) => url.endsWith('/result'));
     assert.deepEqual(Buffer.from(result.bytes), Buffer.from(PNG, 'base64'));
@@ -316,11 +319,12 @@ test('telemetry reports the actual longer cooldown, unknown account facts and re
   try {
     worker.tick(); await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry'))); await worker.stopped();
     const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/telemetry')).init.body);
-    assert.equal(body.account, undefined);
+    assert.equal(body.account.accountId, 'flow_signed_in', 'the heartbeat carries the real account');
     assert.equal(body.telemetry.state.nextEligibleAt, new Date(clock.now + 60000).toISOString());
     assert.equal(body.telemetry.state.activity, 'cooling');
     assert.deepEqual(body.telemetry.state.pacing, { minSeconds: 0.25, maxSeconds: 0.75 });
-    assert.equal(body.telemetry.state.connection, 'unknown');
+    assert.equal(body.telemetry.state.connection, 'connected');
+    assert.equal(body.telemetry.state.readiness, 'ready');
     assert.equal(local.nextProviderRunAt, clock.now + 5000);
     assert.equal(local.cooldownUntil.flow, clock.now + 60000);
     assert.deepEqual([worker.sync.settings.humanDelayMinSec, worker.sync.settings.humanDelayMaxSec], [0.25, 0.75]);
@@ -421,7 +425,7 @@ test('claim state reads the freshly applied current revision and pacing after bo
     assert.deepEqual(state.pacing, control.pacing);
     assert.deepEqual([claimed.settings.humanDelayMinSec, claimed.settings.humanDelayMaxSec], [control.pacing.minSeconds, control.pacing.maxSeconds]);
     assert.equal(state.observedAt, new Date(clock.now).toISOString());
-    assert.equal(claimed.body.account.accountId, 'fixture-account');
+    assert.equal(claimed.body.account.accountId, 'flow_signed_in');
     assert.equal(claimed.body.quote, undefined);
     assert.deepEqual(reports.map((state) => state.controlRevision), ['pace-1', 'pace-2']);
     assert.equal(worker.local.gatewayWorkerControl.revision, 'pace-3');
@@ -457,7 +461,7 @@ test('a server accountBinding and reservation never authorize work the extension
   try {
     worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('without our own quoted price')); await worker.stopped();
     const body = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(body.account.accountId, 'fixture-account');
+    assert.equal(body.account.accountId, 'flow_signed_in');
     assert.equal(body.quote, undefined);
     assert.equal(worker.local.gatewayUnsettledClaim.jobId, undefined);
     assert.equal(worker.local.queue?.length || 0, 0);
@@ -859,7 +863,7 @@ test('an executable job offered without our own price is durably held, never sub
     assert.equal(worker.provider.filter(({ op }) => !['listImageModels', 'inspectAccount'].includes(op)).length, 0);
     assert.equal(worker.calls.filter(({ url }) => /\/(result|fail)$/.test(url)).length, 0);
     const claim = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
-    assert.equal(claim.account.accountId, 'fixture-account');
+    assert.equal(claim.account.accountId, 'flow_signed_in');
     assert.equal(claim.quote, undefined);
   } finally { worker.restore(); }
 });
@@ -949,5 +953,36 @@ test('a cleared Gateway address never blocks the manual queue', async () => {
     await waitFor(() => worker.local.queue?.[0]?.status === 'done');
     await worker.stopped();
     assert.equal(worker.downloads.length, 1);
+  } finally { worker.restore(); }
+});
+
+test('the tab project URL is the account source, without asking the page', async () => {
+  // The in-page identity probe has failed on every Flow shape; a project tab is enough.
+  const worker = await boot({
+    tabUrl: `https://flow.google.com/project/${JOB.flowProjectId}`,
+    observedAccount: null,
+    synced: { flowProjectId: JOB.flowProjectId },
+  }, 0);
+  try {
+    worker.tick();
+    await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/claim')));
+    await worker.stopped();
+    const claim = JSON.parse(worker.calls.find(({ url }) => url.endsWith('/claim')).init.body);
+    assert.equal(claim.account?.accountId || claim.accountBinding?.accountId, 'flow_signed_in');
+    assert.equal(worker.provider.filter(({ op }) => op === 'inspectAccount').length, 0,
+      'the page probe is not consulted when the tab carries a project');
+  } finally { worker.restore(); }
+});
+
+test('a 4xx claim refusal clears the unsettled marker so later ticks can claim', async () => {
+  const worker = await boot({ claimAnswers: [{ __status: 400, __body: { error: 'bad quote' } }, { job: null }] });
+  try {
+    worker.tick();
+    await waitFor(() => /refused the claim \(HTTP 400\)/.test(worker.local.lastStatus?.text || ''));
+    await worker.stopped();
+    assert.equal(worker.local.gatewayUnsettledClaim, undefined, 'the marker is gone');
+    worker.tick();
+    await waitFor(() => worker.calls.filter(({ url }) => url.endsWith('/claim')).length >= 2);
+    await worker.stopped();
   } finally { worker.restore(); }
 });
