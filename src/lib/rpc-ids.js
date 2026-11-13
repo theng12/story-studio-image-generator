@@ -1,20 +1,16 @@
 // Flow's batchexecute RPC ids are internals that can move between builds. Nothing here assumes a
 // specific id: ids come from exchanges observed on the live page, with a configurable fallback
 // (settings.rpcIds) used only when discovery cannot identify one. A miss is named, never silent.
-export const RPC_NAMES = ['account', 'credits', 'generate', 'upload'];
+export const RPC_NAMES = ['generate', 'upload'];
 
 // Classify one observed batchexecute exchange by markers in its request or response.
 export function classifyExchange({ rpcid, request = '', response = '' } = {}) {
   if (typeof rpcid !== 'string' || !rpcid) return null;
   const req = String(request);
   const res = String(response);
-  if (/person\.(photo|name|email|metadata)/.test(req) || /"me"/.test(req)) return 'account';
   if (/flow-content\.google/.test(res)) return 'generate';
   // Upload bodies carry a long base64 media blob.
   if (/[A-Za-z0-9+/]{400,}={0,2}/.test(req)) return 'upload';
-  if (!req.trim() || req.trim() === '[]') {
-    if (/^\s*\[/.test(res) || /"\d+"/.test(res)) return 'credits';
-  }
   return null;
 }
 
