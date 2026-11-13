@@ -1713,15 +1713,34 @@ async function syncGatewayTelemetry(settings) {
 const GATEWAY_ACCOUNT_MAX_AGE_SECONDS = 90;
 // The signed-in Flow page is the only account/credit source; anything less is unknown.
 // Uses an open Flow tab only, so a paused or idle worker never opens one.
-async function inspectFlowAccount() {
+// Distinguishes "no Flow tab", "signed out" and "signed in but the probe failed", so the
+// panel never blames the person for a stale Flow RPC id. The page probe already falls back to
+// a visibly signed-in project page with an unknown balance.
+async function inspectFlowAccountDetailed() {
+  let tabs;
   try {
     const { match } = flowWorkspace(await getSettings());
-    const tabs = await chrome.tabs.query({ url: match });
-    const tab = tabs.find((entry) => entry.status === 'complete');
-    if (!tab) return null;
+    tabs = await chrome.tabs.query({ url: match });
+  } catch (error) {
+    return { account: null, reason: 'unreadable', error: String(error?.message || error) };
+  }
+  const tab = tabs.find((entry) => entry.status === 'complete');
+  if (!tab) return { account: null, reason: 'no-tab', error: null };
+  try {
     const observed = await send(tab.id, { type: 'flow:inspectAccount' });
-    return observedAccount(observed.account, GATEWAY_ACCOUNT_MAX_AGE_SECONDS);
-  } catch { return null; }
+    const account = observedAccount(observed?.account, GATEWAY_ACCOUNT_MAX_AGE_SECONDS);
+    if (account) return { account, reason: null, error: null };
+    return {
+      account: null,
+      reason: 'unreadable',
+      error: String(observed?.probe?.error || 'the Flow page returned no account'),
+    };
+  } catch (error) {
+    return { account: null, reason: 'unreadable', error: String(error?.message || error) };
+  }
+}
+async function inspectFlowAccount() {
+  return (await inspectFlowAccountDetailed()).account;
 }
 async function gatewayIsActive(settings) {
   return settings.gatewayModeEnabled === true &&
@@ -1840,13 +1859,23 @@ async function gatewayClaimLoop() {
     await syncGatewayTelemetry(settings);
     settings = await getSettings();
     if (!(await gatewayCanClaim(settings))) return;
-    let account = await inspectFlowAccount();
+    let inspected = await inspectFlowAccountDetailed();
+    let account = inspected.account;
     if (!account) {
       gatewayBlocked = 'flow-tab';
+      if (inspected.reason === 'unreadable') {
+        // Do not open a new tab for this; the page exists, the probe failed.
+        await writeStatus(`Flow is open but Relay could not read the account (${inspected.error}). Retrying on the next check.`, 'err');
+        return;
+      }
       await writeStatus('Gateway is waiting for a signed-in Flow tab; opening one.', 'info');
       account = await openFlowForGateway(settings);
+      inspected = account ? { account, reason: null, error: null } : await inspectFlowAccountDetailed();
+      account = inspected.account;
       if (!account) {
-        await writeStatus('Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
+        await writeStatus(inspected.reason === 'unreadable'
+          ? `Flow is open but Relay could not read the account (${inspected.error}). Retrying on the next check.`
+          : 'Gateway needs a signed-in Flow tab before it can claim image work.', 'err');
         return;
       }
     }

@@ -295,40 +295,59 @@ export async function flowCommand(command) {
       if (typeof mediaId !== 'string' || !mediaId) throw new Error('Flow upload returned no media id.');
       return { mediaId };
     };
-    // Signed-in account identity and remaining credits, both captured 2026-11-05.
-    // Only the opaque id and the credit number are read; profile fields are ignored.
+    // The account/credit RPC ids are Flow internals captured 2025-11-05 and can move
+    // between Flow builds. A page that is visibly signed in and on a real project still counts
+    // as signed in even when the probe fails; images are free, so the balance stays unknown.
+    const visibleSignedIn = () => {
+      try {
+        return Boolean(document.querySelector(
+          '[aria-label*="Google Account" i], a[href*="accounts.google.com"], [data-email], img[alt*="profile" i]'));
+      } catch {
+        return false;
+      }
+    };
     const inspectAccount = async () => {
+      let projectId = null;
+      try { projectId = projectIdFor(payload.projectId); } catch { /* no real project: no fallback */ }
+      let probeError = null;
       try {
         wiz();
-      } catch {
-        return { account: null };
-      }
-      const projectId = projectIdFor(payload.projectId);
-      try {
         const observedAt = new Date().toISOString();
         const me = await rpc(RPC.account,
           [['me'], [[['person.photo', 'person.name', 'person.email', 'person.metadata']], null, [1, 7, 10]]], projectId);
         const identity = me?.[0]?.[0] === 'me' ? me[0][2]?.[0] : null;
-        if (typeof identity !== 'string' || !identity) return { account: null };
-        let balance = null;
-        try {
-          const credits = await rpc(RPC.credits, [], projectId);
-          const value = Array.isArray(credits) ? credits[0] : null;
-          if (Number.isFinite(value) && value >= 0) {
-            balance = { value, unit: 'credits', source: 'flow.nzlxg', observedAt };
-          }
-        } catch { /* credits stay unknown, never zero */ }
-        return { account: {
-          schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
-          connection: 'connected', signIn: 'signed_in',
-          // Images are free, so an empty balance still claims; an unreadable
-          // balance stays unknown, never zero. If Flow ever charges for images,
-          // readiness must weigh the balance again before this can claim.
-          readiness: 'ready', balance,
-        } };
-      } catch {
-        return { account: null };
+        if (typeof identity === 'string' && identity) {
+          let balance = null;
+          try {
+            const credits = await rpc(RPC.credits, [], projectId);
+            const value = Array.isArray(credits) ? credits[0] : null;
+            if (Number.isFinite(value) && value >= 0) {
+              balance = { value, unit: 'credits', source: 'flow.nzlxg', observedAt };
+            }
+          } catch { /* credits stay unknown, never zero */ }
+          return { account: {
+            schema: 1, provider: 'flow', accountId: identity, source: 'flow.account', observedAt,
+            connection: 'connected', signIn: 'signed_in',
+            // Images are free, so an empty balance still claims; an unreadable
+            // balance stays unknown, never zero. If Flow ever charges for images,
+            // readiness must weigh the balance again before this can claim.
+            readiness: 'ready', balance,
+          }, probe: { fallback: false, error: null } };
+        }
+        probeError = 'Flow returned no account identity for this tab.';
+      } catch (error) {
+        probeError = String(error?.message || error);
       }
+      // A visibly signed-in page on a real project is a working worker: claim with an
+      // honest unknown balance instead of blaming the person for being signed out.
+      if (projectId && visibleSignedIn()) {
+        return { account: {
+          schema: 1, provider: 'flow', accountId: 'flow-visible-signed-in', source: 'flow.visible-signed-in',
+          observedAt: new Date().toISOString(), connection: 'connected', signIn: 'signed_in',
+          readiness: 'ready', balance: null,
+        }, probe: { fallback: true, error: probeError } };
+      }
+      return { account: null, probe: { fallback: false, error: probeError } };
     };
     const getContext = async () => {
       let signedIn = false;

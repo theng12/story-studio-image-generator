@@ -256,7 +256,8 @@ test('no claim is attempted without a fresh signed-in Flow account observation',
   for (const observedAccount of [null, stale]) {
     const worker = await boot({ observedAccount });
     try {
-      worker.tick(); await waitFor(() => worker.local.lastStatus?.text.includes('signed-in Flow tab')); await worker.stopped();
+      // A tab exists but the probe failed: the panel must say so, still without a claim.
+      worker.tick(); await waitFor(() => /signed-in Flow tab|could not read the account/.test(worker.local.lastStatus?.text || '')); await worker.stopped();
       assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
       assert.equal(worker.local.queue?.length || 0, 0);
     } finally { worker.restore(); }

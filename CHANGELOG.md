@@ -3,6 +3,11 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.25 — 2026-11-13
+
+- A signed-in Flow project whose account probe fails is no longer treated as signed out: the extension falls back to the visible signed-in page with an unknown balance (images are free) and claims, instead of refusing every job.
+- The panel now distinguishes "needs a signed-in Flow tab" from "Flow is open but Relay could not read the account (<error>). Retrying on the next check", so a moved Flow RPC id blames the probe, never the person.
+
 ## 0.50.24 — 2026-11-12
 
 - Google Flow settings were removed; the address is fixed.
