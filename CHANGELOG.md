@@ -3,6 +3,10 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.29 — 2026-11-13
+- Gateway claims no longer depend on reading a Flow account identity: a real Flow project tab is enough, with `balance` unknown and the probe result kept as detail. Claims are never blocked by an identity Flow does not return.
+- Sign-in detection checks several markers — Google account links, the avatar and the Flow composer — instead of a single selector; a tab with no project says exactly which check failed.
+
 ## 0.50.28 — 2026-11-13
 - Gateway mode can reach the Gateway again: the loopback host permissions (127.0.0.1, localhost, ::1) came out with the old Story server and are restored — a test now fails if Gateway mode ever ships without them.
 - The side panel is one system: 32 px controls on a 4/8/12/16 spacing scale, full-width connection fields, one primary Connect, every other control behind Details.

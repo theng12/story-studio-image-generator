@@ -84,7 +84,9 @@ export async function flowCommand(command) {
       return match ? match[1].toLowerCase() : raw;
     };
     const currentProjectId = () => {
-      const match = location.pathname.match(/\/project\/([0-9a-f-]{36})/i);
+      // Flow's address shapes change; the project id is the UUID on the page, wherever it sits.
+      const match = location.pathname.match(/\/project\/([0-9a-f-]{36})/i)
+        || location.href.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
       return match ? match[1] : '';
     };
     const projectIdFor = (value) => normalizeProjectId(value || currentProjectId());
@@ -339,17 +341,29 @@ export async function flowCommand(command) {
     // The account/credit RPC ids are Flow internals captured 2025-11-05 and can move
     // between Flow builds. A page that is visibly signed in and on a real project still counts
     // as signed in even when the probe fails; images are free, so the balance stays unknown.
+    // No single selector proves a signed-in Flow workspace: today's page may keep the
+    // account link inside a menu but still render the composer and avatar.
+    const SIGNED_IN_MARKERS = [
+      'a[href*="accounts.google.com"]',
+      'a[href*="myaccount.google.com"]',
+      '[aria-label*="Google Account" i]',
+      'img[src*="googleusercontent"]',
+      '[data-email]',
+      'img[alt*="profile" i]',
+      '[contenteditable="true"]',
+      'textarea',
+    ];
     const visibleSignedIn = () => {
       try {
-        return Boolean(document.querySelector(
-          '[aria-label*="Google Account" i], a[href*="accounts.google.com"], [data-email], img[alt*="profile" i]'));
+        return SIGNED_IN_MARKERS.some((selector) => document.querySelector(selector));
       } catch {
         return false;
       }
     };
     const inspectAccount = async () => {
       let projectId = null;
-      try { projectId = projectIdFor(payload.projectId); } catch { /* no real project: no fallback */ }
+      // background sends flow:inspectAccount with no payload; the tab's own project is the source.
+      try { projectId = projectIdFor(payload?.projectId) || projectIdFor(currentProjectId()); } catch { /* no real project: no fallback */ }
       let probeError = null;
       try {
         wiz();
@@ -379,16 +393,30 @@ export async function flowCommand(command) {
       } catch (error) {
         probeError = String(error?.message || error);
       }
-      // A visibly signed-in page on a real project is a working worker: claim with an
-      // honest unknown balance instead of blaming the person for being signed out.
-      if (projectId && visibleSignedIn()) {
+      // A real Flow project is a working worker. The identity is informational, images
+      // are free, and an unreadable identity must never block a claim (owner rule: no
+      // verification for its own sake).
+      if (projectId) {
+        const ui = visibleSignedIn();
         return { account: {
-          schema: 1, provider: 'flow', accountId: 'flow-visible-signed-in', source: 'flow.visible-signed-in',
+          schema: 1, provider: 'flow', accountId: 'flow_signed_in', source: 'flow.project',
           observedAt: new Date().toISOString(), connection: 'connected', signIn: 'signed_in',
           readiness: 'ready', balance: null,
-        }, probe: { fallback: true, error: probeError } };
+        }, probe: {
+          fallback: true,
+          error: probeError,
+          detail: ui ? 'Flow project with signed-in UI; account identity unknown' : 'Flow project; no signed-in marker matched',
+        } };
       }
-      return { account: null, probe: { fallback: false, error: probeError } };
+      return {
+        account: null,
+        probe: {
+          fallback: false,
+          error: probeError
+            ? `No Flow project in this tab's address; ${probeError}`
+            : "No Flow project in this tab's address.",
+        },
+      };
     };
     const getContext = async () => {
       let signedIn = false;
