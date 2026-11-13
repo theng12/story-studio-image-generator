@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.32",
+  "version": "0.50.33",
   "description": "Generate images from prompts with a signed-in provider, or work as a Gateway Studio image worker.",
   "permissions": [
     "downloads",

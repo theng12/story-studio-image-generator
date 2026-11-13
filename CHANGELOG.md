@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.33 — 2026-11-13
+- Contrast and layering pass: the border ramp separates cards from the panel ground in light and dark, and every text, muted, accent, primary-button and status pair measures at least 5.1:1 in both themes.
+
 ## 0.50.32 — 2026-11-13
 - The RPC id list used by tests and tooling no longer carries the retired account/credits ids; only generate and upload are discovered.
 
