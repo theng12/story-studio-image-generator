@@ -1,7 +1,9 @@
 // Wire v1: scoped worker credentials, outbound requests only, no automatic retries.
 function connection(settings) {
   let url;
-  try { url = new URL(settings.gatewayUrl); } catch { throw new Error('Enter the Gateway server address.'); }
+  try { url = new URL(settings.gatewayUrl); } catch {
+    throw new Error('Relay has not finished connecting this browser. Open the account from Relay again to retry.');
+  }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     throw new Error('Gateway address must be HTTP or HTTPS without credentials, query or fragment.');
   }

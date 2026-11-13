@@ -252,7 +252,7 @@ async function init() {
   const localState = await chrome.storage.local.get('settingsSource');
   settingsSource = localState.settingsSource || {};
   workMode = await readWorkMode();
-  populateGatewayPanel();
+  await refreshGatewayConnection();
   renderHumanPace();
   renderCooldownCard();
   renderAppliedSettings();
@@ -379,8 +379,10 @@ function renderWorkMode() {
   const gatewayMode = workMode === 'gateway';
   $('gatewayCard').classList.toggle('hidden', !gatewayMode);
   $('standaloneWorkflow').classList.toggle('hidden', gatewayMode);
-  $('saveDestination').textContent = gatewayMode ? 'Gateway Studio' : 'Downloads';
+  // In Gateway mode "Save to: Gateway Studio" only repeats the Mode control.
+  $('saveDestinationField').classList.toggle('hidden', gatewayMode);
   $('workingMode').value = workMode;
+  if (gatewayMode) renderGatewayConnection();
 }
 
 async function setWorkMode(mode) {
@@ -390,16 +392,52 @@ async function setWorkMode(mode) {
   else setStatus('Standalone mode uses a local prompt and Downloads.', 'info');
 }
 
+let gatewayRelayMachineId = '';
+
+async function refreshGatewayConnection() {
+  settings = await getSettings();
+  gatewayRelayMachineId = (await chrome.storage.local.get('gatewayRelayMachineId')).gatewayRelayMachineId || '';
+  populateGatewayPanel();
+  renderGatewayConnection();
+}
+
+// Relay seeds the connection while this panel may already be open; follow it live.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (!changes.gatewayConnection && !changes.gatewayRelayMachineId && !changes.imageGeneratorWorkMode) return;
+  if (changes.gatewayRelayMachineId) gatewayRelayMachineId = changes.gatewayRelayMachineId.newValue || '';
+  if (changes.gatewayConnection) settings = { ...settings, ...(changes.gatewayConnection.newValue || {}) };
+  populateGatewayPanel();
+  renderGatewayConnection();
+});
+
+function renderGatewayConnection() {
+  const connected = !!(settings.gatewayUrl && settings.gatewayToken && settings.gatewayWorkerId);
+  const state = $('gatewayRelayState');
+  state.textContent = connected
+    ? `Connected${gatewayRelayMachineId ? ` through Relay · ${gatewayRelayMachineId}` : ''}`
+    : 'Not connected';
+  state.classList.toggle('ok', connected);
+  // Fields are one click away when connected; open by default when nothing is connected.
+  $('gatewayDetails').open = !connected;
+  if (connected) {
+    $('gatewayPanelStatus').textContent = '';
+  } else if (!$('gatewayPanelStatus').textContent.trim()) {
+    // Never blame the person for a blank form Relay can fill: name the real retry.
+    $('gatewayPanelStatus').textContent = 'Relay has not finished connecting this browser. Open the account from Relay again to retry.';
+  }
+}
+
 function populateGatewayPanel() {
   $('gatewayUrl').value = settings.gatewayUrl || '';
   $('gatewayToken').value = settings.gatewayToken || '';
   $('gatewayWorkerId').value = settings.gatewayWorkerId || '';
   $('gatewayModeEnabled').checked = settings.gatewayModeEnabled === true;
-  $('gatewayPanelStatus').textContent = '';
 }
 
 async function saveGatewayField(patch) {
   settings = await saveSettings(patch);
+  renderGatewayConnection();
   flashSaved();
 }
 
@@ -849,7 +887,7 @@ function onProviderChange() {
   $('chatgptCard').classList.toggle('hidden', provider !== 'chatgpt');
   const openBtn = $('openProviderPage');
   openBtn.classList.remove('hidden');
-  openBtn.textContent = '↗ Open workspace';
+  openBtn.title = `Open the ${provider === 'flow' ? 'Flow' : provider} workspace in this browser`;
   $('providerOptionsTitle').textContent = 'Provider settings';
   $('providerOptionsHint').textContent = provider === 'flow'
     ? 'Model · ratio · reference'

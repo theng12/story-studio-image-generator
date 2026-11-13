@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.28 — 2026-11-13
+- Gateway mode can reach the Gateway again: the loopback host permissions (127.0.0.1, localhost, ::1) came out with the old Story server and are restored — a test now fails if Gateway mode ever ships without them.
+- The side panel is one system: 32 px controls on a 4/8/12/16 spacing scale, full-width connection fields, one primary Connect, every other control behind Details.
+- "Connected through Relay" is a state, not a form: once Relay seeds the connection, the address, token and worker ID sit behind Connection details and the panel names the machine.
+- A browser Relay could not connect says so and points back to Relay, instead of asking for an address you were never shown.
+- "Open workspace" is a 32 px external-link icon button, and "Save to: Gateway Studio" no longer repeats Mode.
+
 ## 0.50.27 — 2026-11-13
 
 - The extension now has exactly two modes: Standalone (the default) and Gateway Studio. The old Story Studio mode was removed.

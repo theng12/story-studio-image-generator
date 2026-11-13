@@ -174,12 +174,6 @@ select.inline { width: auto; display: inline-block; padding: 3px 6px; }
 .link { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 4px; }
 .link.small { font-size: 12px; }
 
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-}
 .reminder { font-size: 12px; color: #ffd479; background: rgba(255, 200, 90, 0.08); border: 1px solid rgba(255, 200, 90, 0.3); border-radius: 6px; padding: 5px 8px; margin: 4px 0; }
 
 .status { min-height: 16px; font-size: 12px; margin-bottom: 6px; }
@@ -646,12 +640,6 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
   border-radius: 8px;
   font-size: 12px;
 }
-  min-height: var(--primary-height);
-  margin-top: 0;
-  padding: 0 14px;
-  border-radius: 8px;
-  font-size: 15px;
-}
 
 .provider-options, .advanced-card { margin-top: 12px; border-radius: 8px; }
 .provider-options summary, .advanced-card summary {
@@ -681,21 +669,6 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
 
 /* Match Video's compact connection action row. The result is still visible,
    but connection recovery is no longer framed as a separate settings card. */
-  min-height: var(--utility-height);
-  margin: 0 0 12px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-  flex: 1 1 100%;
-  min-width: 0;
-  margin: 0;
-  font-size: 12px;
-  text-align: right;
-}
 
 /* Standalone batch authoring is a two-step surface: paste, review, approve. */
 .standalone-workflow { gap: 0; }
@@ -749,3 +722,239 @@ select, input[type="text"], input[type="password"], input[type="number"], .fixed
 .standalone-review-index { color: var(--muted); font-variant-numeric: tabular-nums; }
 .standalone-review-prompt { overflow-wrap: anywhere; }
 .standalone-review-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 8px; padding: 12px; border-top: 1px solid var(--divider); }
+
+/* Panel system -----------------------------------------------------------------
+   One scale, one control height, one primary action per screen. Everything above
+   is kept for compatibility; this layer is what the panel actually renders. */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius: 10px;
+  --control-height: 32px;
+  --primary-height: 32px;
+  --body-size: 13px;
+}
+
+body {
+  padding: var(--space-3);
+  font-size: var(--body-size);
+  line-height: 1.45;
+}
+
+header { margin: 0 0 var(--space-3); }
+.header-actions { gap: var(--space-1); }
+
+.card {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+
+.section-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-button:hover { color: var(--fg); background: var(--surface); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.connection { margin: 0 0 var(--space-4); }
+.connection-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+.connection-state {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.connection-state.ok { color: var(--ok); }
+
+.connection-details,
+.provider-options,
+.advanced-card,
+.more {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.connection-details { margin: 0 0 var(--space-2); }
+
+.connection-details summary,
+.provider-options summary,
+.advanced-card summary,
+.more summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  list-style: none;
+  color: var(--fg);
+  font-size: var(--body-size);
+  font-weight: 600;
+}
+.connection-details summary::-webkit-details-marker,
+.provider-options summary::-webkit-details-marker,
+.advanced-card summary::-webkit-details-marker,
+.more summary::-webkit-details-marker { display: none; }
+.connection-details summary::marker,
+.provider-options summary::marker,
+.advanced-card summary::marker,
+.more summary::marker { content: ''; }
+.connection-details summary::before,
+.connection-details summary::after,
+.provider-options summary::before,
+.provider-options summary::after,
+.advanced-card summary::before,
+.advanced-card summary::after { display: none; content: none; }
+.connection-details summary:hover,
+.provider-options summary:hover,
+.advanced-card summary:hover,
+.more summary:hover { color: var(--fg); }
+
+.connection-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.field { display: block; min-width: 0; }
+.field .mini,
+.asset-setting .mini,
+.leo .mini {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+select,
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+.fixed-destination {
+  width: 100%;
+  min-height: var(--control-height);
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--body-size);
+}
+.fixed-destination { display: flex; align-items: center; }
+select { padding: 0 8px; }
+
+.asset-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.row { gap: var(--space-2); margin: var(--space-3) 0 0; }
+.open-provider-row { display: none; }
+
+.btn {
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--body-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover { background: var(--surface); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.btn.primary:hover { filter: brightness(1.05); background: var(--accent); }
+.btn.small { min-height: var(--control-height); padding: 0 var(--space-2); font-size: 12px; }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: var(--surface); }
+.btn.wide { width: 100%; }
+.btn.danger { color: var(--danger); }
+
+.more { margin: var(--space-1) 0 0; }
+.more summary { min-height: var(--control-height); color: var(--muted); font-size: 12px; }
+.more-body { display: grid; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
+
+.hint {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workflow-mode {
+  margin: 0 0 var(--space-3);
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: var(--muted);
+}
+.workflow-mode select { width: auto; min-width: 148px; }
+
+.provider-options, .advanced-card { margin: var(--space-3) 0 0; }
+.provider-options .leo { margin: 0 var(--space-3); padding: var(--space-3) 0; }
+.advanced-card-body { padding: 0 var(--space-3) var(--space-3); }
+.summary-hint { color: var(--muted); font-size: 11px; font-weight: 400; }
+
+.leo-grid { gap: var(--space-3); margin: var(--space-3) 0; }
+.leo select, .asset-setting select { padding: 0 8px; }
+
+.checkbox { gap: var(--space-2); }
+.checkbox input { width: auto; min-height: 0; }
+
+@media (max-width: 375px) {
+  body { padding: var(--space-3); }
+  .asset-settings { grid-template-columns: 1fr; }
+  .connection-head { flex-wrap: wrap; }
+}

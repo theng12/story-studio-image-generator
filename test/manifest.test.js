@@ -38,3 +38,13 @@ test('every manifest content script exists', () => {
     assert.ok(existsSync(path.join(root, script)), `${script} exists`);
   }
 });
+
+test('Gateway mode is unusable without the loopback host permissions', () => {
+  // Gateway mode fetches http://127.0.0.1:8787; a host without a port matches every port.
+  // Without these three, every connect fails with "Failed to fetch".
+  const modeSource = readFileSync(path.join(root, 'src/lib/work-mode.js'), 'utf8');
+  if (!modeSource.includes("'gateway'")) return;
+  for (const host of ['http://127.0.0.1/*', 'http://localhost/*', 'http://[::1]/*']) {
+    assert.ok(manifest.host_permissions.includes(host), `${host} is declared`);
+  }
+});

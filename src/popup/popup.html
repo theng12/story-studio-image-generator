@@ -64,48 +64,62 @@
       </select>
     </label>
 
-    <section class="card hidden" id="gatewayCard">
-      <div class="label">Gateway Studio</div>
-      <div class="asset-settings">
-        <label class="asset-setting">
-          <span class="mini">Gateway address</span>
-          <input type="url" id="gatewayUrl" placeholder="Gateway server address" />
-        </label>
-        <label class="asset-setting">
-          <span class="mini">Worker token</span>
-          <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Token from Gateway" />
-        </label>
-        <label class="asset-setting">
-          <span class="mini">Worker ID</span>
-          <input type="text" id="gatewayWorkerId" maxlength="120" placeholder="Worker ID from Gateway" />
-        </label>
+    <section class="connection" id="gatewayCard" aria-labelledby="gatewayHeading">
+      <div class="connection-head">
+        <div>
+          <div class="section-title" id="gatewayHeading">Connection</div>
+          <div id="gatewayRelayState" class="connection-state" aria-live="polite">Not connected</div>
+        </div>
+        <button id="gatewayClaim" class="btn small ghost" type="button">Claim now</button>
       </div>
-      <div class="row">
-        <button id="generateGatewayWorkerId" class="btn small" type="button">Generate new ID</button>
-        <button id="testGateway" class="btn small" type="button">Test connection</button>
-        <button id="gatewayClaim" class="btn small" type="button">Claim now</button>
-      </div>
-      <label class="checkbox small">
-        <input type="checkbox" id="gatewayModeEnabled" />
-        <span>Enable dispatch</span>
-      </label>
+      <details class="connection-details" id="gatewayDetails">
+        <summary><span>Connection details</span><span class="summary-hint">Address · token · worker</span></summary>
+        <div class="connection-body">
+          <label class="field">
+            <span class="mini">Gateway address</span>
+            <input type="url" id="gatewayUrl" placeholder="Gateway server address" />
+          </label>
+          <label class="field">
+            <span class="mini">Worker token</span>
+            <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Token from Gateway" />
+          </label>
+          <label class="field">
+            <span class="mini">Worker ID</span>
+            <input type="text" id="gatewayWorkerId" maxlength="120" placeholder="Worker ID from Gateway" />
+          </label>
+          <button id="testGateway" class="btn primary wide" type="button">Connect</button>
+          <details class="more">
+            <summary>More</summary>
+            <div class="more-body">
+              <button id="generateGatewayWorkerId" class="btn small wide" type="button">Generate new ID</button>
+              <label class="checkbox small">
+                <input type="checkbox" id="gatewayModeEnabled" />
+                <span>Enable dispatch</span>
+              </label>
+            </div>
+          </details>
+        </div>
+      </details>
       <div id="gatewayPanelStatus" class="hint" aria-live="polite"></div>
     </section>
 
     <!-- Start here: pick the provider, what to make, and where to save. -->
     <section class="card" id="assetSettingsCard">
+      <div class="section-head">
+        <div class="section-title">Generate</div>
+        <button id="openProviderPage" class="icon-button" title="Open the Flow workspace in this browser" aria-label="Open the Flow workspace in this browser">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5H3.5v9h9v-3"/><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7 9"/></svg>
+        </button>
+      </div>
       <div class="asset-settings">
         <label class="asset-setting">
           <span class="mini">Provider</span>
           <select id="provider"></select>
         </label>
-        <div class="asset-setting">
+        <div class="asset-setting" id="saveDestinationField">
           <span class="mini">Save to</span>
           <div id="saveDestination" class="fixed-destination">Downloads</div>
         </div>
-      </div>
-      <div class="row open-provider-row">
-        <button id="openProviderPage" class="btn small workspace-open" title="Open this provider's generation workspace in a tab">↗ Open workspace</button>
       </div>
       <details class="provider-options" id="providerOptions">
         <summary><span id="providerOptionsTitle">Provider settings</span><span id="providerOptionsHint" class="summary-hint">Model · ratio · reference</span></summary>
