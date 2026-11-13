@@ -96,7 +96,7 @@
       pasteFile();
       attached = await waitForAttachment(20000, retryText, retryImages);
     }
-    if (!attached) throw new Error('AI Studio did not accept a Story Studio reference image.');
+    if (!attached) throw new Error('AI Studio did not accept a reference image.');
     await sleep(1200);
   }
 
@@ -221,7 +221,7 @@
     const phrase = RATIO_PHRASE[String(params.aspectRatio || '16:9')] || `${params.aspectRatio} aspect ratio`;
     const base = /^(generate|create|make|draw|render|design)\b/i.test(p) ? p : `Create a ${phrase} image of ${p}`;
     const text = references.length
-      ? `Use the attached Story Studio reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+      ? `Use the attached reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
       : base;
     setTextarea(ta, text);
     await sleep(250);

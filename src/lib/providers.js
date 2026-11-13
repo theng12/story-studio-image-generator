@@ -23,8 +23,6 @@ export const PROVIDERS = Object.freeze([
     downloadHosts: [],
     settings: ['flowProjectId', 'flowProjectName', 'flowAutoNewProject', 'flowNewProjectEvery', 'imageModel', 'aspectRatio', 'flowRecaptchaMaxAttempts'],
     capabilities: {
-      characterReferences: true,
-      storyStudioReferences: true,
       maxReferences: 4,
       cooldown: true,
       visibleTab: true,
@@ -40,8 +38,6 @@ export const PROVIDERS = Object.freeze([
     downloadHosts: [],
     settings: ['aistudioAspectRatio'],
     capabilities: {
-      characterReferences: true,
-      storyStudioReferences: true,
       maxReferences: 4,
       cooldown: true,
       visibleTab: true,
@@ -57,8 +53,6 @@ export const PROVIDERS = Object.freeze([
     downloadHosts: ['cdn.qwenlm.ai'],
     settings: ['qwenAspectRatio'],
     capabilities: {
-      characterReferences: true,
-      storyStudioReferences: true,
       maxReferences: 1,
       cooldown: true,
       visibleTab: true,
@@ -74,8 +68,6 @@ export const PROVIDERS = Object.freeze([
     downloadHosts: ['leonardo.ai'],
     settings: ['leonardoModel', 'leonardoStyle', 'leonardoMode', 'leonardoSize', 'leonardoCount'],
     capabilities: {
-      characterReferences: true,
-      storyStudioReferences: false,
       maxReferences: 0,
       cooldown: true,
       visibleTab: true,
@@ -91,8 +83,6 @@ export const PROVIDERS = Object.freeze([
     downloadHosts: ['oaiusercontent.com'],
     settings: ['chatgptAspectRatio', 'chatgptMaxWaitSec'],
     capabilities: {
-      characterReferences: true,
-      storyStudioReferences: true,
       maxReferences: 4,
       cooldown: true,
       visibleTab: true,
@@ -114,11 +104,4 @@ export function normalizeSelectedProvider(id) {
 
 export function getProvider(id) {
   return PROVIDERS.find((provider) => provider.id === id);
-}
-
-// Keep provider limits at the worker boundary: no adapter should receive, or
-// trigger downloads for, more Story Studio references than it can handle.
-export function limitProviderReferences(id, references) {
-  const maxReferences = getProvider(id)?.capabilities?.maxReferences || 0;
-  return Array.isArray(references) ? references.slice(0, maxReferences) : [];
 }

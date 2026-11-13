@@ -41,16 +41,6 @@ test('preserves maintained provider settings while removing obsolete cooldowns',
   assert.equal(Object.hasOwn(settings.providerCooldowns, 'grok'), false);
 });
 
-test('migrates the legacy character reference toggle to Story Studio references', () => {
-  const disabled = normalizeSettings({ ...DEFAULTS, characterRefEnabled: false });
-  const enabled = normalizeSettings({ ...DEFAULTS, characterRefEnabled: true });
-
-  assert.equal(disabled.storyStudioReferencesEnabled, false);
-  assert.equal(enabled.storyStudioReferencesEnabled, true);
-  assert.equal(Object.hasOwn(disabled, 'characterRefEnabled'), false);
-  assert.equal(Object.hasOwn(enabled, 'characterRefEnabled'), false);
-});
-
 test('does not mutate the input settings during normalization', () => {
   const input = structuredClone({
     ...DEFAULTS,

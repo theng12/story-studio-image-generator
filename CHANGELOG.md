@@ -3,6 +3,13 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.27 — 2026-11-13
+
+- The extension now has exactly two modes: Standalone (the default) and Gateway Studio. The old Story Studio mode was removed.
+- A saved Studio choice, or any unknown saved mode, moves to Standalone on load.
+- Standalone pastes prompts, uses your chosen provider, and saves images to Downloads. Gateway Studio keeps the Gateway connection fields, dispatch controls, and the same generation settings.
+- Story Studio connection, project, episode, scene, reference and save-back code was removed, along with its host permissions.
+
 ## 0.50.26 — 2026-11-13
 
 - Flow RPC ids are no longer hard-coded in the shipped command: a MAIN-world recorder learns them from the live page's own batchexecute exchanges, resolved per page load, with the previous ids kept only as a configurable fallback in Settings (Flow request ids, advanced).

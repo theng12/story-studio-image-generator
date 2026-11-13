@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Story Studio Image Generator",
-  "version": "0.50.26",
-  "description": "Create and organize image assets for Story Studio projects.",
+  "version": "0.50.27",
+  "description": "Generate images from prompts with a signed-in provider, or work as a Gateway Studio image worker.",
   "permissions": [
     "downloads",
     "storage",
@@ -12,8 +12,6 @@
     "alarms"
   ],
   "host_permissions": [
-    "http://localhost/*",
-    "http://127.0.0.1/*",
     "https://flow.google.com/*",
     "https://aistudio.google.com/*",
     "https://chat.qwen.ai/*",

@@ -14,8 +14,6 @@ import { flowCommand } from '../src/lib/flow-exec.js';
 import { FLOW_RPC_DEFAULTS } from '../src/lib/config.js';
 import * as modelIdentity from '../src/lib/model-identity.js';
 import { flowInventoryResult, generationParamsFor } from '../src/lib/model-identity.js';
-import { pendingEpisodeRows, queuePendingEpisodes, summarizeQueueAll } from '../src/lib/queue-all.js';
-import { captureQueueAllContext } from '../src/lib/enqueue-context.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const source = (file) => readFileSync(path.join(root, file), 'utf8');
@@ -58,128 +56,6 @@ test('failure labels preserve maintained names, retired ids, and neutral absence
   assert.equal(providerLabelForItem({ provider: 'grok' }), 'grok');
   assert.equal(providerLabelForItem({ provider: 'piclumen' }), 'piclumen');
   assert.equal(providerLabelForItem({}), 'provider');
-});
-
-test('queue-all summary reports partial failures, successful counts, episode codes, and bounded first error', () => {
-  const summary = summarizeQueueAll({
-    queued: 7,
-    episodes: 2,
-    failures: [
-      { code: 'EP003', error: `Sign in again. ${'x'.repeat(1000)}` },
-      { code: 'EP004', error: 'Scene plan is missing.' },
-    ],
-  });
-
-  assert.equal(summary.kind, 'err');
-  assert.match(summary.text, /Queued 7 scenes across 2 episodes/i);
-  assert.match(summary.text, /EP003/);
-  assert.match(summary.text, /EP004/);
-  assert.match(summary.text, /Sign in again/);
-  assert.ok(summary.text.length < 500, `summary should be bounded, got ${summary.text.length} characters`);
-  assert.doesNotMatch(summary.text, /everything is done|all done/i);
-});
-
-test('queue-all summary reports success only when no episode failed', () => {
-  assert.deepEqual(summarizeQueueAll({ queued: 3, episodes: 1, failures: [] }), {
-    kind: 'done',
-    text: 'Queued 3 scenes across 1 episode.',
-  });
-});
-
-test('thumbnail queue-all executes only prompt-ready unmarked episodes with captured context', async () => {
-  const rows = [
-    { episode_code: 'EP0120', title: 'Done', status: { thumb_prompts: true, thumbnails: true } },
-    { episode_code: 'EP0121', title: 'Pending', status: { thumb_prompts: true, thumbnails: false } },
-    { episode_code: 'EP0122', title: 'No prompts', status: { thumb_prompts: false, thumbnails: false } },
-  ];
-  const project = { slug: 'capi', name: 'Capi' };
-  const pending = pendingEpisodeRows(rows, 'thumbnail');
-  const context = captureQueueAllContext({ project, provider: 'flow', kind: 'thumbnail', episodes: pending });
-  project.slug = 'changed';
-  rows[1].episode_code = 'changed';
-  const loaded = [];
-  const payloads = [];
-
-  const result = await queuePendingEpisodes({
-    context,
-    loadAssets: async (request) => {
-      loaded.push(request);
-      return {
-        source: 'prompts',
-        scenes: [
-          { key: 1, prompt: 'Missing thumbnail', hasImage: false },
-          { key: 2, prompt: 'Existing thumbnail', hasImage: true },
-        ],
-      };
-    },
-    enqueue: async (payload) => { payloads.push(payload); return { ok: true, added: 1 }; },
-  });
-
-  assert.deepEqual(loaded, [{ kind: 'thumbnail', slug: 'capi', episode: { code: 'EP0121', title: 'Pending' } }]);
-  assert.equal(payloads.length, 1);
-  assert.deepEqual(payloads[0], {
-    slug: 'capi',
-    episodeCode: 'EP0121',
-    episodeTitle: 'Pending',
-    scenes: [{ key: 1, prompt: 'Missing thumbnail', hasImage: false }],
-    source: 'prompts',
-    kind: 'thumbnail',
-    target: 'project',
-    provider: 'flow',
-  });
-  assert.deepEqual(result, { queued: 1, episodes: 1, failures: [], kind: 'thumbnail' });
-  assert.equal(summarizeQueueAll(result).text, 'Queued 1 thumbnail across 1 episode.');
-});
-
-test('queue-all enqueues newly selected episodes from earliest to latest', async () => {
-  const rows = [
-    { episode_code: 'SS0176', status: { thumb_prompts: true, thumbnails: false } },
-    { episode_code: 'SS0157', status: { thumb_prompts: true, thumbnails: false } },
-    { episode_code: 'SS0153', status: { thumb_prompts: true, thumbnails: false } },
-  ];
-  const context = captureQueueAllContext({
-    project: { slug: 'story-sprout', name: 'Story Sprout' },
-    provider: 'flow',
-    kind: 'thumbnail',
-    episodes: pendingEpisodeRows(rows, 'thumbnail'),
-  });
-  const enqueued = [];
-
-  await queuePendingEpisodes({
-    context,
-    loadAssets: async () => ({
-      source: 'prompts',
-      scenes: [{ key: 1, prompt: 'Thumbnail prompt', hasImage: false }],
-    }),
-    enqueue: async (payload) => {
-      enqueued.push(payload.episodeCode);
-      return { ok: true, added: 1 };
-    },
-  });
-
-  assert.deepEqual(enqueued, ['SS0153', 'SS0157', 'SS0176']);
-});
-
-test('thumbnail queue-all fails closed before enqueue when status loading fails', async () => {
-  let enqueued = false;
-  const result = await queuePendingEpisodes({
-    context: {
-      project: { slug: 'capi', name: 'Capi' },
-      provider: 'flow',
-      kind: 'thumbnail',
-      episodes: [{ code: 'EP0121', title: 'Pending' }],
-    },
-    loadAssets: async () => { throw new Error('Thumbnail status unavailable. No images were queued.'); },
-    enqueue: async () => { enqueued = true; return { ok: true, added: 1 }; },
-  });
-
-  assert.equal(enqueued, false);
-  assert.deepEqual(result, {
-    queued: 0,
-    episodes: 0,
-    failures: [{ code: 'EP0121', error: 'Thumbnail status unavailable. No images were queued.' }],
-    kind: 'thumbnail',
-  });
 });
 
 async function leonardoBridgeResponse(error) {
@@ -289,171 +165,6 @@ test('attempt-scoped conversational limits carry explicit rejection proof', () =
   }
 });
 
-test('queue-all uses a declared project target and records response and thrown failures', () => {
-  const popup = source('src/popup/popup.js');
-  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
-  const queueAllLib = source('src/lib/queue-all.js');
-
-  assert.match(queueAllLib, /target:\s*'project'/);
-  assert.doesNotMatch(queueAllLib, /^\s*target,\s*$/m);
-  assert.match(queueAllLib, /if \(!response\?\.ok\)/);
-  assert.match(queueAllLib, /failures\.push/);
-  assert.match(queueAll, /summarizeQueueAll/);
-});
-
-test('queue-all batches thumbnail prompts and respects thumbnail completion', () => {
-  const popup = source('src/popup/popup.js');
-  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
-
-  assert.doesNotMatch(queueAll, /Queue all pending[^\n]+is for scene images/);
-  assert.match(queueAll, /pendingEpisodeRows/);
-  assert.match(queueAll, /thumbnailAvailability/);
-  assert.match(queueAll, /do not have Thumbnail Prompts in Story Studio yet/);
-  assert.match(queueAll, /loadThumbnails/);
-  assert.match(queueAll, /queuePendingEpisodes/);
-  assert.match(queueAll, /kind === 'thumbnail'/);
-});
-
-test('the popup exposes one project-wide queue-all control', () => {
-  const html = source('src/popup/popup.html');
-  const popup = source('src/popup/popup.js');
-
-  assert.equal(html.match(/>Queue all pending<\/button>/g)?.length, 1);
-  assert.doesNotMatch(html, /queueAllPendingSecondary/);
-  assert.doesNotMatch(popup, /queueAllPendingSecondary/);
-});
-
-test('current and queue-all scene discovery use Scene Review only and require a Scene Plan', () => {
-  const popup = source('src/popup/popup.js');
-  const loadScenes = popup.slice(popup.indexOf('async function loadScenes()'), popup.indexOf('// Thumbnails always'));
-  const sceneLoader = popup.slice(popup.indexOf('async function loadScenePlan'), popup.indexOf('const PROVIDER_LABEL'));
-  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
-
-  assert.match(loadScenes, /loadScenePlan/);
-  assert.doesNotMatch(loadScenes, /loadScenesFromEither/);
-  assert.match(sceneLoader, /client\.sceneReview/);
-  assert.doesNotMatch(sceneLoader, /client\.imagePrompts/);
-  assert.match(sceneLoader, /Create or load a Scene Plan/i);
-  assert.match(queueAll, /\(e\.status \|\| \{\}\)\.scene_plan/);
-  assert.doesNotMatch(queueAll, /st\.scene_prompts/);
-  assert.match(queueAll, /pendingEpisodeRows\(episodes, kind\)/);
-  assert.doesNotMatch(queueAll, /status\.images/);
-  assert.match(queueAll, /loadScenePlan/);
-});
-
-test('episode loading keeps Story Studio aggregates instead of recounting every Scene Review', () => {
-  const popup = source('src/popup/popup.js');
-  const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
-  const settledRefresh = popup.slice(popup.indexOf('async function refreshSettledEpisodes'), popup.indexOf('// ── scenes'));
-
-  assert.match(projectChange, /scene_images: episode\.scene_images/);
-  assert.match(projectChange, /thumbnail_images: episode\.thumbnail_images/);
-  assert.doesNotMatch(projectChange, /client\.sceneReview/);
-  assert.doesNotMatch(projectChange, /fetchEpisodeCounts|episodeCountRun/);
-  assert.match(settledRefresh, /client\.episodeStatus/);
-  assert.doesNotMatch(settledRefresh, /client\.listEpisodes/);
-  assert.match(settledRefresh, /Promise\.allSettled/);
-  assert.match(settledRefresh, /updateEpisodeOptions/);
-  assert.doesNotMatch(settledRefresh, /renderEpisodeOptions/);
-  assert.doesNotMatch(settledRefresh, /nextElementSibling/);
-  assert.match(settledRefresh, /episodeRefreshQueue\.complete\(result\.completed\)/);
-  assert.match(settledRefresh, /episodeRefreshQueue\.defer\(result\.failed/);
-  assert.equal((projectChange.match(/applyEpisodeFilter\(\)/g) || []).length, 1);
-  assert.ok(
-    projectChange.indexOf('settings.lastEpisode') < projectChange.indexOf('applyEpisodeFilter()'),
-    'the active filter must validate the restored episode selection',
-  );
-  assert.doesNotMatch(popup, /async function fetchEpisodeCounts|episodeCountRun|allEpisodes\.find|setTimeout\(r, 120\)/);
-});
-
-test('thumbnail mode wires the aggregate thumbnail filter without per-episode Scene Review requests', () => {
-  const popup = source('src/popup/popup.js');
-  const wire = popup.slice(popup.indexOf('function wire()'), popup.indexOf('// ── settings'));
-  const projectChange = popup.slice(popup.indexOf('async function onProjectChange'), popup.indexOf('// ── scenes'));
-  const filter = popup.slice(popup.indexOf('function applyEpisodeFilter'), popup.indexOf('function clearLoadedEpisodeAssets'));
-  const clear = popup.slice(popup.indexOf('function clearLoadedEpisodeAssets'), popup.indexOf('// Queue every missing scene'));
-  const mediaChange = popup.slice(popup.indexOf('async function onMediaTypeChange'), popup.indexOf('// ── confirm'));
-
-  assert.match(popup, /episodeFilterState/);
-  assert.match(projectChange, /thumbnail_images/);
-  assert.match(projectChange, /clearLoadedEpisodeAssets\(\)/);
-  assert.match(filter, /currentKind\(\)/);
-  assert.match(filter, /progressByCode/);
-  assert.match(filter, /episodeProgressLabel\(progress\)/);
-  assert.match(mediaChange, /applyEpisodeFilter\(\)/);
-  assert.match(mediaChange, /if \(!\$\('episode'\)\.value\)/);
-  assert.match(mediaChange, /clearLoadedEpisodeAssets\(\)/);
-  assert.match(mediaChange, /noEpisodeStatus\(loadedKind\)/);
-  assert.match(projectChange, /setStatus\(noEpisodeStatus\(currentKind\(\)\), 'info'\)/);
-  assert.match(mediaChange, /if \(hadLoadedEpisode\) \{/);
-  assert.doesNotMatch(mediaChange, /currentKind\(\) !== loadedKind/);
-  assert.match(clear, /\$\('loadScenes'\)\.disabled = false/);
-  assert.match(clear, /\$\('refreshScenes'\)\.disabled = false/);
-  assert.match(wire, /\$\('episode'\)\.onchange = \(\) =>/);
-  assert.match(wire, /visibleEpisodeIndex\.has/);
-  assert.match(wire, /clearLoadedEpisodeAssets\(\)/);
-  assert.match(wire, /res\?\.completedEpisodes/);
-  assert.match(wire, /episodeRefreshQueue\.add/);
-  assert.doesNotMatch(filter, /client\.(imageStatus|imagePrompts|sceneReview)/);
-});
-
-test('one load image prompts action covers scene and thumbnail modes', () => {
-  const popupHtml = source('src/popup/popup.html');
-  const popup = source('src/popup/popup.js');
-  const loader = popup.slice(popup.indexOf('async function loadScenes()'), popup.indexOf('// Thumbnails always'));
-
-  assert.equal((popupHtml.match(/id="loadScenes"/g) || []).length, 1);
-  assert.match(popupHtml, /id="loadScenes"[^>]*>Load image prompts<\/button>/);
-  assert.doesNotMatch(popupHtml, />Load scenes<\/button>/);
-  assert.match(loader, /kind === 'thumbnail'/);
-  assert.match(loader, /loadThumbnails/);
-  assert.match(loader, /loadScenePlan/);
-  const thumbnailLoader = popup.slice(popup.indexOf('async function loadThumbnails'), popup.indexOf('const PROVIDER_LABEL'));
-  assert.match(thumbnailLoader, /await client\.imageStatus/);
-  assert.match(thumbnailLoader, /did not return verifiable thumbnail status/);
-  assert.doesNotMatch(thumbnailLoader, /status optional/);
-});
-
-test('direct enqueue rejects non-plan scenes before settings, references, or queue writes', () => {
-  const background = source('src/background.js');
-  const enqueueScenes = background.slice(background.indexOf('async function enqueueScenes'), background.indexOf('async function enqueueStandalone'));
-  const guard = enqueueScenes.indexOf('assertSupportedProjectScene');
-
-  assert.ok(guard >= 0, 'enqueueScenes should enforce the scene source contract');
-  assert.doesNotMatch(enqueueScenes, /source\s*\|\|\s*'plan'/);
-  assert.ok(guard < enqueueScenes.indexOf('await getSettings()'));
-  assert.ok(guard < enqueueScenes.indexOf('referenceAssets'));
-  assert.ok(guard < enqueueScenes.indexOf('return enqueue(items)'));
-  assert.match(source('src/lib/queue-migration.js'), /Create or load a Scene Plan/i);
-});
-
-test('worker preflight rejects unsupported scene sources before opening or submitting to providers', () => {
-  const background = source('src/background.js');
-  const policy = source('src/lib/queue-migration.js');
-  const queue = background.slice(background.indexOf('async function processQueue'), background.indexOf('// Drop everything not yet started'));
-  const guard = queue.indexOf('assertSupportedProjectScene(item)');
-  const openProvider = queue.indexOf('ensureProviderTab(provider)');
-  const generate = queue.indexOf('generateAndSave(item');
-  const terminal = queue.indexOf("e?.code === 'scene-source-retired'");
-
-  assert.ok(guard >= 0 && guard < openProvider);
-  assert.ok(guard < generate);
-  assert.ok(terminal > guard && terminal < queue.indexOf('isAmbiguousProviderFailure'));
-  assert.match(policy, /item\?\.target !== 'download'/);
-  assert.doesNotMatch(policy, /item\?\.target === 'project'/);
-});
-
-test('save routing keeps thumbnail ingest and Scene Review upload but removes scene image ingest', () => {
-  const background = source('src/background.js');
-  const generate = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status'));
-
-  assert.match(generate, /assertSupportedProjectScene\(item\)/);
-  assert.match(generate, /ingestImage\(item\.slug, item\.episodeCode, 'thumbnail'/);
-  assert.match(generate, /uploadSceneImage\(item\.slug, item\.episodeCode, item\.sceneKey/);
-  assert.doesNotMatch(generate, /item\.source === 'prompts'/);
-  assert.doesNotMatch(generate, /ingestImage\(item\.slug, item\.episodeCode, 'scene'/);
-});
-
 test('worker verifies the queued model before provider-attempted and generation', () => {
   const background = source('src/background.js');
   const process = background.slice(background.indexOf('async function processQueue'), background.indexOf('// Drop everything not yet started'));
@@ -480,7 +191,7 @@ test('Flow generation identity drift performs zero fetch, upload, or generation 
   const body = background.slice(background.indexOf('async function generateAndSave'), background.indexOf('// ── status')).trim();
   const calls = { fetch: 0, upload: 0, generation: 0 };
   const context = {
-    assertSupportedProjectScene() {},
+    assertSupportedQueueItem() {},
     DEFAULT_PROVIDER_ID: 'flow',
     normalizeFlowProjectId: (value) => value,
     assertQueuedModelIdentity: modelIdentity.assertQueuedModelIdentity,
@@ -603,19 +314,14 @@ test('Flow generation accepts only the queued exact model ID', () => {
   assert.doesNotMatch(flow, /const IMAGE_MODELS/);
 });
 
-test('both Flow enqueue paths refresh live inventory before snapshotting', () => {
+test('standalone enqueue refreshes live inventory before snapshotting', () => {
   const background = source('src/background.js');
-  for (const [start, end] of [
-    ['async function enqueueScenes', 'async function enqueueStandalone'],
-    ['async function enqueueStandalone', 'async function processQueue'],
-  ]) {
-    const enqueue = background.slice(background.indexOf(start), background.indexOf(end));
-    const refresh = enqueue.indexOf('refreshFlowModels');
-    const snapshot = enqueue.indexOf('snapshotProviderModelAtEnqueue');
-    assert.ok(refresh >= 0 && refresh < snapshot);
-    assert.doesNotMatch(enqueue, /flowInventoryForEnqueue/);
-    assert.match(enqueue, /flowModelSelection:\s*settings\.imageModel/);
-  }
+  const enqueue = background.slice(background.indexOf('async function enqueueStandalone'), background.indexOf('async function processQueue'));
+  const refresh = enqueue.indexOf('refreshFlowModels');
+  const snapshot = enqueue.indexOf('snapshotProviderModelAtEnqueue');
+  assert.ok(refresh >= 0 && refresh < snapshot);
+  assert.doesNotMatch(enqueue, /flowInventoryForEnqueue/);
+  assert.match(enqueue, /flowModelSelection:\s*settings\.imageModel/);
 });
 
 test('startup recovery delegates to evidence-aware queue recovery', () => {
@@ -673,32 +379,6 @@ test('all visible adapters recheck queued identity before checkpoint and click',
     assert.ok(finalCheck > checkpoint && finalCheck < clickAt, `${file} rechecks after checkpoint`);
     assert.doesNotMatch(adapter.slice(finalCheck, clickAt), /\bawait\b/, `${file} final recheck is synchronous with click`);
   }
-});
-
-test('modal enqueue callbacks consume captured project and episode payloads', () => {
-  const popup = source('src/popup/popup.js');
-  const confirm = popup.slice(popup.indexOf('function confirmQueue'), popup.indexOf('// ── queue view'));
-  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
-
-  assert.match(popup, /captureSceneEnqueueContext/);
-  assert.match(popup, /captureQueueAllContext/);
-  assert.doesNotMatch(confirm, /payload:\s*\{[\s\S]*currentProject\./);
-  assert.doesNotMatch(confirm, /payload:\s*\{[\s\S]*currentEpisode\./);
-  assert.doesNotMatch(queueAll, /currentProject\.slug/);
-});
-
-test('Flow confirmation names the selected model and its actual provenance', () => {
-  const popup = source('src/popup/popup.js');
-  const confirm = popup.slice(popup.indexOf('function confirmQueue'), popup.indexOf('async function doEnqueue'));
-  const enqueue = popup.slice(popup.indexOf('async function doEnqueue'), popup.indexOf('// ── queue view'));
-  const background = source('src/background.js');
-
-  assert.match(confirm, /modelLabel/);
-  assert.match(confirm, /flowModelApproval\.modelSource/);
-  assert.match(confirm, /flowModelApproval/);
-  assert.match(enqueue, /persistFlowModelApproval\(payload\.flowModelApproval\)/);
-  assert.match(background, /assertFlowModelApproval\(flowModelApproval, modelSnapshot\)/);
-  assert.doesNotMatch(confirm, /Nano Banana 2 \(free\)/);
 });
 
 test('Flow command rejects missing and malformed exact model IDs without network work', async () => {
@@ -924,15 +604,10 @@ test('Flow persists a live-only rendered selection with its exact identity', () 
   assert.match(persist, /persistFlowModelApproval\(selectedFlowModelApproval\(\)\)/);
 });
 
-test('every Flow enqueue waits for the serialized selection boundary', () => {
+test('standalone enqueue waits for the serialized Flow selection boundary', () => {
   const popup = source('src/popup/popup.js');
   const standalone = popup.slice(popup.indexOf('async function queueStandalone'), popup.indexOf('function parseStandalonePrompts'));
-  const queueAll = popup.slice(popup.indexOf('async function queueAllPending'), popup.indexOf('async function onProjectChange'));
-  const enqueue = popup.slice(popup.indexOf('async function doEnqueue'), popup.indexOf('// ── queue view'));
-
   assert.ok(standalone.indexOf('await persistSelectedFlowModel()') < standalone.indexOf('chrome.runtime.sendMessage'));
-  assert.ok(enqueue.indexOf('await persistFlowModelApproval(payload.flowModelApproval)') < enqueue.indexOf('chrome.runtime.sendMessage'));
-  assert.ok(queueAll.indexOf('await persistFlowModelApproval(approved.flowModelApproval)') < queueAll.indexOf('queuePendingEpisodes'));
 });
 
 test('Flow refresh preserves a rendered live selection after a delayed save', () => {

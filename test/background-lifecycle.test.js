@@ -219,7 +219,6 @@ test('clear completed drops only done items and preserves actionable queue state
     const response = await worker.send({ type: 'clearCompleted' });
     assert.equal(response.ok, true);
     assert.equal(response.cleared, 1);
-    assert.deepEqual(response.completedEpisodes, [{ slug: 'project-one', code: 'EP0001' }]);
     assert.deepEqual(worker.local.queue.map((i) => i.id), ['f1', 'p1', 'r1']);
   } finally {
     worker.restore();
@@ -231,7 +230,7 @@ test('background-owned concurrent settings patches cannot overwrite unrelated fi
     sync: {
       settings: {
         provider: 'flow',
-        studioBaseUrl: 'http://localhost:8766',
+        flowProjectName: 'First',
         humanDelayMinSec: 5,
         humanDelayMaxSec: 60,
       },
@@ -241,14 +240,14 @@ test('background-owned concurrent settings patches cannot overwrite unrelated fi
   try {
     const [panel, options] = await Promise.all([
       worker.send({ type: 'settings:patch', patch: { humanDelayMinSec: 12 } }),
-      worker.send({ type: 'settings:patch', patch: { studioBaseUrl: 'http://localhost:8000' } }),
+      worker.send({ type: 'settings:patch', patch: { flowProjectName: 'Second' } }),
     ]);
 
     assert.equal(panel.ok, true);
     assert.equal(options.ok, true);
     assert.equal(options.settings.humanDelayMinSec, 12);
     assert.equal(worker.sync.settings.humanDelayMinSec, 12);
-    assert.equal(worker.sync.settings.studioBaseUrl, 'http://localhost:8000');
+    assert.equal(worker.sync.settings.flowProjectName, 'Second');
   } finally {
     worker.restore();
   }

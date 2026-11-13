@@ -337,7 +337,7 @@
       pasteFile();
       attached = await waitForChip(25000);
     }
-    if (!attached) throw new Error('ChatGPT did not accept a Story Studio reference image (attachment never appeared).');
+    if (!attached) throw new Error('ChatGPT did not accept a reference image (attachment never appeared).');
     await sleep(1200);
   }
 
@@ -385,7 +385,7 @@
     let el = composer();
     if (!el) throw new Error('ChatGPT composer was not found. Open chatgpt.com, sign in, and wait for the prompt box.');
 
-    // Attach Story Studio references before typing so the generated image can
+    // Attach references before typing so the generated image can
     // use the bounded reference set for visual continuity.
     const references = Array.isArray(params.references) ? params.references : [];
     if (references.length) {
@@ -404,7 +404,7 @@
       ? `${prompt} (as a ${phrase} image)`
       : `Create a ${phrase} image of ${prompt}`;
     const instruction = references.length
-      ? `Use the attached Story Studio reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
+      ? `Use the attached reference images for visual continuity, ${base.charAt(0).toLowerCase()}${base.slice(1)}`
       : base;
 
     const beforeImages = new Set(assistantImageSrcs());

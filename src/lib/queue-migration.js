@@ -1,6 +1,5 @@
 import { DEFAULT_PROVIDER_ID, isMaintainedProvider } from './providers.js';
 import { generationSettingsFor, snapshotProviderModel } from './model-identity.js';
-import { legacyCharacterReferenceDescriptor } from './reference-assets.js';
 
 const MODEL_FAILURE_CODES = new Set(['model-unknown', 'model-selection-changed']);
 
@@ -18,19 +17,19 @@ function queueProvider(item) {
   return item && Object.hasOwn(item, 'provider') ? item.provider : DEFAULT_PROVIDER_ID;
 }
 
-export function isUnsupportedProjectScene(item) {
+export function isUnsupportedQueueItem(item) {
   if (item?.target === 'gateway') return item.source !== 'gateway' || typeof item.gatewayJobId !== 'string' || !item.gatewayJobId;
-  return item?.target !== 'download' && item?.kind !== 'thumbnail' && item?.source !== 'plan';
+  return item?.target !== 'download';
 }
 
 export const gatewayNeedsReview = (item) => item?.target === 'gateway' && item.gatewayAcknowledged !== true;
 
-function sceneSourceFailure() {
+function unsupportedTargetFailure() {
   return {
-    code: 'scene-source-retired',
-    title: 'Scene source is no longer supported',
-    hint: 'Create or load a Scene Plan in Story Studio, then queue the scene again.',
-    raw: 'Project scene generation requires a Scene Plan with stable Scene Review IDs.',
+    code: 'unsupported-target',
+    title: 'Saved Studio work is no longer supported',
+    hint: 'Studio mode was removed. Paste these prompts in Standalone and queue them again.',
+    raw: 'Only Standalone Downloads and Gateway jobs are supported.',
   };
 }
 
@@ -61,8 +60,8 @@ function ambiguousRecoveryQueueItem(item, now) {
   const failure = {
     code: 'ambiguous',
     title: `${provider} result needs confirmation`,
-    hint: `Inspect the ${provider} tab and Story Studio save result before you re-queue this item.`,
-    raw: 'Provider or result evidence exists, but no confirmed Story Studio save was recorded.',
+    hint: `Inspect the ${provider} tab and the saved result before you re-queue this item.`,
+    raw: 'Provider or result evidence exists, but no confirmed saved result was recorded.',
   };
   return {
     ...item,
@@ -146,16 +145,16 @@ function migrateLegacyModel(item, provider, now, active) {
   };
 }
 
-export function assertSupportedProjectScene(item) {
-  if (!isUnsupportedProjectScene(item)) return;
-  const failure = sceneSourceFailure();
+export function assertSupportedQueueItem(item) {
+  if (!isUnsupportedQueueItem(item)) return;
+  const failure = unsupportedTargetFailure();
   const error = new Error(`${failure.raw} ${failure.hint}`);
   error.code = failure.code;
   throw error;
 }
 
 export function unsupportedSceneQueueItem(item, now = Date.now()) {
-  const failure = sceneSourceFailure();
+  const failure = unsupportedTargetFailure();
   return {
     ...item,
     status: 'failed',
@@ -173,13 +172,8 @@ export function migrateQueue(queue, now = Date.now()) {
     const active = item?.status === 'pending' || item?.status === 'running';
     const retryableFailure = canRetryItem(item);
     if (!active && !retryableFailure) return { ...item };
-    const legacyReference = !Array.isArray(item?.referenceDescriptors) && item?.applyRef !== false
-      ? legacyCharacterReferenceDescriptor(item?.slug, item?.characterRef)
-      : null;
-    const normalized = legacyReference
-      ? { ...item, referenceDescriptors: [legacyReference], characterRef: undefined }
-      : { ...item };
-    if (isUnsupportedProjectScene(normalized)) return unsupportedSceneQueueItem(normalized, now);
+    const normalized = { ...item };
+    if (isUnsupportedQueueItem(normalized)) return unsupportedSceneQueueItem(normalized, now);
     if (isMaintainedProvider(provider)) return migrateLegacyModel(normalized, provider, now, active);
     return {
       ...normalized,
@@ -197,10 +191,10 @@ export function canRetryItem(item) {
   return (
     item?.status === 'failed' &&
     item?.target !== 'gateway' &&
-    !isUnsupportedProjectScene(item) &&
+    !isUnsupportedQueueItem(item) &&
     isMaintainedProvider(provider) &&
     item?.failure?.code !== 'provider-removed' &&
-    item?.failure?.code !== 'scene-source-retired' &&
+    item?.failure?.code !== 'unsupported-target' &&
     !MODEL_FAILURE_CODES.has(item?.failure?.code)
   );
 }

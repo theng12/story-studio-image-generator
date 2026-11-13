@@ -37,7 +37,7 @@ test('exposes provider metadata and maintained capabilities', () => {
     for (const key of ['id', 'label', 'workspace', 'scripts', 'contextMessage', 'downloadHosts', 'settings', 'capabilities']) {
       assert.ok(Object.hasOwn(provider, key), `${provider.id} should expose ${key}`);
     }
-    for (const key of ['characterReferences', 'storyStudioReferences', 'maxReferences', 'cooldown', 'visibleTab', 'modelDiscovery']) {
+    for (const key of ['maxReferences', 'cooldown', 'visibleTab', 'modelDiscovery']) {
       assert.ok(Object.hasOwn(provider.capabilities, key), `${provider.id} should expose capabilities.${key}`);
     }
   }

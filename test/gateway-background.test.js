@@ -39,7 +39,7 @@ async function waitFor(predicate) {
   for (let count = 0; count < 300; count++) { if (predicate()) return; await pause(5); }
   throw new Error('Mocked background did not reach the expected state.');
 }
-async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, allowStorySave = false, observedAccount, inventory = { source: 'live', entries: [{ id: 'BELUGA', label: 'Nano Banana 2.1' }] } } = {}) {
+async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok: true }], onSubmit, onPrepare, onHealth, onTelemetry, onClaim, claimEnvelope = {}, claimAnswers = [], control = { dispatchEnabled: true, closeRequested: false, revision: 'fixture-on', requestedAt: 1, pacing: { minSeconds: 0, maxSeconds: 0 } }, quoteRequired, clock, defaultPacing = false, failure, uploadConfirmed = true, claimLost = false, uploadLimit = 1024, synced = {}, observedAccount, inventory = { source: 'live', entries: [{ id: 'BELUGA', label: 'Nano Banana 2.1' }] } } = {}) {
   local ||= { gatewayConnection: clone(connection), imageGeneratorWorkMode: mode };
   const sync = { settings: { ...(defaultPacing ? {} : { humanDelayMinSec: 0, humanDelayMaxSec: 0 }), ...synced } };
   const previous = Object.fromEntries(['chrome', 'fetch', 'indexedDB', 'setInterval', 'setTimeout', 'clearTimeout'].map((key) => [key, globalThis[key]]));
@@ -93,10 +93,6 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   globalThis.indexedDB = fakeIndexedDB;
   globalThis.setInterval = () => 0;
   globalThis.fetch = async (url, init = {}) => {
-    if (allowStorySave && url === 'http://studio.invalid/api/projects/my%20project/scene-review/EP%200001/upload-image/scene%2Fone') {
-      calls.push({ url, init });
-      return Response.json({ scene_id: 'scene/one' });
-    }
     assert.equal(new URL(url).origin, connection.gatewayUrl, 'No real network or unexpected Story request permitted.');
     const entry = { url, init }; calls.push(entry);
     if (url.endsWith('/health')) {
@@ -851,37 +847,6 @@ test('Standalone enqueue downloads exact bytes without Gateway work when its con
   } finally { worker.restore(); }
 });
 
-test('Story enqueue saves exact bytes to Scene Review and refuses non-plan scenes before submission', async () => {
-  const worker = await boot({ mode: 'studio', allowStorySave: true, inventory: { source: 'fallback', entries: [] }, synced: {
-    imageModel: 'nano-banana-2', flowProjectId: JOB.flowProjectId, flowAutoNewProject: false,
-    storyStudioReferencesEnabled: false, studioBaseUrl: 'http://studio.invalid',
-  } });
-  const payload = { slug: 'my project', episodeCode: 'EP 0001', kind: 'scene', provider: 'flow',
-    scenes: [{ key: 'scene/one', prompt: JOB.prompt }],
-    flowModelApproval: { modelId: 'BELUGA', modelLabel: 'Nano Banana 2.1', modelSource: 'fallback' } };
-  try {
-    const refused = await worker.send({ type: 'enqueueScenes', payload: { ...payload, source: 'prompts' } });
-    assert.equal(refused.ok, false);
-    assert.equal(worker.provider.length, 0);
-    const result = await worker.send({ type: 'enqueueScenes', payload: { ...payload, source: 'plan' } });
-    assert.equal(result.ok, true, result.error);
-    assert.equal(result.added, 1);
-    await waitFor(() => worker.local.queue?.[0]?.status === 'done');
-    await worker.stopped();
-    worker.tick(); await worker.stopped();
-    assert.equal(worker.workCalls.length, 1);
-    const save = worker.calls[0];
-    assert.equal(save.url, 'http://studio.invalid/api/projects/my%20project/scene-review/EP%200001/upload-image/scene%2Fone');
-    assert.equal(save.init.method, 'POST');
-    assert.equal(save.init.credentials, 'include');
-    assert.deepEqual(JSON.parse(save.init.body), { data_base64: PNG });
-    assert.equal(worker.local.queue[0].savedAs, 'scene/one.png');
-    assert.equal(worker.local.queue[0].target, 'project');
-    assert.equal(worker.downloads.length, 0);
-    assert.equal(worker.provider.filter((entry) => entry.op === 'submitGenerateImage').length, 1);
-  } finally { worker.restore(); }
-});
-
 test('an executable job offered without our own price is durably held, never submitted', async () => {
   const worker = await boot();
   try {
@@ -954,8 +919,8 @@ test('a changed token cannot redirect retained image bytes or failures', async (
 });
 
 
-test('Story/standalone or disabled mode never claims; schema rejection never invokes provider', async () => {
-  for (const mode of ['studio', 'standalone']) {
+test('Standalone or disabled mode never claims; schema rejection never invokes provider', async () => {
+  for (const mode of ['standalone']) {
     const worker = await boot({ mode });
     try { worker.tick(); await worker.stopped(); assert.equal(worker.workCalls.length, 0); assert.equal(worker.provider.length, 0); }
     finally { worker.restore(); }

@@ -1,35 +1,30 @@
 # Story Studio Image Generator
 
-A Chrome extension that makes scene images for Story Studio projects and saves
-them back to the episode.
+A Chrome extension that generates images from prompts with a signed-in web
+provider and saves them to Downloads. It can also work as a Gateway Studio
+image worker.
 
 ## What it does
 
-- Runs selected scenes through a persistent queue with progress, pause, retry and recovery.
-- Saves each finished image to its Story Studio episode with canonical filenames.
+- Runs pasted prompts through a persistent queue with progress, pause, retry and recovery.
+- Saves each finished image to Downloads.
 - Uses the signed-in web session of one of five image providers.
-- Can also work as a Gateway Studio image worker (see below).
+- Can also claim image jobs from a Gateway Studio server (see below).
 
 ## Workflow
 
-1. Open the side panel and connect a Story Studio project.
-2. Choose an episode and the scenes to make images for.
-3. Queue the work and watch it in the active batch view.
-4. Each completed image is saved back to its episode.
-
-## Providers and references
+1. Open the side panel. Standalone is the default mode.
+2. Paste one image prompt per line, review the split, and queue it.
+3. Watch the active batch view; each finished image is saved to Downloads.
+4. Switch to Gateway Studio to claim jobs from a configured Gateway server.
 
 Maintained image providers: Google Flow, Google AI Studio, Qwen Studio, Leonardo
 AI and ChatGPT. The registry ships with the extension, so a removed provider
 never receives new work or retries.
 
-- Flow, AI Studio and ChatGPT accept up to 4 Story Studio references per image;
-  Qwen uses the first one only and keeps its one-attachment safety check.
-- Leonardo has no Story Studio auto-ingest; attach references in its own page.
-
-**Use Story Studio references** pulls episode, scene, character, composition and
-style assets. The queue stores descriptors only and fetches bounded bytes when a
-job runs. Never store base64 in queue storage.
+- Gateway jobs may carry up to four reference images for Flow. The queue stores
+  the staged bytes in IndexedDB, never in queue storage.
+- Standalone prompts carry no references. Leonardo references stay page-managed.
 
 ## Model identity
 
@@ -49,10 +44,10 @@ never fuzzy-matched.
 New provider integrations and most new provider models need an extension update,
 so a model you can see in Flow may not be in the picker here yet.
 
-## Gateway Studio worker (third mode)
+## Gateway Studio worker (second mode)
 
-Mode → **Gateway Studio**, then Settings → Gateway for the address, worker token
-and worker ID. Off by default. One job at a time, same queue and pacing as manual
+Mode → **Gateway Studio**, then fill the Gateway address, worker token and worker
+ID in the side panel (or Settings). Off by default. One job at a time, same queue and pacing as manual
 work, 30-second claim alarm plus a **Claim now** button.
 
 Wire, all outbound from the extension — it opens no port and holds no inbound
@@ -101,12 +96,6 @@ optional/off in Relay.
   references and the Flow project ID. 4:3, 1:1, 3:4 and `size` have no observed
   submit value and are refused at claim rather than guessed. The count slot is
   unproven: the capture carried `null` there with a count of 1.
-- Story Scene Review rows keep only image identity, prompt and image state in
-  `loadScenePlan`, then map again at enqueue. Scene duration and other caller
-  controls have no preservation mapping yet, and no Story/Gateway duration field
-  contract is verified. `durationMs` is queue processing time, not scene
-  duration. Preserve caller-supplied values once their contract is known; report
-  a missing counterpart rather than dropping, defaulting or inventing one.
 - No claim has run end to end yet. Gateway's code accepts a 0-valued quote
   (`store.py` `_acc_quote`; its over-quote check is `0 > 0` at a zero balance), so
   if a first live claim fails, check the worker token's `dispatch_enabled`, the
@@ -124,5 +113,4 @@ offline fixtures prove none of the others.
 2. **Load unpacked** → select this repository folder.
 3. Open the extension from the toolbar to use the side panel.
 
-There is no build step. Requires a running Story Studio KH workspace; the queue
-survives closing and reopening the side panel.
+There is no build step. The queue survives closing and reopening the side panel.

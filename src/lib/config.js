@@ -22,11 +22,6 @@ export const DEFAULTS = {
   // Shared presentation preference across the Story Studio generators.
   theme: 'system',
 
-  // Story Studio server. Default port 8766, but fully editable — set this to a
-  // localhost URL (any port; loopback bypasses auth) or a remote/Tailscale URL
-  // like http://mac-mini.tailXXXX.ts.net:8766 (needs Grant access + login).
-  studioBaseUrl: 'http://localhost:8766',
-
   // The Google Flow project that generations are filed into. Flow's generate
   // endpoint is /v1/projects/{projectId}/... — every image needs a project.
   // Captured automatically when you open a Flow project tab (see the panel),
@@ -42,9 +37,6 @@ export const DEFAULTS = {
   // toggle off = never; the panel also has a manual "New project" button).
   flowAutoNewProject: false,
   flowNewProjectEvery: 300,
-
-  // Use the Story Studio reference resolver for queued image generations.
-  storyStudioReferencesEnabled: true,
 
   // Generation provider. Every provider in this extension is image-only.
   provider: 'flow',
@@ -114,8 +106,9 @@ export const DEFAULTS = {
   lastProject: '',
   lastEpisode: '',
 
-  // Gateway Studio image worker (third mode). Off by default; the user opts in
-  // by filling URL + token + worker id. Health test is user-triggered only.
+  // Gateway Studio image worker (second mode beside Standalone). Off by default;
+  // the user opts in by filling URL + token + worker id. Health test is
+  // user-triggered only.
   gatewayModeEnabled: false,
   gatewayUrl: '',
   gatewayToken: '',
@@ -189,8 +182,9 @@ function normalizeRpcIds(value) {
 export function normalizeSettings(settings) {
   settings = { ...settings };
   settings.provider = normalizeSelectedProvider(settings.provider);
-  if (settings.characterRefEnabled === false) settings.storyStudioReferencesEnabled = false;
-  else if (settings.storyStudioReferencesEnabled !== false) settings.storyStudioReferencesEnabled = true;
+  // Studio mode was removed; drop its settings instead of carrying them forward.
+  delete settings.studioBaseUrl;
+  delete settings.storyStudioReferencesEnabled;
   delete settings.characterRefEnabled;
   delete settings.characterRefId;
   delete settings.pollinationsToken;
@@ -274,6 +268,8 @@ export async function getSettings() {
   if (JSON.stringify(syncNext) !== JSON.stringify(synced[STORAGE_KEY] || {})) {
     await chrome.storage.sync.set({ [STORAGE_KEY]: syncNext });
   }
+  // Retired Story Studio connection data is never read again.
+  await chrome.storage.local.remove?.(['studioCredentials', 'imageGeneratorStudioConnection']);
   return next;
 }
 
@@ -314,17 +310,4 @@ export async function saveLeonardoModels(models) {
   const byId = new Map();
   for (const m of models) if (m?.id) byId.set(m.id, { id: m.id, label: m.label || m.id, badge: m.badge || '' });
   await chrome.storage.local.set({ [LEONARDO_MODELS_KEY]: [...byId.values()] });
-}
-
-// Story Studio login, stored in LOCAL storage (not synced across machines).
-// Only needed for a remote/tailnet server — localhost bypasses auth entirely.
-const CRED_KEY = 'studioCredentials';
-
-export async function getCredentials() {
-  const stored = await chrome.storage.local.get(CRED_KEY);
-  return stored[CRED_KEY] || { username: '', password: '' };
-}
-
-export async function saveCredentials({ username, password }) {
-  await chrome.storage.local.set({ [CRED_KEY]: { username, password } });
 }

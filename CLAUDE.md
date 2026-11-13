@@ -1,8 +1,9 @@
 # Story Studio Image Generator (`story-studio-image-generator`)
 
-MV3 image-only extension: generates Story Studio KH scene images and thumbnails
-through Google Flow, Google AI Studio, Qwen Studio, Leonardo AI, and ChatGPT,
-then saves them back into the episode. Video generation lives in the sibling
+MV3 image-only extension with two modes: Standalone (default) generates images
+from pasted prompts and saves them to Downloads; Gateway Studio claims image jobs
+from a Gateway server. Providers: Google Flow, Google AI Studio, Qwen Studio,
+Leonardo AI, and ChatGPT. Video generation lives in the sibling
 `../story-studio-video-generator` extension. Sibling to
 `story-studio-audio-generator` — same architecture (see parent `../CLAUDE.md`). Full
 writeup in `README.md`.
@@ -34,15 +35,6 @@ release. Everything runs from a signed-in Flow *project* tab
 - **Not yet captured on the new app:** create-project (auto-rollover fails soft
   and keeps the current project) and aspect ratios other than 16:9.
 
-## Scene plan & save-back (companion mode)
-
-- Read: `GET /api/projects/:slug/scene-review/:code` → scenes with `visual_prompt`,
-  `image_filename`, `approved`, `stale`. Missing scenes are pre-selected in the panel.
-- Save: `POST /api/projects/:slug/scene-review/:code/upload-image/:sceneId`
-  `{ data_base64 }` → Story Studio writes `{sceneId}.png` into the **"05 Scene
-  Images"** folder and updates `scene_plan.json`. No Story Studio code changes
-  needed — that route already existed.
-
 ## Running unattended (tab visibility)
 
 The extension works through a live provider tab, so that tab is subject to
@@ -63,11 +55,10 @@ web session — it can't be made fully headless.
 - `src/lib/flow-exec.js` — narrowly scoped Flow image operations, executed in
   the logged-in Flow tab.
 - `src/lib/providers.js` — maintained provider registry and capability limits.
-- `src/lib/reference-assets.js` — lazy Story Studio reference descriptors.
 - `src/content/{aistudio,qwen,leonardo,chatgpt}-main.js` — web-provider UI
   adapters; AI Studio and ChatGPT verify bounded multi-reference attachments,
   Qwen retains one-reference safety, and Leonardo references stay page-managed.
-- `src/lib/{config,story-studio}.js` — shared with the sibling extension.
+- `src/lib/config.js`, `src/lib/work-mode.js` — settings defaults and the two shipped modes.
 - `src/popup/` side panel, `src/options/` settings.
 
 ## Gotchas

@@ -6,7 +6,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { runInNewContext } from 'node:vm';
 
 import { generationParamsFor } from '../src/lib/model-identity.js';
-import { limitProviderReferences } from '../src/lib/providers.js';
 
 const root = path.resolve(import.meta.dirname, '..');
 const source = (file) => readFileSync(path.join(root, file), 'utf8');
@@ -17,22 +16,6 @@ const references = Array.from({ length: 6 }, (_, index) => ({
   name: `reference-${index + 1}.png`,
   label: `Reference ${index + 1}`,
 }));
-
-test('bounds reference bytes to each provider capability before an adapter receives them', () => {
-  assert.deepEqual(limitProviderReferences('flow', references), references.slice(0, 4));
-  assert.deepEqual(limitProviderReferences('aistudio', references), references.slice(0, 4));
-  assert.deepEqual(limitProviderReferences('qwen', references), references.slice(0, 1));
-  assert.deepEqual(limitProviderReferences('leonardo', references), []);
-  assert.deepEqual(limitProviderReferences('chatgpt', references), references.slice(0, 4));
-  assert.deepEqual(limitProviderReferences('removed-provider', references), []);
-});
-
-test('the worker caps resolved references before maintained adapters receive bytes', () => {
-  const background = source('src/background.js');
-  assert.match(background, /limitProviderReferences\(\s*provider,/);
-  assert.match(background, /const references = await resolveReferenceImages\(item, settings, provider\)/);
-  assert.match(background, /generationParamsFor\((?:'aistudio'|'qwen'|'chatgpt'), item, \{ references \}\)/);
-});
 
 test('Flow maps every bounded reference to Flow reference image inputs', () => {
   const params = generationParamsFor('flow', {

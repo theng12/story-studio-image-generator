@@ -2,8 +2,8 @@
 //
 // The panel enqueues work (one scene, a whole episode, or a whole project);
 // this worker processes one scene at a time, human-paced, generating the image
-// on Google Flow and writing each result back to the Story Studio episode. The
-// queue lives in chrome.storage, so it survives the panel
+// on Google Flow and saving it to Downloads (Standalone) or delivering it to
+// Gateway Studio. The queue lives in chrome.storage, so it survives the panel
 // closing AND the worker being killed: a chrome.alarms tick wakes the worker to
 // resume any pending items.
 //
@@ -19,11 +19,10 @@ import {
   providerCooldown,
   flowWorkspace,
 } from './lib/config.js';
-import { StudioClient } from './lib/story-studio.js';
 import { flowCommand } from './lib/flow-exec.js';
-import { DEFAULT_PROVIDER_ID, PROVIDERS, getFlowModel, getProvider, isMaintainedProvider, limitProviderReferences } from './lib/providers.js';
+import { DEFAULT_PROVIDER_ID, PROVIDERS, getFlowModel, getProvider, isMaintainedProvider } from './lib/providers.js';
 import {
-  assertSupportedProjectScene,
+  assertSupportedQueueItem,
   gatewayNeedsReview,
   canRetryItem,
   migrateQueue,
@@ -44,7 +43,6 @@ import {
   generationSettingsFor,
   snapshotProviderModel,
 } from './lib/model-identity.js';
-import { legacyCharacterReferenceDescriptor, normalizeReferenceContext, referenceCacheKey, resolveReferenceDescriptors } from './lib/reference-assets.js';
 import {
   ambiguousProviderQueueItem,
   isAmbiguousProviderFailure,
@@ -66,7 +64,10 @@ import {
 } from './lib/gateway-worker.js';
 import { imageQuote, observedAccount } from './lib/gateway-account.js';
 import { getGatewayArtifact, putGatewayArtifact, deleteGatewayArtifact } from './lib/gateway-artifacts.js';
+import { readWorkMode } from './lib/work-mode.js';
 chrome.storage.local.set({ workerBootAt: Date.now() });
+// Older releases stored a 'studio' choice; move it to Standalone on worker load.
+readWorkMode().catch(() => {});
 
 // How many images have gone into the CURRENT Flow project — drives auto rollover.
 const FLOW_COUNT_KEY = 'flowProjectImageCount';
@@ -568,51 +569,19 @@ async function fetchImagePayload(provider, imageUrl) {
   return responseToPayload(response);
 }
 
-// Reference descriptors persist as small URLs. Image bytes are fetched only
-// when a job runs and cached for this worker lifetime, never in queue storage.
-const refImageCache = new Map();
-async function resolveReferenceImages(item, settings, provider) {
-  if (item.target === 'gateway') {
-    const staged = await getGatewayArtifact(item.gatewayJobId);
-    if (!staged || !Array.isArray(staged.references) || staged.references.length !== item.gatewayReferenceCount) {
-      throw new Error('Gateway references are unavailable; work is held without generation.');
-    }
-    return staged.references;
+// Gateway stages reference bytes with the job. Standalone prompts carry none.
+async function resolveReferenceImages(item) {
+  if (item.target !== 'gateway') return [];
+  const staged = await getGatewayArtifact(item.gatewayJobId);
+  if (!staged || !Array.isArray(staged.references) || staged.references.length !== item.gatewayReferenceCount) {
+    throw new Error('Gateway references are unavailable; work is held without generation.');
   }
-  const references = limitProviderReferences(
-    provider,
-    Array.isArray(item.referenceDescriptors) ? item.referenceDescriptors : []
-  );
-  const descriptors = references;
-  if (!descriptors.length) return [];
-  const client = new StudioClient(settings.studioBaseUrl);
-  return Promise.all(descriptors.map(async (descriptor, index) => {
-    const sourceKey = referenceCacheKey(settings.studioBaseUrl, descriptor?.url);
-    if (!descriptor?.url) throw new Error(`Story Studio reference ${descriptor?.label || index + 1} has no download URL.`);
-    let request = refImageCache.get(sourceKey);
-    if (!request) {
-      request = client.referenceAssetBase64(descriptor);
-      refImageCache.set(sourceKey, request);
-    }
-    try {
-      const image = await request;
-      return {
-        base64: image.base64,
-        mime: image.mime,
-        sourceKey,
-        name: descriptor.filename || `reference-${index + 1}.png`,
-        label: descriptor.label || `Reference ${index + 1}`,
-      };
-    } catch (error) {
-      refImageCache.delete(sourceKey);
-      throw error;
-    }
-  }));
+  return staged.references;
 }
 
 const refMediaCache = new Map();
 async function resolveReferenceMediaIds(item, settings, tab) {
-  const references = await resolveReferenceImages(item, settings, 'flow');
+  const references = await resolveReferenceImages(item);
   if (!references.length) return [];
   const projectId = normalizeFlowProjectId(item.projectId || settings.flowProjectId);
   const mediaIds = [];
@@ -634,13 +603,13 @@ async function resolveReferenceMediaIds(item, settings, tab) {
 }
 
 async function generateAndSave(item, settings, tab) {
-  assertSupportedProjectScene(item);
+  assertSupportedQueueItem(item);
   const provider = item.provider || DEFAULT_PROVIDER_ID;
   assertQueuedModelIdentity(item, provider);
   if (!item.prompt || !item.prompt.trim()) throw new Error('Scene has no image prompt.');
   const handlers = {
     chatgpt: async () => {
-      const references = await resolveReferenceImages(item, settings, provider);
+      const references = await resolveReferenceImages(item);
       const r = await dispatchProviderGeneration(item, provider, tab, {
         type: 'chatgpt:generateImage',
         params: generationParamsFor('chatgpt', item, { references }),
@@ -650,7 +619,7 @@ async function generateAndSave(item, settings, tab) {
       return r.base64 ? r : fetchImagePayload(provider, r.imageUrl);
     },
     aistudio: async () => {
-      const references = await resolveReferenceImages(item, settings, provider);
+      const references = await resolveReferenceImages(item);
       return dispatchProviderGeneration(item, provider, tab, {
         type: 'aistudio:generateImage',
         params: generationParamsFor('aistudio', item, { references }),
@@ -671,7 +640,7 @@ async function generateAndSave(item, settings, tab) {
       return dispatchFlowGeneration(item, tab, prepared.preparationId);
     },
     qwen: async () => {
-      const references = await resolveReferenceImages(item, settings, provider);
+      const references = await resolveReferenceImages(item);
       const r = await dispatchProviderGeneration(item, provider, tab, {
         type: 'qwen:generateImage',
         params: generationParamsFor('qwen', item, { references }),
@@ -707,21 +676,7 @@ async function generateAndSave(item, settings, tab) {
     });
     return { downloadId, savedAs: filename, target: 'download' };
   }
-  if (!item.slug || !item.episodeCode || item.sceneKey == null) {
-    throw new Error('Story Studio project details are required to save an image.');
-  }
-  try {
-    const client = new StudioClient(settings.studioBaseUrl);
-    const pad = String(item.sceneKey).padStart(2, '0');
-    if (item.kind === 'thumbnail') {
-      const out = await client.ingestImage(item.slug, item.episodeCode, 'thumbnail', item.sceneKey, base64, item.episodeTitle);
-      return { savedAs: out.saved_as || `${item.episodeCode}_Thumb${pad}_v1.png`, target: 'project' };
-    }
-    const out = await client.uploadSceneImage(item.slug, item.episodeCode, item.sceneKey, base64);
-    return { savedAs: `${item.sceneKey}.png`, target: 'project', sceneId: out.scene_id };
-  } catch (error) {
-    throw new Error(`Story Studio save failed: ${String(error?.message || error)}`);
-  }
+  throw new Error('Unsupported queue target. Only Standalone Downloads and Gateway jobs are supported.');
 }
 
 // ── status (persisted so the panel survives close/reopen) ───────────────────
@@ -826,13 +781,6 @@ function diagnoseFailure(error, item = {}) {
       raw,
     };
 
-  if (match(/story studio save failed|story studio rejected|scene image not found|scene image is empty/))
-    return {
-      code: 'save',
-      title: 'Story Studio save failed',
-      hint: 'Test the Studio connection and access settings, then retry.',
-      raw,
-    };
   if (match(/resource has been exhausted|quota|rate.?limit|too many requests|\b429\b|daily free limit/))
     return {
       code: 'quota',
@@ -1053,124 +1001,6 @@ async function retryFailed(id = null) {
   return { ok: true, retried };
 }
 
-// Expand an episode (or list of scenes) into queue items. Done worker-side so
-// the panel stays snappy and dedupe is centralised.
-async function enqueueScenes({ slug, episodeCode, episodeTitle, scenes, source, kind, projectId, provider, characterRef, flowModelApproval }) {
-  const src = source;
-  const akind = kind === 'thumbnail' ? 'thumbnail' : 'scene';
-  assertSupportedProjectScene({ target: 'project', kind: akind, source: src });
-  const settings = await getSettings();
-  const prov = provider || settings.provider || DEFAULT_PROVIDER_ID;
-  if (!isMaintainedProvider(prov)) throw providerRemovedError(prov);
-  const flowRefresh = prov === 'flow' ? await refreshFlowModels() : null;
-  const flowInventory = flowRefresh?.ok ? flowRefresh : flowInventoryResult([]);
-  const { modelSnapshot, generationSettings } = await snapshotProviderModelAtEnqueue(prov, settings, flowInventory);
-  if (prov === 'flow') {
-    assertFlowModelApproval(flowModelApproval, modelSnapshot);
-    await saveSettings({
-      flowModelId: modelSnapshot.modelId,
-      flowModelLabel: modelSnapshot.modelLabel,
-      flowModelSource: modelSnapshot.modelSource,
-      flowModelSelection: settings.imageModel,
-    });
-  }
-  const providerConfig = getProvider(prov);
-  const effTarget = 'project';
-  const maxReferences = providerConfig?.capabilities?.maxReferences || 0;
-
-  // Reference metadata is read once for the complete enqueue operation. Each
-  // queued item receives only its bounded descriptors; bytes stay lazy.
-  let referenceContext = null;
-  if (settings.storyStudioReferencesEnabled !== false && providerConfig?.capabilities?.storyStudioReferences && maxReferences) {
-    try {
-      const client = new StudioClient(settings.studioBaseUrl);
-      referenceContext = normalizeReferenceContext(await client.referenceAssets(slug, episodeCode, episodeTitle || ''));
-    } catch (error) {
-      throw new Error(`Story Studio reference assets could not be read: ${String(error?.message || error)}`);
-    }
-  }
-
-  // Character reference (Flow / Qwen / ChatGPT images). Gate by scene_type so the
-  // sheet only lands on character scenes — read the raw scene plan (scene-review
-  // doesn't expose scene_type). Untagged scenes count as character (matches SS's
-  // renderer).
-  const wantLegacyCharacterRef =
-    providerConfig?.capabilities?.characterReferences &&
-    akind === 'scene' &&
-    !!(characterRef && characterRef.characterId && characterRef.filename);
-  let sceneTypeById = null;
-  if (wantLegacyCharacterRef && src === 'plan') {
-    try {
-      const plan = await new StudioClient(settings.studioBaseUrl).scenePlan(slug, episodeCode);
-      sceneTypeById = new Map((plan?.scene_plan?.scenes || []).map((s) => [s.id, s.scene_type]));
-    } catch {
-      sceneTypeById = null; // fail-open: if we can't read types, reference all
-    }
-  }
-  const appliesLegacyCharacterRef = (key) => {
-    if (!wantLegacyCharacterRef) return false;
-    if (!sceneTypeById) return true;
-    const t = sceneTypeById.get(key);
-    return t === 'character' || t == null;
-  };
-
-  const referencesForScene = (scene) => {
-    const automatic = referenceContext
-      ? resolveReferenceDescriptors({
-          kind: akind,
-          sceneKey: scene.key,
-          sceneNumber: scene.sceneNumber,
-          prompt: scene.prompt,
-          context: referenceContext,
-          maxReferences,
-        })
-      : [];
-    const selectedCharacter = appliesLegacyCharacterRef(scene.key)
-      ? legacyCharacterReferenceDescriptor(slug, characterRef)
-      : null;
-    const candidates = selectedCharacter ? [selectedCharacter, ...automatic] : automatic;
-    const seen = new Set();
-    return candidates.filter((descriptor) => {
-      if (!descriptor || seen.has(descriptor.url)) return false;
-      seen.add(descriptor.url);
-      return true;
-    }).slice(0, maxReferences);
-  };
-
-  // scenes are normalized: { source, key, label, prompt, hasImage }
-  const items = (scenes || []).map((s) => {
-    const referenceDescriptors = referencesForScene(s);
-    const sceneNumber = Number(s.sceneNumber ?? (src === 'prompts' ? s.key : NaN));
-    return mkItem({
-      kind: akind, // 'scene' | 'thumbnail'
-      provider: prov,
-      source: src,
-      slug,
-      episodeCode,
-      episodeTitle: episodeTitle || '',
-      sceneKey: s.key, // stable scene-plan id or thumbnail prompt number
-      sceneNumber: Number.isFinite(sceneNumber) ? sceneNumber : undefined,
-      prompt: s.prompt,
-      target: effTarget,
-      projectId: normalizeFlowProjectId(projectId || settings.flowProjectId),
-      model: settings.imageModel,
-      modelSnapshot: { ...modelSnapshot },
-      generationSettings: { ...generationSettings },
-      aspectRatio:
-        prov === 'qwen'
-          ? settings.qwenAspectRatio || '16:9'
-          : prov === 'aistudio'
-            ? settings.aistudioAspectRatio || '16:9'
-            : prov === 'chatgpt'
-              ? settings.chatgptAspectRatio || '16:9'
-              : settings.aspectRatio,
-      referenceDescriptors,
-      label: `${episodeCode} ${s.label || akind + ' ' + s.key}`,
-    });
-  });
-  return enqueue(items);
-}
-
 async function enqueueStandalone({ prompts, prompt, label, provider }) {
   const texts = (Array.isArray(prompts) ? prompts : [prompt])
     .map((value) => String(value || '').trim())
@@ -1278,7 +1108,7 @@ async function processQueue() {
       let providerAttempted = false;
       let providerActionAttempted = false;
       try {
-        assertSupportedProjectScene(item);
+        assertSupportedQueueItem(item);
         if (item.target === 'gateway') {
           // Only a claim the Gateway reserved against an observed account and price may run.
           if (!item.gatewayClaimId || !item.gatewayReservation) {
@@ -1363,7 +1193,7 @@ async function processQueue() {
           }
         }
         const cd = providerCooldown(settings, provider);
-        if (e?.code === 'scene-source-retired') {
+        if (e?.code === 'unsupported-target') {
           await queueStore.update((queue) => {
             const current = queue.find((candidate) => candidate.id === item.id);
             if (current) Object.assign(current, unsupportedSceneQueueItem(current));
@@ -1524,18 +1354,13 @@ async function clearFailed() {
 
 async function clearCompleted() {
   let cleared = 0;
-  const episodes = new Map();
   await queueStore.update((current) => {
-    for (const item of current) {
-      if (item.status !== 'done' || !item.slug || !item.episodeCode || item.slug === 'standalone') continue;
-      episodes.set(`${item.slug}\u0000${item.episodeCode}`, { slug: item.slug, code: item.episodeCode });
-    }
     const kept = current.filter((item) => item.status !== 'done' || gatewayNeedsReview(item));
     cleared = current.length - kept.length;
     return kept;
   });
   if (cleared) await writeStatus(`Cleared ${cleared} completed job${cleared === 1 ? '' : 's'}.`, 'info');
-  return { ok: true, cleared, completedEpisodes: [...episodes.values()] };
+  return { ok: true, cleared };
 }
 
 // Resume only work with no evidence that a provider request or save completed.
@@ -1961,9 +1786,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'flow:newProject':
       // Manual "New project" button — roll over to a fresh Flow project now.
       reply(startNewFlowProject('manual').then((id) => ({ ok: true, projectId: id })));
-      return true;
-    case 'enqueueScenes':
-      reply(enqueueScenes(msg.payload));
       return true;
     case 'enqueueStandalone':
       reply(enqueueStandalone(msg.payload));

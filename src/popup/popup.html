@@ -59,15 +59,38 @@
 
     <label class="workflow-mode">Mode
       <select id="workingMode" aria-label="Working mode">
-        <option value="studio">Story Studio</option>
-        <option value="standalone">Standalone</option>
+        <option value="standalone" selected>Standalone</option>
         <option value="gateway">Gateway Studio</option>
       </select>
     </label>
 
-    <div class="row hidden" id="gatewayActions">
-      <button id="gatewayClaim" class="btn small" type="button">Claim now</button>
-    </div>
+    <section class="card hidden" id="gatewayCard">
+      <div class="label">Gateway Studio</div>
+      <div class="asset-settings">
+        <label class="asset-setting">
+          <span class="mini">Gateway address</span>
+          <input type="url" id="gatewayUrl" placeholder="Gateway server address" />
+        </label>
+        <label class="asset-setting">
+          <span class="mini">Worker token</span>
+          <input type="password" id="gatewayToken" autocomplete="new-password" placeholder="Token from Gateway" />
+        </label>
+        <label class="asset-setting">
+          <span class="mini">Worker ID</span>
+          <input type="text" id="gatewayWorkerId" maxlength="120" placeholder="Worker ID from Gateway" />
+        </label>
+      </div>
+      <div class="row">
+        <button id="generateGatewayWorkerId" class="btn small" type="button">Generate new ID</button>
+        <button id="testGateway" class="btn small" type="button">Test connection</button>
+        <button id="gatewayClaim" class="btn small" type="button">Claim now</button>
+      </div>
+      <label class="checkbox small">
+        <input type="checkbox" id="gatewayModeEnabled" />
+        <span>Enable dispatch</span>
+      </label>
+      <div id="gatewayPanelStatus" class="hint" aria-live="polite"></div>
+    </section>
 
     <!-- Start here: pick the provider, what to make, and where to save. -->
     <section class="card" id="assetSettingsCard">
@@ -76,16 +99,9 @@
           <span class="mini">Provider</span>
           <select id="provider"></select>
         </label>
-        <label class="asset-setting">
-          <span class="mini">Image</span>
-          <select id="mediaType">
-            <option value="scene-image">Scene images</option>
-            <option value="thumbnail-image">Thumbnail images</option>
-          </select>
-        </label>
         <div class="asset-setting">
           <span class="mini">Save to</span>
-          <div id="saveDestination" class="fixed-destination">Story Studio KH</div>
+          <div id="saveDestination" class="fixed-destination">Downloads</div>
         </div>
       </div>
       <div class="row open-provider-row">
@@ -127,7 +143,7 @@
           <span id="leoRefState" class="muted small grow">—</span>
         </div>
         <div class="hint" id="leoRefHint">
-          Story Studio auto-ingest is unavailable for Leonardo. Attach references in your Leonardo tab (under the prompt → “Add reference to generation”); they apply until removed. Models without reference support ignore them.
+          Attach references in your Leonardo tab (under the prompt → “Add reference to generation”); they apply until removed. Models without reference support ignore them.
         </div>
         <div id="leoStatus" class="muted small"></div>
       </div>
@@ -177,9 +193,6 @@
         <div class="hint">
           Open <b>aistudio.google.com</b> in <b>image mode</b> (pick an image model, e.g. Nano Banana 2 Lite) and keep that tab visible. The extension sends “Create a &lt;ratio&gt; image of …”, runs it, and reads the result; ratio is best-effort via the prompt. Uses your <b>free daily image quota</b>; when it's exhausted the queue pauses until you press Resume after the reset.
         </div>
-        <div class="hint">
-          Story Studio references are pasted into AI Studio before each image (up to 4), then checked before generation.
-        </div>
       </div>
       <div id="chatgptCard" class="leo hidden">
         <div class="label">ChatGPT options</div>
@@ -200,7 +213,7 @@
           </label>
         </div>
         <div class="hint">
-          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b> (a hidden/minimized tab gets its timers throttled and generation crawls). Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> (a full page load) — ChatGPT stalls if a 2nd image is requested in the same page session, and a fresh load is what clears it. The wait is <b>progress-aware</b>: it keeps waiting while ChatGPT is actively generating and only gives up if it goes quiet with no image; <b>Max wait</b> is the hard ceiling for a slow-but-working image. Story Studio can paste up to 4 references into the composer before each image. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
+          Uses your signed-in <b>chatgpt.com</b> tab — <b>keep it the visible/active tab</b> (a hidden/minimized tab gets its timers throttled and generation crawls). Ratio is set via the prompt ("Create a &lt;ratio&gt; image of …"). Each scene opens a <b>fresh chat</b> (a full page load) — ChatGPT stalls if a 2nd image is requested in the same page session, and a fresh load is what clears it. The wait is <b>progress-aware</b>: it keeps waiting while ChatGPT is actively generating and only gives up if it goes quiet with no image; <b>Max wait</b> is the hard ceiling for a slow-but-working image. Image quota is limited; when it's hit the queue pauses so you can rotate providers.
         </div>
       </div>
       <div id="qwenCard" class="leo hidden">
@@ -220,15 +233,6 @@
         <div class="hint">
           Uses your signed-in <b>chat.qwen.ai</b> session and asks Qwen to create one image per scene. The extension reinforces this ratio with both exact dimensions and natural-language canvas instructions, but it remains best-effort because Qwen may choose its default shape. Human Pace applies between every request. Qwen limits ~30 images per window; how a quota hit is handled (pause vs. auto-resume) is set in the <b>Provider cooldown</b> card above.
         </div>
-        <div class="hint">
-          Story Studio can attach one reference before each image. Qwen consumes it per generation, so it re-attaches every time.
-        </div>
-      </div>
-      <div id="charRefCard" class="leo hidden">
-        <label class="checkbox small charref-toggle" for="storyStudioReferencesEnabled">
-          <input type="checkbox" id="storyStudioReferencesEnabled" /> <span>Use Story Studio references</span>
-        </label>
-        <div class="hint" id="storyStudioReferencesHint"></div>
       </div>
       </details>
     </section>
@@ -359,89 +363,6 @@
         </div>
       </section>
     </section>
-
-    <section class="card" id="studioWorkflow">
-      <div class="studio-connection" data-state="untested">
-        <span id="connStatus" class="connection-status" aria-live="polite"></span>
-        <div class="studio-connection-actions">
-          <button id="openStudioSettings" class="btn small connection-fix hidden" type="button">Update Studio URL</button>
-          <button id="testConn" class="btn small connection-test">Test Studio connection</button>
-        </div>
-      </div>
-      <div class="row">
-        <label class="grow">
-          <span class="label">Project</span>
-          <select id="project"></select>
-        </label>
-      </div>
-      <div class="row">
-        <label class="grow">
-          <span class="label">Episode</span>
-          <select id="episode"></select>
-        </label>
-      </div>
-      <div class="row between">
-        <span class="label">Episodes</span>
-        <div class="segmented" id="episodeFilter">
-          <button type="button" class="seg" data-f="todo" title="Episodes that still need scene images">To do</button>
-          <button type="button" class="seg" data-f="done" title="Episodes whose scene images are all done">Done</button>
-          <button type="button" class="seg" data-f="all" title="Every episode with a scene plan">All</button>
-        </div>
-      </div>
-      <div class="row between">
-        <label class="checkbox small">
-          <input type="checkbox" id="includeExisting" />
-          <span id="includeExistingLabel">Include scenes that already have an image</span>
-        </label>
-      </div>
-      <div class="row">
-        <button id="loadScenes" class="btn">Load image prompts</button>
-        <button id="queueAllPending" class="btn small" title="Queue every missing scene across all “To do” episodes in this project">Queue all pending</button>
-      </div>
-    </section>
-
-    <section class="card" id="scenesCard">
-      <div class="row between">
-        <div class="label" id="scenesSummary">Scenes</div>
-        <div class="hgroup">
-          <button id="refreshScenes" class="btn small" title="Re-pull scenes from Story Studio — picks up whatever already saved, keeps you on this episode" disabled>⟳ Refresh</button>
-          <label class="checkbox small"><input type="checkbox" id="selectAll" /> <span>all</span></label>
-        </div>
-      </div>
-      <div class="row batch" id="batchControls">
-        <span class="muted small">Select next:</span>
-        <button class="btn small batch-n" data-n="5">5</button>
-        <button class="btn small batch-n" data-n="10">10</button>
-        <button class="btn small batch-n" data-n="15">15</button>
-        <button class="btn small batch-n" data-n="20">20</button>
-        <button class="btn small" id="selectRemaining" title="Select every scene still missing its asset">Remaining only</button>
-        <div class="batch-custom">
-          <input id="customBatchSize" type="number" min="1" step="1" inputmode="numeric" placeholder="Qty" aria-label="Custom selection quantity" />
-          <button class="btn small" id="selectCustomBatch" title="Select a custom number of missing scenes">Select</button>
-        </div>
-      </div>
-      <div class="row" id="sceneTools">
-        <input id="sceneSearch" class="grow" placeholder="Filter scenes… (number or text)" />
-        <button id="selectFailed" class="btn small hidden" title="Select the scenes that failed in the queue">Select failed</button>
-      </div>
-      <div id="scenes" class="scenes"></div>
-      <button id="queueSelected" class="btn primary" disabled>Queue selected</button>
-      <div class="episode-queue-actions">
-        <button id="queueEpisode" class="link small">Queue this episode</button>
-      </div>
-    </section>
-
-    <!-- Confirmation dialog (avoid wasting work/credits on an accidental batch) -->
-    <div id="confirm" class="overlay hidden">
-      <div class="dialog">
-        <div class="label" id="confirmTitle">Queue these scenes?</div>
-        <div id="confirmBody" class="muted small"></div>
-        <div class="row end">
-          <button id="confirmCancel" class="btn">Cancel</button>
-          <button id="confirmOk" class="btn primary">Queue</button>
-        </div>
-      </div>
-    </div>
 
     <div id="whatsNewModal" class="overlay hidden">
       <div class="dialog wide">

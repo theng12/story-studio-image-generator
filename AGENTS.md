@@ -5,9 +5,9 @@ safety rules.
 
 ## Purpose
 
-A Manifest V3 Chrome extension that reads scene and thumbnail prompts from Story
-Studio KH, generates images through web providers, and saves them back to the
-episode with canonical filenames.
+A Manifest V3 Chrome extension that generates images from pasted prompts through
+web providers and saves them to Downloads. Gateway Studio mode can claim image
+jobs from a Gateway server.
 
 Maintained providers, all image-only and driven through the signed-in web session:
 Google Flow, Google AI Studio, Qwen Studio, Leonardo AI, ChatGPT.
@@ -18,15 +18,14 @@ Veo, clip or video queue paths here.
 ## Architecture
 
 - `manifest.json`: permissions, provider hosts, content-script pairs, version.
-- `src/background.js`: persistent queue, provider tabs, dispatch, retry policy, Story Studio ingestion.
-- `src/popup/`: side-panel selection, mode, queue controls.
-- `src/options/`: Story Studio, provider, model and Gateway worker settings.
+- `src/background.js`: persistent queue, provider tabs, dispatch, retry policy, Downloads/Gateway delivery.
+- `src/popup/`: side-panel mode, prompts, provider settings, Gateway controls, queue.
+- `src/options/`: working mode, Flow RPC fallback ids and Gateway worker settings.
 - `src/lib/config.js`: settings defaults and storage boundary.
 - `src/lib/providers.js`: provider registry and capabilities.
 - `src/lib/model-identity.js`: model snapshots, inventory provenance, generation params.
 - `src/lib/flow-exec.js`: one-shot Flow MAIN-world image commands (generate, upload, account/credits, inventory).
 - `src/lib/gateway-*.js`: worker transport, job→queue mapping, account/quote, durable bytes.
-- `src/lib/reference-assets.js`, `src/lib/story-studio.js`: reference descriptors and the Story Studio REST client.
 - `src/content/<provider>-main.js` + `<provider>.js`: MAIN-world and isolated pairs per provider.
 
 MAIN-world scripts may touch page JavaScript, auth state and controls; only the
@@ -39,7 +38,7 @@ must stay:
 
 - Persistent through side-panel closure and service-worker termination.
 - Strictly sequential, so no provider is flooded.
-- Deduplicated by provider and scene identity.
+- Deduplicated by provider and prompt identity.
 - Resumable only for operations known safe to repeat.
 - Human-paced with the persisted user min/max delay; worker death must not bypass
   the next allowed provider-request timestamp.
@@ -61,10 +60,10 @@ capture existing outputs before clicking Generate; return only a newly rendered
 result; keep verified selectors with careful semantic fallbacks; treat quota
 signals as a pause, not a failed batch.
 
-References are descriptor-only queue data. Bound bytes before an adapter sees them:
-Flow, AI Studio and ChatGPT at most four; Qwen one; Leonardo is provider-page
-managed and never auto-ingests. AI Studio and ChatGPT clear old attachments, paste
-each reference in order and verify the final count; Qwen keeps its one-chip check.
+Gateway reference bytes are bounded before an adapter sees them: Flow at most
+four. AI Studio and ChatGPT clear old attachments, paste each reference in order
+and verify the final count; Qwen keeps its one-chip check. Leonardo is
+provider-page managed and never auto-ingests.
 
 The registry ships with the extension, so new providers need code and manifest
 changes. Existing providers refresh their model listings as new models appear,
@@ -75,27 +74,9 @@ none of the others. Missing capture support is an explicit parity gap, never
 permission to relabel fallback records as live. Leonardo discovery is live from
 the signed-in page by design.
 
-## Story Studio contract
-
-Default servers: `http://localhost:8000` desktop, `http://localhost:8766` server
-mode. Remote mode uses the session cookie and a runtime-granted host permission.
-
-Do not change filenames or ingest routes casually — Story Studio depends on the
-scene and thumbnail naming scheme. Credentials, request templates and API keys
-stay in local Chrome storage only.
-
-Project scene images require `source: 'plan'` and stable Scene Review IDs and must
-save through the Scene Review upload route. Image Prompts ingestion is
-thumbnail-only; only an explicit `target: 'download'` bypasses project-scene
-safety. Never spend provider work on non-plan project scene jobs.
-
-With references enabled, resolve episode, matching scene, character, composition
-and style assets into bounded descriptors at enqueue and fetch bytes lazily in the
-worker.
-
 ## Gateway worker mode
 
-A third mode beside `studio` and `standalone`; those two keep their behaviour.
+A second mode beside Standalone (the default).
 Gateway items are the only ones carrying `gatewayJobId`. Outbound only: the
 extension never listens for inbound requests.
 
@@ -127,10 +108,10 @@ Before handing off changes:
 2. Run the Node test suite (`npm test`). It is fixture-level: it never proves live
    provider behaviour.
 3. Bump `manifest.json` for user-facing changes and add a CHANGELOG entry.
-4. Verify Story Studio ingestion when save behaviour changes.
+4. Verify Downloads and Gateway delivery when save behaviour changes.
 5. For discovery or control changes, check refreshed listings against real
    provider captures and trace each supported value through selection, queue
-   snapshot, provider request and the Story/Gateway caller. Preserve the caller's
+   snapshot, provider request and the Gateway caller. Preserve the caller's
    verified fields; `durationMs` is queue time, not scene duration.
 6. Keep the exact source binding, commands, focused check output and exit codes.
    Add authenticated live evidence for each mode and model before calling it

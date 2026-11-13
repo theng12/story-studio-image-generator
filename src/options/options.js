@@ -1,22 +1,15 @@
 import {
   requestSettings as getSettings,
   saveSettings,
-  getCredentials,
-  saveCredentials,
   flowWorkspace,
 } from '../lib/config.js';
-import { StudioClient } from '../lib/story-studio.js';
 import { initTheme } from '../lib/theme.js';
 import { createImageGatewayWorkerId } from '../lib/gateway-worker.js';
 import { FLOW_FALLBACK_MODELS } from '../lib/providers.js';
+import { readWorkMode, writeWorkMode } from '../lib/work-mode.js';
 
 const $ = (id) => document.getElementById(id);
-const FIELDS = [
-  'studioBaseUrl',
-  'gatewayUrl',
-  'gatewayToken',
-  'gatewayWorkerId',
-];
+const FIELDS = ['gatewayUrl', 'gatewayToken', 'gatewayWorkerId'];
 const CHECKBOX_FIELDS = ['gatewayModeEnabled'];
 // Advanced fallback ids; discovery on the live page wins, these only fill a miss.
 const RPC_FIELDS = { rpcIdAccount: 'account', rpcIdCredits: 'credits', rpcIdGenerate: 'generate', rpcIdUpload: 'upload' };
@@ -27,10 +20,7 @@ async function load() {
   for (const f of FIELDS) if ($(f)) $(f).value = s[f] ?? '';
   for (const f of CHECKBOX_FIELDS) if ($(f)) $(f).checked = !!s[f];
   for (const [id, name] of Object.entries(RPC_FIELDS)) if ($(id)) $(id).value = s.rpcIds?.[name] || '';
-  const creds = await getCredentials();
-  $('studioUsername').value = creds.username || '';
   await loadMode();
-  refreshGrantStatus();
   refreshVisibility();
   renderGatewayPrices(s);
 }
@@ -115,148 +105,29 @@ function autoSave() {
   autoTimer = setTimeout(save, 400);
 }
 
-async function login() {
-  const url = $('studioBaseUrl').value.trim();
-  const username = $('studioUsername').value.trim();
-  const password = $('studioPassword').value;
-  $('loginStatus').textContent = 'Signing in…';
-  try {
-    await new StudioClient(url).login(username, password);
-    await saveCredentials({ username, password });
-    $('loginStatus').textContent = '✓ Signed in — this browser session is ready.';
-  } catch (e) {
-    $('loginStatus').textContent = `Login failed: ${e.message}`;
-  }
-}
-
-// ── Host-permission self-grant (so a remote/Tailscale server works without a
-// hardcoded whitelist — the user authorizes their own server URL at runtime). ──
+// ── Host-permission self-grant (so a remote Gateway works without a hardcoded whitelist) ──
 function originPattern(url) {
   try {
     const u = new URL(url);
-    // Match patterns are host-level (no port) — this covers any port on the host.
     return `${u.protocol}//${u.hostname}/*`;
   } catch {
     return null;
   }
 }
-function isLocalUrl(url) {
-  try {
-    const h = new URL(url).hostname;
-    return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
-  } catch {
-    return false;
-  }
-}
 
-async function refreshGrantStatus() {
-  const el = $('grantStatus');
-  const btn = $('grantAccess');
-  const url = $('studioBaseUrl').value.trim();
-  const pat = originPattern(url);
-  if (!pat) {
-    el.textContent = '';
-    return;
-  }
-  if (isLocalUrl(url)) {
-    el.textContent = 'Local — no grant needed.';
-    el.style.color = 'var(--muted)';
-    btn.disabled = true;
-    return;
-  }
-  btn.disabled = false;
-  const granted = await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
-  el.textContent = granted ? '✓ Access granted' : 'Not granted — click to grant.';
-  el.style.color = granted ? 'var(--ok)' : 'var(--warn)';
-}
-
-async function grantAccess() {
-  const url = $('studioBaseUrl').value.trim();
-  const pat = originPattern(url);
-  const el = $('grantStatus');
-  if (!pat) {
-    el.textContent = 'Enter a valid Server URL first.';
-    el.style.color = 'var(--err)';
-    return;
-  }
-  if (isLocalUrl(url)) return refreshGrantStatus();
-  try {
-    const granted = await chrome.permissions.request({ origins: [pat] });
-    if (!granted) {
-      el.textContent = 'Permission declined.';
-      el.style.color = 'var(--err)';
-      return;
-    }
-    // Quick reachability test so the user knows the URL/permission combo works.
-    el.textContent = '✓ Granted — testing…';
-    el.style.color = 'var(--ok)';
-    try {
-      await new StudioClient(url).listProjects();
-      el.textContent = '✓ Access granted, server reachable.';
-    } catch (e) {
-      el.textContent = `✓ Granted, but server not reachable yet (${e.message}). Check it's running + you're logged in.`;
-      el.style.color = 'var(--warn)';
-    }
-  } catch (e) {
-    el.textContent = `Grant failed: ${e.message}`;
-    el.style.color = 'var(--err)';
-  }
-}
-
-async function testConnection() {
-  const url = $('studioBaseUrl').value.trim();
-  const status = $('testStatus');
-  status.textContent = 'Testing connection…';
-  status.style.color = 'var(--muted)';
-  if (!url) {
-    status.textContent = 'Enter a Server URL first.';
-    status.style.color = 'var(--err)';
-    return;
-  }
-  if (!isLocalUrl(url)) {
-    const pat = originPattern(url);
-    const granted = pat && await chrome.permissions.contains({ origins: [pat] }).catch(() => false);
-    if (!granted) {
-      status.textContent = 'Grant access to this server first, then test again.';
-      status.style.color = 'var(--warn)';
-      return;
-    }
-  }
-  try {
-    const projects = await new StudioClient(url).listProjects();
-    const count = Array.isArray(projects) ? projects.length : (projects?.projects || []).length;
-    status.textContent = `✓ Connected — ${count} project${count === 1 ? '' : 's'} found.`;
-    status.style.color = 'var(--ok)';
-  } catch (error) {
-    status.textContent = `Couldn’t connect: ${error.message}. ${isLocalUrl(url) ? 'Is Story Studio running?' : 'Check the server, access grant, and sign-in.'}`;
-    status.style.color = 'var(--err)';
-  }
-}
-
-$('save').onclick = save;
-$('login').onclick = login;
-$('grantAccess').onclick = grantAccess;
-$('testConnection').onclick = testConnection;
-$('studioBaseUrl').addEventListener('input', refreshGrantStatus);
-
-// ── Gateway Studio image worker settings ────────────────────────────────────
 const MODE_KEY = 'imageGeneratorWorkMode';
 
 async function loadMode() {
-  const stored = (await chrome.storage.local.get(MODE_KEY))[MODE_KEY];
-  if ($('workingMode')) $('workingMode').value = ['studio', 'standalone', 'gateway'].includes(stored) ? stored : 'studio';
+  if ($('workingMode')) $('workingMode').value = await readWorkMode();
 }
 
 function refreshVisibility() {
-  const gateway = $('workingMode')?.value === 'gateway';
-  const scope = $('studioSection');
-  if (scope) scope.classList.toggle('hidden', gateway);
   const fields = $('gatewayFields');
   if (fields) fields.classList.toggle('hidden', !$('gatewayModeEnabled')?.checked);
 }
 
 async function saveMode() {
-  if ($('workingMode')) await chrome.storage.local.set({ [MODE_KEY]: $('workingMode').value });
+  if ($('workingMode')) await writeWorkMode($('workingMode').value);
   refreshVisibility();
   await requestFlowAccess();
 }
@@ -268,30 +139,30 @@ async function requestFlowAccess() {
 }
 
 async function generateGatewayId() {
- const id = createImageGatewayWorkerId();
- if ($('gatewayWorkerId')) $('gatewayWorkerId').value = id;
- await autoSave();
+  const id = createImageGatewayWorkerId();
+  if ($('gatewayWorkerId')) $('gatewayWorkerId').value = id;
+  await autoSave();
 }
 
 async function testGatewayConnection() {
- const status = $('gatewayTestStatus');
- if (!status) return;
- status.textContent = 'Testing Gateway connection…';
- status.style.color = 'var(--muted)';
- await save();
- try {
- const result = await chrome.runtime.sendMessage({ type: 'gateway:testConnection' });
- if (result?.ok) {
- status.textContent = `Gateway connected. ${Number.isFinite(result.balance?.value) ? `${result.balance.value} credits remaining.` : 'Remaining credits unknown.'} Upload limit: ${result.maxResultBytes} bytes. Select Gateway Studio in the side panel to receive jobs.`;
- status.style.color = 'var(--ok)';
- } else {
- status.textContent = result?.error || 'Couldn’t connect to Gateway.';
- status.style.color = 'var(--err)';
- }
- } catch (error) {
- status.textContent = `Couldn’t connect: ${error.message}`;
- status.style.color = 'var(--err)';
- }
+  const status = $('gatewayTestStatus');
+  if (!status) return;
+  status.textContent = 'Testing Gateway connection…';
+  status.style.color = 'var(--muted)';
+  await save();
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'gateway:testConnection' });
+    if (result?.ok) {
+      status.textContent = `Gateway connected. ${Number.isFinite(result.balance?.value) ? `${result.balance.value} credits remaining.` : 'Remaining credits unknown.'} Upload limit: ${result.maxResultBytes} bytes. Select Gateway Studio in the side panel to receive jobs.`;
+      status.style.color = 'var(--ok)';
+    } else {
+      status.textContent = result?.error || 'Couldn’t connect to Gateway.';
+      status.style.color = 'var(--err)';
+    }
+  } catch (error) {
+    status.textContent = `Couldn’t connect: ${error.message}`;
+    status.style.color = 'var(--err)';
+  }
 }
 
 if ($('workingMode')) $('workingMode').addEventListener('change', () => { saveMode(); });

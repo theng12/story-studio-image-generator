@@ -19,39 +19,21 @@
       <div class="field">
         <span class="label">Working mode</span>
         <select id="workingMode">
-          <option value="studio">Story Studio</option>
-          <option value="standalone">Standalone</option>
+          <option value="standalone" selected>Standalone</option>
           <option value="gateway">Gateway Studio</option>
         </select>
       </div>
     </section>
 
-    <section class="card settings-section" id="studioSection">
-      <div class="label">Story Studio connection (Studio and Standalone modes)</div>
-      <label class="connection-url">
-        <span class="label">Server URL</span>
-        <input type="text" id="studioBaseUrl" placeholder="http://localhost:8677" />
-      </label>
-      <p class="hint connection-copy">Use <b>localhost</b> when Story Studio runs on this computer. For a remote or Tailscale server, grant site access, then sign in.</p>
-      <div class="connection-actions">
-        <button id="grantAccess" class="btn small">Grant site access</button>
-        <button id="testConnection" class="btn small">Test connection</button>
+    <section class="card settings-section">
+      <div class="label">Flow request ids (advanced)</div>
+      <div class="hint">Resolved from the live page each time; these are only the fallback used when discovery cannot identify one. A Flow change is fixed here, without reinstalling.</div>
+      <div class="edit-grid">
+        <label class="field">Account<input type="text" id="rpcIdAccount" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+        <label class="field">Credits<input type="text" id="rpcIdCredits" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+        <label class="field">Generate<input type="text" id="rpcIdGenerate" autocomplete="off" spellcheck="false" maxlength="32" /></label>
+        <label class="field">Upload<input type="text" id="rpcIdUpload" autocomplete="off" spellcheck="false" maxlength="32" /></label>
       </div>
-      <div class="connection-feedback">
-        <span id="grantStatus" class="muted small" aria-live="polite"></span>
-        <span id="testStatus" class="hint" aria-live="polite"></span>
-      </div>
-      <div class="connection-credentials" id="loginFields">
-        <label>Username <span class="muted">(remote only)</span>
-          <input type="text" id="studioUsername" autocomplete="username" placeholder="Your username" />
-        </label>
-        <label>Password <span class="muted">(remote only)</span>
-          <input type="password" id="studioPassword" autocomplete="current-password" placeholder="Stored locally" />
-        </label>
-        <button id="login" class="btn">Sign in</button>
-      </div>
-      <p class="hint connection-login-hint">Sign in is only needed when your remote Story Studio server requires credentials.</p>
-      <div class="hint" id="loginStatus" aria-live="polite"></div>
     </section>
 
     <section class="card settings-section">
@@ -82,16 +64,6 @@
             <button id="testGateway" class="btn small">Test connection</button>
           </div>
           <div id="gatewayTestStatus" class="hint" aria-live="polite"></div>
-        </div>
-        <div class="field">
-          <div class="label">Flow request ids (advanced)</div>
-          <div class="hint">Resolved from the live page each time; these are only the fallback used when discovery cannot identify one. A Flow change is fixed here, without reinstalling.</div>
-          <div class="edit-grid">
-            <label class="field">Account<input type="text" id="rpcIdAccount" autocomplete="off" spellcheck="false" maxlength="32" /></label>
-            <label class="field">Credits<input type="text" id="rpcIdCredits" autocomplete="off" spellcheck="false" maxlength="32" /></label>
-            <label class="field">Generate<input type="text" id="rpcIdGenerate" autocomplete="off" spellcheck="false" maxlength="32" /></label>
-            <label class="field">Upload<input type="text" id="rpcIdUpload" autocomplete="off" spellcheck="false" maxlength="32" /></label>
-          </div>
         </div>
         <div class="field">
           <div class="label">Credits per image</div>

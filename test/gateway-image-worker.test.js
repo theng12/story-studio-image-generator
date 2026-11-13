@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gatewayBinding, imageGatewayJobToItem, normalizeImageGatewayJob } from '../src/lib/gateway-worker.js';
 import { assertQueuedModelIdentity } from '../src/lib/model-identity.js';
-import { canRetryItem, isUnsupportedProjectScene, recoverInterruptedQueue } from '../src/lib/queue-migration.js';
+import { canRetryItem, isUnsupportedQueueItem, recoverInterruptedQueue } from '../src/lib/queue-migration.js';
 import { enqueueItems } from '../src/lib/queue-operations.js';
 import { claimImageJob, reportImageFailure, reportImageResult, reportImageTelemetry, testImageGateway } from '../src/lib/gateway-client.js';
 
@@ -17,8 +17,8 @@ test('strict captured model, ratio and reference validation; actual queue identi
   assert.equal(item.modelSnapshot.modelId, 'BELUGA');
   assert.equal(item.gatewayReferenceCount, 1);
   assert.equal(item.references, undefined);
-  assert.equal(isUnsupportedProjectScene(item), false);
-  assert.equal(isUnsupportedProjectScene({ source: 'prompts', kind: 'scene', target: 'project' }), true);
+  assert.equal(isUnsupportedQueueItem(item), false);
+  assert.equal(isUnsupportedQueueItem({ source: 'prompts', kind: 'scene', target: 'project' }), true);
   for (const patch of [{ kind: 'video' }, { modelKey: 'invented' }, { provider: 'chatgpt' }, { aspectRatio: '' }, { aspectRatio: '2:1' }, { aspectRatio: '21:9' },
     { aspectRatio: '4:3' }, { aspectRatio: '1:1' }, { aspectRatio: '3:4' },
     { count: 3 }, { count: 0 }, { size: '1024x1024' }, { referenceImages: null }, { referenceImages: [{ mediaType: 'image/png', dataBase64: 'AAAA' }] }, { prompt: 42 }]) {

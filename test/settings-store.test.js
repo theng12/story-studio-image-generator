@@ -8,7 +8,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test('concurrent settings patches preserve unrelated fields and return the merged snapshots', async () => {
   let stored = {
     provider: 'flow',
-    studioBaseUrl: 'http://localhost:8766',
+    flowProjectName: 'First',
     humanDelayMinSec: 5,
     humanDelayMaxSec: 60,
   };
@@ -29,15 +29,15 @@ test('concurrent settings patches preserve unrelated fields and return the merge
       await pause(8);
       return { humanDelayMinSec: 12 };
     }),
-    store.patch({ studioBaseUrl: 'http://localhost:8000' }),
+    store.patch({ flowProjectName: 'Second' }),
   ]);
 
   assert.equal(panel.humanDelayMinSec, 12);
   assert.equal(options.humanDelayMinSec, 12);
-  assert.equal(options.studioBaseUrl, 'http://localhost:8000');
+  assert.equal(options.flowProjectName, 'Second');
   assert.deepEqual(stored, {
     provider: 'flow',
-    studioBaseUrl: 'http://localhost:8000',
+    flowProjectName: 'Second',
     humanDelayMinSec: 12,
     humanDelayMaxSec: 60,
   });
