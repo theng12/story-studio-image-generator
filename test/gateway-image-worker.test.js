@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gatewayBinding, imageGatewayJobToItem, normalizeImageGatewayJob } from '../src/lib/gateway-worker.js';
+import { claimMarkerIsStale, gatewayBinding, imageGatewayJobToItem, normalizeImageGatewayJob } from '../src/lib/gateway-worker.js';
 import { assertQueuedModelIdentity } from '../src/lib/model-identity.js';
 import { canRetryItem, isUnsupportedQueueItem, recoverInterruptedQueue } from '../src/lib/queue-migration.js';
 import { enqueueItems } from '../src/lib/queue-operations.js';
@@ -91,4 +91,24 @@ test('actual transport uses claim envelope and encoded job route; strict acknowl
     await assert.rejects(testImageGateway(connection), /does not match/);
     assert.equal(calls[0].init.redirect, 'error');
   } finally { globalThis.fetch = original; }
+});
+
+test('an unsettled claim marker expires on Gateway\'s lease, never on a person', () => {
+  const now = 1_800_000_000_000;
+  const marker = { binding: 'b', claimId: 'c', at: now - 60_000 };
+  // Inside the advertised lease: still a real hold, so a second claim is refused.
+  assert.equal(claimMarkerIsStale(marker, 600, now), false);
+  // Past the lease (plus the settle window): Gateway has already let the job go.
+  assert.equal(claimMarkerIsStale({ ...marker, at: now - 700_000 }, 600, now), true);
+  // A lease Gateway did not state is never treated as expired on a guess.
+  assert.equal(claimMarkerIsStale({ ...marker, at: now - 10 * 24 * 3600_000 }, undefined, now), false);
+  assert.equal(claimMarkerIsStale({ ...marker, at: now - 10 * 24 * 3600_000 }, null, now), false);
+  // A short lease Gateway really advertised does expire, and the 30 s settle window is honoured:
+  // 90 + 30 = 120 s, so 119 s is still held and 121 s has expired.
+  assert.equal(claimMarkerIsStale({ ...marker, at: now - 119_000 }, 90, now), false);
+  assert.equal(claimMarkerIsStale({ ...marker, at: now - 121_000 }, 90, now), true);
+  // A marker with no usable time cannot be proven old, so the rule never guesses it stale; the
+  // caller stamps one on first sight (`liveClaimMarker`), which bounds it to one lease from then.
+  assert.equal(claimMarkerIsStale({ binding: 'b' }, 600, now), false);
+  assert.equal(claimMarkerIsStale(null, 600, now), false);
 });

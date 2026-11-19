@@ -8,6 +8,26 @@ export const GATEWAY_IMAGE_KINDS = Object.freeze(['image']);
 // Only the ratios with an observed submit value; the rest are refused at claim.
 export const GATEWAY_IMAGE_ASPECTS = Object.freeze(['16:9', '9:16']);
 export const createImageGatewayWorkerId = () => `imgworker_${crypto.randomUUID()}`;
+
+// The Gateway owns the claim truth: it holds a job whose worker has been silent past its own
+// advertised `leaseSeconds` (GET /api/workers/health). This marker is only a local guard against
+// claiming twice, so it expires on that same clock instead of waiting for a person.
+// Two guards keep it from ever getting ahead of Gateway:
+//   - an unreadable lease (`leaseSeconds` null/undefined, i.e. health could not be read) is never
+//     treated as expired, because we cannot prove Gateway let the job go;
+//   - one extra settle window is added, so our marker never expires before Gateway's own reaper.
+export const GATEWAY_CLAIM_DEFAULT_LEASE_SECONDS = 600;
+export const GATEWAY_CLAIM_SETTLE_SECONDS = 30;
+export function claimMarkerIsStale(marker, leaseSeconds, now = Date.now()) {
+  if (!marker || typeof marker !== 'object') return false;
+  const at = Number(marker.at);
+  // A marker with no usable time cannot be proven old, so it is never judged stale here. The
+  // caller stamps one on first sight, which bounds it to one lease from then.
+  if (!Number.isFinite(at) || at <= 0) return false;
+  const lease = Number(leaseSeconds);
+  if (!Number.isFinite(lease) || lease <= 0) return false; // lease unknown: hold, never guess
+  return now - at > (lease + GATEWAY_CLAIM_SETTLE_SECONDS) * 1000;
+}
 function required(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`Gateway image job has no ${label}.`);
   return value;

@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.34 — 2026-11-20
+- An uncertain Gateway claim no longer needs a person to unstick it. If a claim went unanswered, this extension used to refuse every new claim until someone reviewed it in Gateway. It now expires on Gateway's own lease clock: past the lease Gateway has already let the job go, so this worker claims again and says what happened. The error is still shown; only the wait for a human is gone. An unreadable lease is never guessed at, so a live claim is never dropped early.
+
 ## 0.50.33 — 2026-11-13
 - Contrast and layering pass: the border ramp separates cards from the panel ground in light and dark, and every text, muted, accent, primary-button and status pair measures at least 5.1:1 in both themes.
 

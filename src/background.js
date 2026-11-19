@@ -61,6 +61,7 @@ import {
   gatewayBinding,
   imageGatewayJobToItem,
   isImageGatewayJobQueued,
+  claimMarkerIsStale,
 } from './lib/gateway-worker.js';
 import { imageQuote, observedAccount } from './lib/gateway-account.js';
 import { getGatewayArtifact, putGatewayArtifact, deleteGatewayArtifact } from './lib/gateway-artifacts.js';
@@ -1495,7 +1496,10 @@ async function gatewayTelemetry(settings, account = null, flow = null) {
   const stored = await chrome.storage.local.get([NEXT_PROVIDER_RUN_KEY, COOLDOWN_KEY, GATEWAY_CLAIM_KEY]);
   const control = await getGatewayControl(settings);
   const paused = await isPaused();
-  const held = !!stored[GATEWAY_CLAIM_KEY] || queue.some((item) => gatewayNeedsReview(item) || (item.status === 'failed' && item.providerAttempted));
+  // An expired marker is not a hold: reporting "recovering" while the worker goes on to claim
+  // would tell Gateway this worker is stuck when it is not.
+  const marker = await liveClaimMarker(stored[GATEWAY_CLAIM_KEY]);
+  const held = !!marker || queue.some((item) => gatewayNeedsReview(item) || (item.status === 'failed' && item.providerAttempted));
   const running = queue.some((item) => item.status === 'running');
   const provider = queue.find((item) => item.status === 'running' || item.status === 'pending')?.provider || 'flow';
   const cooldown = Number(stored[COOLDOWN_KEY]?.[provider]) || 0;
@@ -1526,8 +1530,31 @@ function gatewayModelCredits(settings, job) {
   }
   return 0;
 }
+// The lease Gateway last advertised. It is learned from the tick's own health read and never
+// fetched separately, so the marker check costs no extra request. `undefined` means unknown, and
+// an unknown lease never expires a live claim on a guess.
+let knownLeaseSeconds;
+
+
+// The marker while it is still a real hold. One expired past Gateway's lease is removed here and
+// reported as no hold, so every caller (claim gate and telemetry) agrees on the same truth.
+async function liveClaimMarker(marker) {
+  if (!marker) return null;
+  // A marker saved before `at` existed cannot be proven old; stamp it once so it is bounded by
+  // one lease from now instead of holding this worker until a person looks.
+  if (!(Number(marker.at) > 0)) {
+    marker = { ...marker, at: Date.now() };
+    await chrome.storage.local.set({ [GATEWAY_CLAIM_KEY]: marker });
+  }
+  if (!claimMarkerIsStale(marker, knownLeaseSeconds)) return marker;
+  await chrome.storage.local.remove(GATEWAY_CLAIM_KEY);
+  await writeStatus('The last Gateway claim went unanswered past its lease; it has expired and this worker will claim again.', 'err');
+  return null;
+}
 async function syncGatewayTelemetry(settings) {
   const health = await testImageGateway(settings);
+  // The one health read per tick is also where the lease is learned.
+  knownLeaseSeconds = health.leaseSeconds;
   await applyGatewayControl(settings, health.control);
   // Heartbeats carry the real account and project, or every one reports unknown/not_ready.
   const inspected = await inspectFlowAccountDetailed();
@@ -1669,7 +1696,10 @@ async function gatewayCanClaim(settings) {
   const queue = await getQueue();
   if (queue.some((item) => gatewayNeedsReview(item) || item.status === 'pending' || item.status === 'running')) return false;
   const stored = await chrome.storage.local.get([GATEWAY_CLAIM_KEY, NEXT_PROVIDER_RUN_KEY, COOLDOWN_KEY]);
-  if (stored[GATEWAY_CLAIM_KEY]) {
+  // The marker expires on Gateway's own lease clock; past it Gateway has already let the job go,
+  // so waiting for a person would hold this worker idle with nobody able to release it. Only an
+  // expired marker may fall through — a live one still blocks the claim.
+  if (await liveClaimMarker(stored[GATEWAY_CLAIM_KEY])) {
     await writeStatus('Gateway has an unsettled claim. Review it in Gateway before reconnecting.', 'err');
     return false;
   }
