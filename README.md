@@ -1,8 +1,20 @@
-# Story Studio Image Generator
+# <img src="assets/icon.png" alt="" width="32" height="32"> Story Studio Image Generator
 
 A Chrome extension that generates images from prompts with a signed-in web
 provider and saves them to Downloads. It can also work as a Gateway Studio
 image worker.
+
+![The side panel while a batch generates: three queued scenes, two done, one running with a progress bar](docs/screenshots/panel-light.png)
+
+The panel shows the active batch, each scene's progress and the queue controls. A dark theme is
+carried too: [panel-dark.png](docs/screenshots/panel-dark.png).
+
+![Settings: working mode, Flow request ids and the Gateway worker switch](docs/screenshots/settings-light.png)
+
+Settings carries the real choices — working mode and the Gateway worker switch:
+[dark version](docs/screenshots/settings-dark.png).
+
+Screenshots are captured from the build being released, in a throwaway profile with demo content.
 
 ## What it does
 
