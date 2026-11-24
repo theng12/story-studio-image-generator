@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { observedAccount } from '../src/lib/gateway-account.js';
+import { RPC_NAMES } from '../src/lib/rpc-ids.js';
 
 const flowExec = readFileSync(new URL('../src/lib/flow-exec.js', import.meta.url), 'utf8');
 const background = readFileSync(new URL('../src/background.js', import.meta.url), 'utf8');
+const optionsHtml = readFileSync(new URL('../src/options/options.html', import.meta.url), 'utf8');
+const optionsJs = readFileSync(new URL('../src/options/options.js', import.meta.url), 'utf8');
 
 test('the tab URL is the only account source; there is no in-page identity probe', () => {
   assert.match(background, /const FLOW_PROJECT_URL/, 'the project url pattern is defined');
@@ -15,6 +18,14 @@ test('the tab URL is the only account source; there is no in-page identity probe
   assert.doesNotMatch(background, /flow:inspectAccount/, 'no account probe is sent to the page');
   assert.doesNotMatch(flowExec, /visibleSignedIn|SIGNED_IN_MARKERS|inspectAccount/, 'the page has no account/sign-in logic');
   assert.doesNotMatch(flowExec, /'account', 'credits'/, 'the account/credits RPC ids are gone');
+});
+
+test('Settings offers exactly the RPC ids the resolver reads', () => {
+  // A field on Settings that RPC_NAMES does not read is a control that does nothing.
+  const htmlIds = [...optionsHtml.matchAll(/id="rpcId([A-Za-z]+)"/g)].map((m) => m[1].toLowerCase());
+  assert.deepEqual([...htmlIds].sort(), [...RPC_NAMES].sort(), 'Settings fields match rpc-ids.js RPC_NAMES');
+  const jsNames = [...optionsJs.matchAll(/rpcId[A-Za-z]+: '([a-z]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...jsNames].sort(), [...RPC_NAMES].sort(), 'options.js maps exactly those fields');
 });
 
 test('a home tab is no_project, not an unreadable account', () => {

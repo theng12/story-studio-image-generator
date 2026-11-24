@@ -11,9 +11,8 @@ import { normalizeSelectedProvider } from './providers.js';
 export const FLOW_WORKSPACE_URL = 'https://flow.google.com';
 
 // Known-good Flow RPC ids: a fallback data value, editable in Settings, never a code constant.
+// Only the ids the resolver reads (see rpc-ids.js RPC_NAMES) belong here.
 export const FLOW_RPC_DEFAULTS = {
-  account: 'o30O0e',
-  credits: 'nzlxg',
   generate: 'ogiZ0b',
   upload: 'maseQ',
 };

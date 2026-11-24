@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.35 — 2026-11-24
+- Settings no longer shows the **Account** and **Credits** Flow request-id fields. 0.50.32 said those ids were dropped, and they were dropped from the resolver, but the two boxes stayed on the page taking a value nothing read. Both fields and their shipped defaults are gone, and a test now checks the Settings fields against the ids the resolver actually uses, so a field that does nothing cannot come back quietly.
+
 ## 0.50.34 — 2026-11-20
 - An uncertain Gateway claim no longer needs a person to unstick it. If a claim went unanswered, this extension used to refuse every new claim until someone reviewed it in Gateway. It now expires on Gateway's own lease clock: past the lease Gateway has already let the job go, so this worker claims again and says what happened. The error is still shown; only the wait for a human is gone. An unreadable lease is never guessed at, so a live claim is never dropped early.
 

@@ -12,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 const FIELDS = ['gatewayUrl', 'gatewayToken', 'gatewayWorkerId'];
 const CHECKBOX_FIELDS = ['gatewayModeEnabled'];
 // Advanced fallback ids; discovery on the live page wins, these only fill a miss.
-const RPC_FIELDS = { rpcIdAccount: 'account', rpcIdCredits: 'credits', rpcIdGenerate: 'generate', rpcIdUpload: 'upload' };
+const RPC_FIELDS = { rpcIdGenerate: 'generate', rpcIdUpload: 'upload' };
 
 async function load() {
   await initTheme();
