@@ -1985,10 +1985,13 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 });
 
 async function syncGatewayAlarm() {
-  // Always keep the tick. Gateway settings can arrive from restored or synced storage with no
-  // panel save, and a missing alarm is a worker that silently never claims. The loop itself
-  // refuses instantly when gateway mode is off, so the idle cost is one quick wake per 30 s.
-  gatewayAlarmCreate();
+  // The tick exists only while Gateway mode is on. An alarm that is always present wakes the worker
+  // every 30 s with nothing to do, so it never suspends: measured 2026-11-25, this worker stayed
+  // alive for the whole 120 s window while video's and audio's suspended. Restored or synced settings
+  // still get the alarm — the storage.onChanged, onStartup and onInstalled listeners all re-run this
+  // when the value arrives, so a missing alarm cannot hide a mode that is actually on.
+  if (await gatewayIsActive(await getSettings())) gatewayAlarmCreate();
+  else gatewayAlarmClear();
 }
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && (changes.imageGeneratorWorkMode || changes.gatewayConnection)) {

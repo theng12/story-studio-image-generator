@@ -53,11 +53,16 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
     globalThis.clearTimeout = (id) => timers.delete(id);
   }
   const alarms = [], calls = [], provider = [], downloads = [];
+  const alarmsCreated = [], alarmsCleared = [];
   let listener;
   const tab = { id: 7, status: 'complete', url: tabUrl };
   globalThis.chrome = {
     storage: { local: area(local), sync: area(sync), session: area({}), onChanged: { addListener() {} } },
-    alarms: { create() {}, clear() {}, onAlarm: { addListener(fn) { alarms.push(fn); } } },
+    alarms: {
+      create: (name, options) => { alarmsCreated.push({ name, ...options }); },
+      clear: async (name) => { alarmsCleared.push(name); return true; },
+      onAlarm: { addListener(fn) { alarms.push(fn); } },
+    },
     runtime: { getManifest: () => ({ version: '0.50.14' }), onMessage: { addListener(fn) { listener = fn; } } },
     sidePanel: { setPanelBehavior: async () => {} },
     downloads: { download: async (options) => { downloads.push(clone(options)); return downloads.length; } },
@@ -126,7 +131,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   await import(`../src/background.js?gateway-fixture=${++bootId}`);
   await pause(20);
   return {
-    local, sync, calls, provider, downloads,
+    local, sync, calls, provider, downloads, alarmsCreated, alarmsCleared,
     get workCalls() { return calls.filter(({ url }) => !/\/(health|telemetry)$/.test(url)); },
     tick(name = 'gatewayTick') { for (const alarm of alarms) alarm({ name }); },
     async send(message) { return new Promise((resolve) => listener(message, {}, resolve)); },
@@ -985,4 +990,18 @@ test('a 4xx claim refusal clears the unsettled marker so later ticks can claim',
     await waitFor(() => worker.calls.filter(({ url }) => url.endsWith('/claim')).length >= 2);
     await worker.stopped();
   } finally { worker.restore(); }
+});
+
+test('the Gateway claim tick exists only while Gateway mode is on', async () => {
+  const idle = await boot({ mode: 'standalone', local: { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'standalone' } });
+  try {
+    assert.deepEqual(idle.alarmsCreated, [], 'no claim tick is scheduled while Gateway mode is off');
+    assert.deepEqual(idle.alarmsCleared, ['gatewayTick'], 'a tick left behind by an older setting is cleared');
+  } finally { idle.restore(); }
+
+  const active = await boot();
+  try {
+    assert.deepEqual(active.alarmsCreated, [{ name: 'gatewayTick', periodInMinutes: 0.5 }],
+      'the tick is scheduled while Gateway mode is on');
+  } finally { active.restore(); }
 });

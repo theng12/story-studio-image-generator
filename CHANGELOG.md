@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.36 — 2026-11-25
+- The extension no longer wakes itself every 30 seconds while Gateway Studio mode is off. It kept that timer running all the time, so its background page never went to sleep: measured in Chrome, it stayed loaded for the whole 120-second check while the video and audio extensions both went quiet within 40 seconds. The timer now exists only while Gateway mode is on — including a setting restored or synced from another Chrome — and is removed when the mode is off. A test fails if the timer comes back while the mode is off.
+
 ## 0.50.35 — 2026-11-24
 - Settings no longer shows the **Account** and **Credits** Flow request-id fields. 0.50.32 said those ids were dropped, and they were dropped from the resolver, but the two boxes stayed on the page taking a value nothing read. Both fields and their shipped defaults are gone, and a test now checks the Settings fields against the ids the resolver actually uses, so a field that does nothing cannot come back quietly.
 
