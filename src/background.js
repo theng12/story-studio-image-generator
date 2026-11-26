@@ -1444,6 +1444,7 @@ let gatewayPolling = false;
 let gatewayBlocked = null;
 const GATEWAY_CLAIM_KEY = 'gatewayUnsettledClaim';
 const GATEWAY_CONTROL_KEY = 'gatewayWorkerControl';
+const GATEWAY_DISPATCH_KEY = 'gatewayDispatchState';
 let gatewayControlTail = Promise.resolve();
 async function getGatewayControl(settings = null) {
   const stored = (await chrome.storage.local.get(GATEWAY_CONTROL_KEY))[GATEWAY_CONTROL_KEY];
@@ -1451,6 +1452,24 @@ async function getGatewayControl(settings = null) {
   let binding;
   try { binding = await gatewayBinding(settings || await getSettings()); } catch { return null; }
   return stored.binding === binding ? stored : null;
+}
+// Gateway turning dispatch off is the whole reason this worker sits still, so it gets said once in
+// each direction instead of every tick. A control we cannot tie to this connection proves nothing,
+// so it is never reported as an off switch (getGatewayControl already drops a mismatched binding).
+async function noteDispatchState(settings) {
+  const control = await getGatewayControl(settings);
+  if (!control || typeof control.dispatchEnabled !== 'boolean') return;
+  const disabled = control.dispatchEnabled !== true;
+  const last = (await chrome.storage.local.get(GATEWAY_DISPATCH_KEY))[GATEWAY_DISPATCH_KEY];
+  if (last === disabled) return;
+  await chrome.storage.local.set({ [GATEWAY_DISPATCH_KEY]: disabled });
+  await writeStatus(
+    disabled
+      ? 'Gateway has dispatch turned off, so no image work is claimed until it is turned back on.'
+      : 'Gateway dispatch is back on; this worker is claiming image jobs again.',
+    'info',
+    { source: 'gateway-dispatch', dispatchEnabled: !disabled },
+  );
 }
 async function gatewayManagerPaused() {
   const control = await getGatewayControl();
@@ -1691,7 +1710,10 @@ async function retryGatewayDelivery(id) {
   } finally { processing = false; }
 }
 async function gatewayCanClaim(settings) {
-  if (processing || !(await gatewayIsActive(settings)) || await isPaused()) return false;
+  if (processing || !(await gatewayIsActive(settings))) return false;
+  // isPaused() is true while the manager has dispatch off, so the reason is noted first.
+  await noteDispatchState(settings);
+  if (await isPaused()) return false;
   if ((await getGatewayControl(settings))?.dispatchEnabled !== true) return false;
   const queue = await getQueue();
   if (queue.some((item) => gatewayNeedsReview(item) || item.status === 'pending' || item.status === 'running')) return false;
@@ -1751,7 +1773,11 @@ async function gatewayClaimLoop() {
     await syncGatewayTelemetry(settings);
     settings = await getSettings();
     if (!(await gatewayCanClaim(settings))) {
-      await writeStatus('Gateway claims are paused or waiting; no job is being taken right now.', 'info');
+      // When Gateway itself turned dispatch off, that line is the reason; keep it on screen
+      // instead of burying it under the generic one on every tick.
+      if ((await chrome.storage.local.get(GATEWAY_DISPATCH_KEY))[GATEWAY_DISPATCH_KEY] !== true) {
+        await writeStatus('Gateway claims are paused or waiting; no job is being taken right now.', 'info');
+      }
       return;
     }
     let inspected = await inspectFlowAccountDetailed();

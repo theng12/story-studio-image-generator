@@ -131,7 +131,7 @@ async function boot({ local, mode = 'gateway', job = JOB, resultAnswers = [{ ok:
   await import(`../src/background.js?gateway-fixture=${++bootId}`);
   await pause(20);
   return {
-    local, sync, calls, provider, downloads, alarmsCreated, alarmsCleared,
+    local, sync, calls, provider, downloads, alarmsCreated, alarmsCleared, control,
     get workCalls() { return calls.filter(({ url }) => !/\/(health|telemetry)$/.test(url)); },
     tick(name = 'gatewayTick') { for (const alarm of alarms) alarm({ name }); },
     async send(message) { return new Promise((resolve) => listener(message, {}, resolve)); },
@@ -376,6 +376,55 @@ test('newly paired Gateway defaults stay OFF without inventing a revision or ove
     assert.equal(Object.hasOwn(state, 'controlRevision'), false);
     assert.deepEqual(state.pacing, { minSeconds: 0, maxSeconds: 0 });
     assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0);
+  } finally { worker.restore(); }
+});
+
+test('dispatch off is said once, kept across ticks and restarts, and answered when it returns', async () => {
+  const control = { dispatchEnabled: false, closeRequested: false, revision: 'off-revision', requestedAt: 2, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  let worker = await boot({ job: null, control });
+  try {
+    worker.tick();
+    await waitFor(() => worker.local.lastStatus?.source === 'gateway-dispatch');
+    await worker.stopped();
+    const first = { ...worker.local.lastStatus };
+    assert.equal(first.text, 'Gateway has dispatch turned off, so no image work is claimed until it is turned back on.');
+    assert.equal(first.dispatchEnabled, false);
+    assert.equal(worker.local.gatewayDispatchState, true);
+    assert.equal(worker.calls.filter(({ url }) => url.endsWith('/claim')).length, 0, 'nothing is claimed while dispatch is off');
+    // Said once: a later tick while it is still off leaves the line and its time alone.
+    await pause(10);
+    worker.tick();
+    await waitFor(() => worker.calls.filter(({ url }) => url.endsWith('/telemetry')).length >= 2);
+    await worker.stopped();
+    assert.equal(worker.local.lastStatus.text, first.text);
+    assert.equal(worker.local.lastStatus.ts, first.ts);
+    // A worker restart is not a new fact either.
+    const saved = worker.local;
+    worker.restore();
+    worker = await boot({ job: null, control, local: { ...saved, queue: undefined, queuePaused: true } });
+    await pause(10);
+    worker.tick();
+    await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/telemetry')));
+    await worker.stopped();
+    assert.equal(worker.local.lastStatus.text, first.text);
+    assert.equal(worker.local.lastStatus.ts, first.ts);
+  } finally { worker.restore(); }
+});
+
+test('dispatch coming back is said, and claiming resumes', async () => {
+  const control = { dispatchEnabled: false, closeRequested: false, revision: 'off-revision', requestedAt: 2, pacing: { minSeconds: 0, maxSeconds: 0 } };
+  const local = { gatewayConnection: clone(connection), imageGeneratorWorkMode: 'gateway', gatewayDispatchState: true };
+  let atClaim = null;
+  const worker = await boot({ job: null, local, control,
+    onClaim: (_body, store) => { atClaim = structuredClone(store.lastStatus); } });
+  try {
+    Object.assign(worker.control, { revision: 'on-revision', requestedAt: 3, dispatchEnabled: true });
+    worker.tick();
+    await waitFor(() => worker.calls.some(({ url }) => url.endsWith('/claim')));
+    await worker.stopped();
+    assert.equal(atClaim?.text, 'Gateway dispatch is back on; this worker is claiming image jobs again.');
+    assert.equal(atClaim?.dispatchEnabled, true);
+    assert.equal(worker.local.gatewayDispatchState, false);
   } finally { worker.restore(); }
 });
 

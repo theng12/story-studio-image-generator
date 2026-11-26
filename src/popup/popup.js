@@ -1075,6 +1075,9 @@ async function pollQueue() {
     }
     const tick = Number(tickStore.gatewayLastTickAt) || 0;
     if (!tick || Date.now() - tick > 90000) setStatus('Gateway claim loop is not ticking. Reload this extension or restart Chrome so it can pick up jobs.', 'err');
+    // A worker standing still because Gateway switched dispatch off has already said why; an old
+    // tick line must not bury that reason and make it look like a healthy idle worker.
+    else if (s?.source === 'gateway-dispatch') setStatus(s.text, s.kind === 'err' ? 'err' : 'info');
     else setStatus(`Gateway claim loop ticking · last check ${new Date(tick).toLocaleTimeString()}`, 'info');
   }
   // Pause/Resume only matters while there is still work to do.

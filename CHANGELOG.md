@@ -3,6 +3,9 @@
 Most recent first. Reload the extension from `chrome://extensions` to pick up a
 new version. Older releases live in `git log`.
 
+## 0.50.37 — 2026-11-26
+- The panel now says why no image work is being claimed when Gateway has its dispatch switch off. The worker stopped at that switch with nothing written anywhere, and with an empty queue the panel fell back to "claim loop ticking", so a worker Gateway had switched off looked like a healthy idle one. It now writes one line when dispatch goes off and one when it comes back, keeps that state across a restart so a tick does not repeat it, and the panel shows the line while the queue is empty. The "claim loop is not ticking" warning is still there for a loop that really has stopped.
+
 ## 0.50.36 — 2026-11-25
 - The extension no longer wakes itself every 30 seconds while Gateway Studio mode is off. It kept that timer running all the time, so its background page never went to sleep: measured in Chrome, it stayed loaded for the whole 120-second check while the video and audio extensions both went quiet within 40 seconds. The timer now exists only while Gateway mode is on — including a setting restored or synced from another Chrome — and is removed when the mode is off. A test fails if the timer comes back while the mode is off.
 
